@@ -1,0 +1,2098 @@
+pub mod ast;
+
+use crate::error::{ErrorKind, MireError, Result};
+use crate::lexer::{tokenize, Token, TokenType};
+use crate::parser::ast::{
+    DataType, Expression, Identifier, Literal, Statement, TraitMethodSig, Visibility,
+};
+use std::collections::HashSet;
+
+pub use ast::{EnumDef, EnumVariantDef, MireValue, Program};
+
+pub fn parse(source: &str) -> Result<Program> {
+    let tokens = tokenize(source)?;
+    Parser::new(tokens).parse()
+}
+
+pub struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+    scopes: Vec<HashSet<String>>,
+    method_context: usize,
+}
+
+impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self {
+            tokens,
+            pos: 0,
+            scopes: vec![HashSet::new()],
+            method_context: 0,
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<Program> {
+        let mut statements = Vec::new();
+        while !self.is_at_end() {
+            self.skip_newlines();
+            if self.is_at_end() {
+                break;
+            }
+            statements.push(self.parse_statement()?);
+            self.skip_newlines();
+        }
+        Ok(Program { statements })
+    }
+
+    fn parse_statement(&mut self) -> Result<Statement> {
+        match self.peek().ttype {
+            TokenType::Add => self.parse_add_statement(),
+            TokenType::Set => self.parse_set_statement(),
+            TokenType::Use => Ok(Statement::Expression(self.parse_use_expression()?)),
+            TokenType::Pub | TokenType::Priv => {
+                let visibility = self.parse_visibility()?;
+                match self.peek().ttype {
+                    TokenType::Fn => self.parse_fn_statement(visibility),
+                    TokenType::Type => self.parse_type_statement(),
+                    TokenType::Skill => self.parse_skill_statement(),
+                    TokenType::Struct => self.parse_struct_statement(),
+                    TokenType::Trait => self.parse_trait_statement(),
+                    TokenType::Enum => self.parse_enum_statement(),
+                    _ => {
+                        Err(self
+                            .error("Expected fn, type, skill, struct, or enum after visibility"))
+                    }
+                }
+            }
+            TokenType::Fn => self.parse_fn_statement(Visibility::Private),
+            TokenType::Type => self.parse_type_statement(),
+            TokenType::Skill => self.parse_skill_statement(),
+            TokenType::Code => self.parse_code_statement(),
+            TokenType::Struct => self.parse_struct_statement(),
+            TokenType::Impl => self.parse_impl_statement(),
+            TokenType::Trait => self.parse_trait_statement(),
+            TokenType::Enum => self.parse_enum_statement(),
+            TokenType::If => self.parse_if_statement(),
+            TokenType::While => self.parse_while_statement(),
+            TokenType::For => self.parse_for_statement(),
+            TokenType::Do => self.parse_do_while_statement(),
+            TokenType::Match => self.parse_match_statement(),
+            TokenType::Return => self.parse_return_statement(),
+            TokenType::Break => {
+                self.advance();
+                Ok(Statement::Break)
+            }
+            TokenType::Continue => {
+                self.advance();
+                Ok(Statement::Continue)
+            }
+            _ => Ok(Statement::Expression(self.parse_expression()?)),
+        }
+    }
+
+    fn parse_add_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Add)?;
+        let module = self.expect_ident()?;
+
+        let alias = if self.check(TokenType::As) {
+            self.advance();
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
+
+        let items = if self.check(TokenType::Colon) {
+            self.advance();
+            self.expect(TokenType::Lparen)?;
+            let mut items = Vec::new();
+            while !self.check(TokenType::Rparen) && !self.is_at_end() {
+                items.push(self.expect_ident()?);
+            }
+            self.expect(TokenType::Rparen)?;
+            Some(items)
+        } else {
+            None
+        };
+
+        let path = if module == "std" && alias.is_none() && items.is_none() {
+            "__std_all__".to_string()
+        } else if let Some(items) = items {
+            let joined = items.join(",");
+            if let Some(alias) = alias {
+                format!("stdaliasselect:{}:{}:{}", alias, module, joined)
+            } else {
+                format!("stdselect:{}:{}", module, joined)
+            }
+        } else if let Some(alias) = alias {
+            format!("stdalias:{}:{}", alias, module)
+        } else {
+            format!("stdall:{}", module)
+        };
+
+        Ok(Statement::Use { path })
+    }
+
+    fn parse_set_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Set)?;
+
+        let target = self.parse_assignment_target()?;
+        let op = self.advance();
+        let is_compound = matches!(
+            op.ttype,
+            TokenType::PlusAssign
+                | TokenType::MinusAssign
+                | TokenType::StarAssign
+                | TokenType::SlashAssign
+                | TokenType::PercentAssign
+        );
+
+        if !matches!(
+            op.ttype,
+            TokenType::Assign
+                | TokenType::PlusAssign
+                | TokenType::MinusAssign
+                | TokenType::StarAssign
+                | TokenType::SlashAssign
+                | TokenType::PercentAssign
+        ) {
+            return Err(self.error("Expected assignment operator after set target"));
+        }
+
+        let mut value = self.parse_expression()?;
+        let declared_type = if self.check(TokenType::Colon) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let is_constant = if self.check(TokenType::Const) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
+        if is_compound {
+            let operator = match op.ttype {
+                TokenType::PlusAssign => "+",
+                TokenType::MinusAssign => "-",
+                TokenType::StarAssign => "*",
+                TokenType::SlashAssign => "/",
+                TokenType::PercentAssign => "%",
+                _ => unreachable!(),
+            };
+            let left = Expression::Identifier(Identifier {
+                name: target.clone(),
+                data_type: DataType::Unknown,
+            });
+            let expr = Expression::BinaryOp {
+                operator: operator.to_string(),
+                left: Box::new(left),
+                right: Box::new(value),
+                data_type: DataType::Unknown,
+            };
+            return Ok(Statement::Assignment {
+                target,
+                value: expr,
+                is_mutable: true,
+            });
+        }
+
+        if target.contains('.') {
+            return Ok(Statement::Assignment {
+                target,
+                value,
+                is_mutable: true,
+            });
+        }
+
+        let already_declared = self.is_declared(&target);
+        if declared_type.is_none() && !is_constant && already_declared {
+            return Ok(Statement::Assignment {
+                target,
+                value,
+                is_mutable: true,
+            });
+        }
+
+        let data_type = declared_type.unwrap_or(DataType::Unknown);
+        self.declare(&target);
+        Ok(Statement::Let {
+            name: target,
+            data_type,
+            value: Some(value),
+            is_constant,
+            is_static: false,
+            visibility: Visibility::Private,
+        })
+    }
+
+    fn parse_visibility(&mut self) -> Result<Visibility> {
+        if self.check(TokenType::Pub) {
+            self.advance();
+            Ok(Visibility::Public)
+        } else if self.check(TokenType::Priv) {
+            self.advance();
+            Ok(Visibility::Private)
+        } else {
+            Err(self.error("Expected visibility keyword"))
+        }
+    }
+
+    fn parse_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
+        self.expect(TokenType::Fn)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenType::Colon)?;
+        self.expect(TokenType::Lparen)?;
+        let mut params = self.parse_param_list()?;
+        self.expect(TokenType::Rparen)?;
+
+        let return_type = if self.check(TokenType::Colon) {
+            self.advance();
+            self.parse_type()?
+        } else {
+            DataType::None
+        };
+
+        if self.method_context > 0 && !params.iter().any(|(name, _)| name == "self") {
+            params.insert(0, ("self".to_string(), DataType::Unknown));
+        }
+
+        self.expect(TokenType::Gt)?;
+        self.push_scope();
+        for (param_name, _) in &params {
+            self.declare(param_name);
+        }
+        let body = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+        self.declare(&name);
+
+        Ok(Statement::Function {
+            name,
+            params,
+            body,
+            return_type,
+            visibility,
+            is_method: self.method_context > 0,
+        })
+    }
+
+    fn parse_type_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Type)?;
+        let name = self.expect_ident()?;
+
+        let parent = if self.check(TokenType::Extends) {
+            self.advance();
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenType::Gt)?;
+        let mut fields = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            // Parse as let statement: set fieldname :type (without value)
+            if self.check(TokenType::Set) {
+                self.advance();
+                let field_name = self.expect_ident()?;
+                // Parse type annotation
+                let field_type = if self.check(TokenType::Colon) {
+                    self.advance();
+                    self.parse_type()?
+                } else {
+                    DataType::Unknown
+                };
+                fields.push(Statement::Let {
+                    name: field_name,
+                    data_type: field_type,
+                    value: None,
+                    is_constant: false,
+                    is_static: false,
+                    visibility: Visibility::Private,
+                });
+            }
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        self.declare(&name);
+        Ok(Statement::Type {
+            name,
+            parent,
+            fields,
+        })
+    }
+
+    fn parse_skill_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Skill)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenType::Gt)?;
+        let mut methods = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            // Parse method signature: fn name: (params) :return_type
+            self.expect(TokenType::Fn)?;
+            let method_name = self.expect_ident()?;
+            self.expect(TokenType::Colon)?;
+            self.expect(TokenType::Lparen)?;
+            let params = self.parse_param_list()?;
+            self.expect(TokenType::Rparen)?;
+
+            // Parse return type with :type (not =>)
+            let return_type = if self.check(TokenType::Colon) {
+                self.advance();
+                self.parse_type()?
+            } else {
+                DataType::None
+            };
+
+            methods.push(TraitMethodSig {
+                name: method_name,
+                params,
+                return_type,
+            });
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        Ok(Statement::Skill { name, methods })
+    }
+
+    fn parse_code_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Code)?;
+        let trait_name = self.expect_ident()?;
+
+        // Parse "to TypeName"
+        self.expect(TokenType::To)?;
+        let type_name = self.expect_ident()?;
+
+        self.expect(TokenType::Gt)?;
+        let mut methods = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            // Parse method: fn name: (params) return_type > body <
+            if self.check(TokenType::Fn) {
+                let method_stmt = self.parse_fn_statement(Visibility::Private)?;
+                methods.push(method_stmt);
+            }
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        Ok(Statement::Code {
+            trait_name,
+            type_name,
+            methods,
+        })
+    }
+
+    fn parse_struct_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Struct)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenType::Gt)?;
+        let mut members = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            let field_name = self.expect_ident()?;
+            self.expect(TokenType::Colon)?;
+            let field_type = self.parse_type()?;
+            members.push(Statement::Let {
+                name: field_name,
+                data_type: field_type,
+                value: None,
+                is_constant: false,
+                is_static: false,
+                visibility: Visibility::Private,
+            });
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        self.declare(&name);
+        Ok(Statement::Class {
+            name,
+            parent: None,
+            methods: members,
+        })
+    }
+
+    fn parse_trait_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Trait)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenType::Gt)?;
+        let mut methods = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            self.expect(TokenType::Fn)?;
+            let method_name = self.expect_ident()?;
+            self.expect(TokenType::Colon)?;
+            self.expect(TokenType::Lparen)?;
+            let mut params = self.parse_param_list()?;
+            self.expect(TokenType::Rparen)?;
+            if !params.iter().any(|(name, _)| name == "self") {
+                params.insert(0, ("self".to_string(), DataType::Unknown));
+            }
+            let return_type = if self.check(TokenType::Colon) {
+                self.advance();
+                self.parse_type()?
+            } else {
+                DataType::None
+            };
+            methods.push(TraitMethodSig {
+                name: method_name,
+                params,
+                return_type,
+            });
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        self.declare(&name);
+        Ok(Statement::Trait { name, methods })
+    }
+
+    fn parse_impl_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Impl)?;
+        let first = self.expect_ident()?;
+        let (trait_name, type_name) = if self.check(TokenType::For) {
+            self.advance();
+            (Some(first), self.expect_ident()?)
+        } else {
+            (None, first)
+        };
+
+        self.expect(TokenType::Gt)?;
+        self.method_context += 1;
+        let mut methods = Vec::new();
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            methods.push(self.parse_statement()?);
+            self.skip_newlines();
+        }
+        self.method_context = self.method_context.saturating_sub(1);
+        self.expect_block_close()?;
+
+        Ok(Statement::Impl {
+            trait_name,
+            type_name,
+            methods,
+        })
+    }
+
+    fn parse_enum_statement(&mut self) -> Result<Statement> {
+        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
+            self.advance();
+        }
+        self.expect(TokenType::Enum)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenType::Gt)?;
+        let mut variants = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+            let variant_name = self.expect_ident()?;
+            let payload_types = if self.check(TokenType::Lparen) {
+                self.advance();
+                let mut types = Vec::new();
+                while !self.check(TokenType::Rparen) && !self.is_at_end() {
+                    let _binding = self.expect_ident()?;
+                    self.expect(TokenType::Colon)?;
+                    types.push(self.parse_type()?);
+                }
+                self.expect(TokenType::Rparen)?;
+                types
+            } else {
+                Vec::new()
+            };
+            variants.push((variant_name, payload_types));
+            self.skip_newlines();
+        }
+
+        self.expect_block_close()?;
+        self.declare(&name);
+        Ok(Statement::Enum { name, variants })
+    }
+
+    fn parse_if_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::If)?;
+        let condition = self.parse_expression_until_block_open()?;
+        self.push_scope();
+        let then_branch = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+
+        let else_branch = if self.check(TokenType::Elif) {
+            let nested = self.parse_if_statement_from_elif()?;
+            Some(vec![nested])
+        } else if self.check(TokenType::Else) {
+            self.advance();
+            self.expect(TokenType::Gt)?;
+            self.push_scope();
+            let body = self.parse_block()?;
+            self.pop_scope();
+            self.expect_block_close()?;
+            Some(body)
+        } else {
+            None
+        };
+
+        Ok(Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn parse_if_statement_from_elif(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Elif)?;
+        let condition = self.parse_expression_until_block_open()?;
+        self.push_scope();
+        let then_branch = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+
+        let else_branch = if self.check(TokenType::Elif) {
+            Some(vec![self.parse_if_statement_from_elif()?])
+        } else if self.check(TokenType::Else) {
+            self.advance();
+            self.expect(TokenType::Gt)?;
+            self.push_scope();
+            let body = self.parse_block()?;
+            self.pop_scope();
+            self.expect_block_close()?;
+            Some(body)
+        } else {
+            None
+        };
+
+        Ok(Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn parse_while_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::While)?;
+        let condition = self.parse_expression_until_block_open()?;
+        self.push_scope();
+        let body = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+        Ok(Statement::While { condition, body })
+    }
+
+    fn parse_for_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::For)?;
+        let first = self.expect_ident()?;
+        let second = if self.check(TokenType::Comma) {
+            self.advance();
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
+        self.expect(TokenType::In)?;
+        let iterable = self.parse_expression_until_block_open()?;
+        self.push_scope();
+        self.declare(&first);
+        if let Some(second) = &second {
+            self.declare(second);
+        }
+        let mut body = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+
+        if let Some(second) = second {
+            body.insert(
+                0,
+                Statement::Let {
+                    name: second,
+                    data_type: DataType::Anything,
+                    value: None,
+                    is_constant: false,
+                    is_static: false,
+                    visibility: Visibility::Private,
+                },
+            );
+        }
+
+        Ok(Statement::For {
+            variable: first,
+            iterable,
+            body,
+        })
+    }
+
+    fn parse_do_while_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Do)?;
+        self.expect(TokenType::Gt)?;
+        self.push_scope();
+        let body = self.parse_block()?;
+        self.pop_scope();
+        self.expect_block_close()?;
+        self.expect(TokenType::While)?;
+        let condition = self.parse_expression()?;
+
+        Ok(Statement::Expression(Expression::Call {
+            name: "__do_while".to_string(),
+            args: vec![
+                Expression::Closure {
+                    params: Vec::new(),
+                    body,
+                    return_type: DataType::None,
+                    capture: Vec::new(),
+                },
+                Expression::Closure {
+                    params: Vec::new(),
+                    body: vec![Statement::Return(Some(condition))],
+                    return_type: DataType::Bool,
+                    capture: Vec::new(),
+                },
+            ],
+            data_type: DataType::None,
+        }))
+    }
+
+    fn parse_match_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Match)?;
+        let value = self.parse_expression_until_block_open()?;
+
+        let mut cases = Vec::new();
+        let mut default = Vec::new();
+
+        while !self.check(TokenType::Lt) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(TokenType::Lt) {
+                break;
+            }
+
+            let pattern = self.parse_pattern_expression()?;
+            self.expect(TokenType::Gt)?;
+            self.push_scope();
+            let body = self.parse_block()?;
+            self.pop_scope();
+            self.expect_block_close()?;
+
+            let is_default = matches!(
+                &pattern,
+                Expression::Identifier(Identifier { name, .. }) if name == "_"
+            );
+            if is_default {
+                default = body;
+            } else {
+                cases.push((pattern, body));
+            }
+        }
+
+        self.expect_block_close()?;
+        Ok(Statement::Match {
+            value,
+            cases,
+            default,
+        })
+    }
+
+    fn parse_return_statement(&mut self) -> Result<Statement> {
+        self.expect(TokenType::Return)?;
+        if self.is_statement_terminator() {
+            return Ok(Statement::Return(None));
+        }
+        let expr = self.parse_expression()?;
+        Ok(Statement::Return(Some(expr)))
+    }
+
+    fn parse_block(&mut self) -> Result<Vec<Statement>> {
+        let mut statements = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.check(TokenType::Lt)
+                || self.check(TokenType::Else)
+                || self.check(TokenType::Elif)
+                || self.is_at_end()
+            {
+                break;
+            }
+            statements.push(self.parse_statement()?);
+            self.skip_newlines();
+        }
+        Ok(statements)
+    }
+
+    fn parse_expression(&mut self) -> Result<Expression> {
+        self.parse_pipeline_free_expression()
+    }
+
+    fn parse_pipeline_free_expression(&mut self) -> Result<Expression> {
+        self.parse_or()
+    }
+
+    fn parse_or(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_and()?;
+        while self.check(TokenType::Or) {
+            self.advance();
+            let right = self.parse_and()?;
+            expr = Expression::BinaryOp {
+                operator: "or".to_string(),
+                left: Box::new(expr),
+                right: Box::new(right),
+                data_type: DataType::Bool,
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_and(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_equality()?;
+        while self.check(TokenType::And) {
+            self.advance();
+            let right = self.parse_equality()?;
+            expr = Expression::BinaryOp {
+                operator: "and".to_string(),
+                left: Box::new(expr),
+                right: Box::new(right),
+                data_type: DataType::Bool,
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_equality(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_comparison()?;
+        loop {
+            if self.check(TokenType::Eq) {
+                self.advance();
+                let right = self.parse_comparison()?;
+                expr = Expression::BinaryOp {
+                    operator: "==".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Neq) {
+                self.advance();
+                let right = self.parse_comparison()?;
+                expr = Expression::BinaryOp {
+                    operator: "!=".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Is) {
+                self.advance();
+                self.expect(TokenType::Lparen)?;
+                let right = self.parse_expression()?;
+                self.expect(TokenType::Rparen)?;
+                expr = Expression::Call {
+                    name: "__is".to_string(),
+                    args: vec![expr, right],
+                    data_type: DataType::Bool,
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_additive()?;
+        loop {
+            if self.check(TokenType::Gt) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::BinaryOp {
+                    operator: ">".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Lt) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::BinaryOp {
+                    operator: "<".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Gte) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::BinaryOp {
+                    operator: ">=".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Lte) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::BinaryOp {
+                    operator: "<=".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::In) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::BinaryOp {
+                    operator: "in".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::Of) {
+                self.advance();
+                let ty = self.parse_type_name_string()?;
+                expr = Expression::Call {
+                    name: "__type_matches".to_string(),
+                    args: vec![expr, string_expr(&ty)],
+                    data_type: DataType::Bool,
+                };
+            } else if self.check(TokenType::At) {
+                self.advance();
+                let index = self.parse_additive()?;
+                expr = Expression::Index {
+                    target: Box::new(expr),
+                    index: Box::new(index),
+                    data_type: DataType::Unknown,
+                };
+            } else if self.check(TokenType::To) {
+                self.advance();
+                let right = self.parse_additive()?;
+                expr = Expression::Call {
+                    name: "range".to_string(),
+                    args: vec![expr, right],
+                    data_type: DataType::List,
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_additive(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_multiplicative()?;
+        loop {
+            if self.check(TokenType::Plus) {
+                self.advance();
+                let right = self.parse_multiplicative()?;
+                expr = Expression::BinaryOp {
+                    operator: "+".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Unknown,
+                };
+            } else if self.check(TokenType::Minus) {
+                self.advance();
+                let right = self.parse_multiplicative()?;
+                expr = Expression::BinaryOp {
+                    operator: "-".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Unknown,
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_unary()?;
+        loop {
+            if self.check(TokenType::Star) {
+                self.advance();
+                let right = self.parse_unary()?;
+                expr = Expression::BinaryOp {
+                    operator: "*".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Unknown,
+                };
+            } else if self.check(TokenType::Slash) {
+                self.advance();
+                let right = self.parse_unary()?;
+                expr = Expression::BinaryOp {
+                    operator: "/".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Unknown,
+                };
+            } else if self.check(TokenType::Percent) {
+                self.advance();
+                let right = self.parse_unary()?;
+                expr = Expression::BinaryOp {
+                    operator: "%".to_string(),
+                    left: Box::new(expr),
+                    right: Box::new(right),
+                    data_type: DataType::Unknown,
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expression> {
+        if self.check(TokenType::Minus) {
+            self.advance();
+            let operand = self.parse_unary()?;
+            return Ok(Expression::UnaryOp {
+                operator: "-".to_string(),
+                operand: Box::new(operand),
+                data_type: DataType::Unknown,
+            });
+        }
+
+        if self.check(TokenType::Not) {
+            self.advance();
+            let operand = self.parse_unary()?;
+            return Ok(Expression::UnaryOp {
+                operator: "not".to_string(),
+                operand: Box::new(operand),
+                data_type: DataType::Bool,
+            });
+        }
+
+        if self.check(TokenType::Amp) {
+            self.advance();
+            let expr = self.parse_unary()?;
+            return Ok(Expression::Reference {
+                expr: Box::new(expr),
+                is_mutable: false,
+                data_type: DataType::Ref,
+            });
+        }
+
+        if self.check(TokenType::Star) {
+            self.advance();
+            let expr = self.parse_unary()?;
+            return Ok(Expression::Dereference {
+                expr: Box::new(expr),
+                data_type: DataType::Unknown,
+            });
+        }
+
+        self.parse_postfix()
+    }
+
+    fn parse_postfix(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_primary()?;
+
+        loop {
+            if self.check(TokenType::Dot) {
+                self.advance();
+                let member = self.expect_member_name()?;
+                expr = Expression::MemberAccess {
+                    target: Box::new(expr),
+                    member,
+                    data_type: DataType::Unknown,
+                };
+                continue;
+            }
+
+            if self.check(TokenType::Lparen) {
+                let call_target = match &expr {
+                    Expression::Identifier(Identifier { name, .. }) => Some(name.clone()),
+                    Expression::MemberAccess { target, member, .. } => {
+                        let module = match &**target {
+                            Expression::Identifier(Identifier { name, .. }) => Some(name.clone()),
+                            _ => None,
+                        };
+                        module.map(|m| format!("{}.{}", m, member))
+                    }
+                    _ => None,
+                };
+                if let Some(name) = call_target {
+                    if name == "dasu" || name == "ireru" {
+                        expr = self.parse_template_call(name)?;
+                    } else {
+                        let args = self.parse_call_arguments()?;
+                        expr = Expression::Call {
+                            name,
+                            args,
+                            data_type: DataType::Unknown,
+                        };
+                    }
+                } else {
+                    let args = self.parse_call_arguments()?;
+                    let mut call_args = vec![expr];
+                    call_args.extend(args);
+                    expr = Expression::Call {
+                        name: "call".to_string(),
+                        args: call_args,
+                        data_type: DataType::Unknown,
+                    };
+                }
+                continue;
+            }
+
+            break;
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_primary(&mut self) -> Result<Expression> {
+        match self.peek().ttype {
+            TokenType::Use => self.parse_use_expression(),
+            TokenType::If => self.parse_if_expression(),
+            TokenType::IntLit => {
+                let value = self.advance().value.unwrap_or_default();
+                Ok(Expression::Literal(Literal::Int(
+                    value.parse().unwrap_or(0),
+                )))
+            }
+            TokenType::FloatLit => {
+                let value = self.advance().value.unwrap_or_default();
+                Ok(Expression::Literal(Literal::Float(
+                    value.parse().unwrap_or(0.0),
+                )))
+            }
+            TokenType::StrLit => {
+                let value = self.advance().value.unwrap_or_default();
+                Ok(Expression::Literal(Literal::Str(value)))
+            }
+            TokenType::BoolLit => {
+                let value = self.advance().value.unwrap_or_default();
+                Ok(Expression::Literal(Literal::Bool(value == "true")))
+            }
+            TokenType::NoneLit => {
+                self.advance();
+                Ok(Expression::Literal(Literal::None))
+            }
+            TokenType::SelfToken => {
+                self.advance();
+                Ok(identifier_expr("self"))
+            }
+            TokenType::Ident => {
+                let name = self.advance().value.unwrap_or_default();
+                if name == "type" && self.is_expression_start(self.peek().ttype) {
+                    let expr = self.parse_expression()?;
+                    return Ok(Expression::Call {
+                        name: "type".to_string(),
+                        args: vec![expr],
+                        data_type: DataType::Str,
+                    });
+                }
+                Ok(identifier_expr(&name))
+            }
+            TokenType::Lparen => {
+                self.advance();
+                let expr = self.parse_expression()?;
+                self.expect(TokenType::Rparen)?;
+                Ok(expr)
+            }
+            TokenType::Lbracket => self.parse_bracket_literal(),
+            _ => Err(self.error("Unexpected token in expression")),
+        }
+    }
+
+    fn parse_use_expression(&mut self) -> Result<Expression> {
+        self.expect(TokenType::Use)?;
+        let mut expr = self.parse_pipeline_free_expression()?;
+        while self.check(TokenType::Pipeline) {
+            self.advance();
+            let stage = self.parse_pipeline_free_expression()?;
+            expr = self.apply_pipeline(expr, stage)?;
+        }
+        Ok(expr)
+    }
+
+    fn parse_if_expression(&mut self) -> Result<Expression> {
+        self.expect(TokenType::If)?;
+        let condition = self.parse_expression_until_block_open()?;
+        let then_parsed = self.parse_expression_until_block_close()?;
+        let then_expr = self.coerce_unknown_identifier_to_string(then_parsed);
+        self.expect_block_close()?;
+        self.expect(TokenType::Else)?;
+        self.expect(TokenType::Gt)?;
+        let else_parsed = self.parse_expression_until_block_close()?;
+        let else_expr = self.coerce_unknown_identifier_to_string(else_parsed);
+        self.expect_block_close()?;
+
+        Ok(Expression::Call {
+            name: "__if_expr".to_string(),
+            args: vec![
+                condition,
+                Expression::Closure {
+                    params: Vec::new(),
+                    body: vec![Statement::Return(Some(then_expr))],
+                    return_type: DataType::Unknown,
+                    capture: Vec::new(),
+                },
+                Expression::Closure {
+                    params: Vec::new(),
+                    body: vec![Statement::Return(Some(else_expr))],
+                    return_type: DataType::Unknown,
+                    capture: Vec::new(),
+                },
+            ],
+            data_type: DataType::Unknown,
+        })
+    }
+
+    fn parse_expression_until_block_open(&mut self) -> Result<Expression> {
+        let start = self.pos;
+        let mut depth_paren = 0usize;
+        let mut depth_bracket = 0usize;
+
+        while !self.is_at_end() {
+            match self.peek().ttype {
+                TokenType::Lparen => depth_paren += 1,
+                TokenType::Rparen => depth_paren = depth_paren.saturating_sub(1),
+                TokenType::Lbracket => depth_bracket += 1,
+                TokenType::Rbracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenType::Gt if depth_paren == 0 && depth_bracket == 0 => break,
+                _ => {}
+            }
+            self.advance();
+        }
+
+        let end = self.pos;
+        let mut slice = self.tokens[start..end].to_vec();
+        slice.push(Token::new(
+            TokenType::Eof,
+            self.peek().line,
+            self.peek().column,
+        ));
+        let mut parser = Parser::new(slice);
+        parser.scopes = self.scopes.clone();
+        let expr = parser.parse_expression()?;
+        self.expect(TokenType::Gt)?;
+        Ok(expr)
+    }
+
+    fn parse_expression_until_block_close(&mut self) -> Result<Expression> {
+        let start = self.pos;
+        let mut depth_paren = 0usize;
+        let mut depth_bracket = 0usize;
+
+        while !self.is_at_end() {
+            match self.peek().ttype {
+                TokenType::Lparen => depth_paren += 1,
+                TokenType::Rparen => depth_paren = depth_paren.saturating_sub(1),
+                TokenType::Lbracket => depth_bracket += 1,
+                TokenType::Rbracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenType::Lt if depth_paren == 0 && depth_bracket == 0 => break,
+                _ => {}
+            }
+            self.advance();
+        }
+
+        let end = self.pos;
+        let mut slice = self.tokens[start..end].to_vec();
+        slice.push(Token::new(
+            TokenType::Eof,
+            self.peek().line,
+            self.peek().column,
+        ));
+        let mut parser = Parser::new(slice);
+        parser.scopes = self.scopes.clone();
+        let expr = parser.parse_expression()?;
+        Ok(expr)
+    }
+
+    fn parse_call_arguments(&mut self) -> Result<Vec<Expression>> {
+        self.expect(TokenType::Lparen)?;
+        let mut args = Vec::new();
+        while !self.check(TokenType::Rparen) && !self.is_at_end() {
+            if self.check(TokenType::Comma) {
+                self.advance();
+                continue;
+            }
+
+            if self.check(TokenType::Ident)
+                && self
+                    .tokens
+                    .get(self.pos + 1)
+                    .is_some_and(|tok| tok.ttype == TokenType::Assign)
+            {
+                let name = self.expect_ident()?;
+                self.expect(TokenType::Assign)?;
+                let parsed = self.parse_expression()?;
+                let value = self.coerce_unknown_identifier_to_string(parsed);
+                args.push(Expression::NamedArg {
+                    name,
+                    value: Box::new(value),
+                    data_type: DataType::Unknown,
+                });
+            } else {
+                let value = self.parse_expression()?;
+                args.push(self.coerce_unknown_identifier_to_string(value));
+            }
+
+            if self.check(TokenType::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(TokenType::Rparen)?;
+        Ok(args)
+    }
+
+    fn parse_template_call(&mut self, name: String) -> Result<Expression> {
+        self.expect(TokenType::Lparen)?;
+        let template = self.parse_template_expression()?;
+        self.expect(TokenType::Rparen)?;
+        Ok(Expression::Call {
+            name,
+            args: vec![template],
+            data_type: DataType::Unknown,
+        })
+    }
+
+    fn parse_template_expression(&mut self) -> Result<Expression> {
+        let mut current_text = String::new();
+        let mut parts: Vec<Expression> = Vec::new();
+        let mut last_line = 0usize;
+        let mut last_end_col = 0usize;
+
+        while !self.check(TokenType::Rparen) && !self.is_at_end() {
+            if self.check(TokenType::Lbrace) {
+                let lbrace = self.advance();
+                if lbrace.line == last_line && lbrace.column > last_end_col + 1 {
+                    current_text.push_str(&" ".repeat(lbrace.column - last_end_col - 1));
+                }
+                if current_text
+                    .chars()
+                    .last()
+                    .is_some_and(|ch| ch.is_alphanumeric() || ch == '_' || ch == ')' || ch == ']')
+                {
+                    current_text.push(' ');
+                }
+                if !current_text.is_empty() {
+                    parts.push(string_expr(&current_text));
+                    current_text.clear();
+                }
+                let interpolation = self.parse_interpolation_expression()?;
+                parts.push(interpolation);
+                let rbrace = self.peek();
+                self.expect(TokenType::Rbrace)?;
+                last_line = rbrace.line;
+                last_end_col = rbrace.column;
+                continue;
+            }
+
+            let token = self.advance();
+            if token.line == last_line && token.column > last_end_col + 1 {
+                current_text.push_str(&" ".repeat(token.column - last_end_col - 1));
+            }
+            push_template_text(&mut current_text, &token);
+            last_line = token.line;
+            last_end_col = token.column + self.token_surface(token.clone()).len().saturating_sub(1);
+        }
+
+        if !current_text.is_empty() {
+            parts.push(string_expr(&current_text));
+        }
+
+        Ok(concat_expressions(parts))
+    }
+
+    fn parse_interpolation_expression(&mut self) -> Result<Expression> {
+        let expr = self.parse_expression()?;
+        if self.check(TokenType::Colon) {
+            self.advance();
+            let mut spec = String::new();
+            while !self.check(TokenType::Rbrace) && !self.is_at_end() {
+                let token = self.advance();
+                spec.push_str(&self.token_surface(token));
+            }
+            return Ok(Expression::Call {
+                name: "__mire_fmt".to_string(),
+                args: vec![expr, string_expr(&spec)],
+                data_type: DataType::Str,
+            });
+        }
+
+        Ok(Expression::Call {
+            name: "str".to_string(),
+            args: vec![expr],
+            data_type: DataType::Str,
+        })
+    }
+
+    fn parse_pattern_expression(&mut self) -> Result<Expression> {
+        if self.check(TokenType::Ident)
+            && self
+                .tokens
+                .get(self.pos)
+                .and_then(|tok| tok.value.as_ref())
+                .is_some_and(|value| value == "_")
+        {
+            let name = self.advance().value.unwrap_or_default();
+            return Ok(identifier_expr(&name));
+        }
+
+        let pattern = self.parse_postfix()?;
+        Ok(pattern)
+    }
+
+    fn parse_param_list(&mut self) -> Result<Vec<(String, DataType)>> {
+        let mut params = Vec::new();
+        while !self.check(TokenType::Rparen) && !self.is_at_end() {
+            let name = if self.check(TokenType::SelfToken) {
+                self.advance();
+                "self".to_string()
+            } else {
+                self.expect_ident()?
+            };
+
+            let data_type = if self.check(TokenType::Colon) {
+                self.advance();
+                self.parse_type()?
+            } else {
+                DataType::Unknown
+            };
+
+            params.push((name, data_type));
+            if self.check(TokenType::Comma) {
+                self.advance();
+            }
+        }
+        Ok(params)
+    }
+
+    fn parse_type(&mut self) -> Result<DataType> {
+        if self.check(TokenType::Amp) {
+            self.advance();
+            let _ = self.parse_type()?;
+            return Ok(DataType::Ref);
+        }
+
+        if self.check(TokenType::NoneLit) {
+            self.advance();
+            return Ok(DataType::None);
+        }
+
+        if self.check(TokenType::Ident) {
+            let name = self.advance().value.unwrap_or_default();
+            return match name.as_str() {
+                "int" => Ok(DataType::Int),
+                "i8" => Ok(DataType::I8),
+                "i16" => Ok(DataType::I16),
+                "i32" => Ok(DataType::I32),
+                "i64" => Ok(DataType::I64),
+                "u8" => Ok(DataType::U8),
+                "u16" => Ok(DataType::U16),
+                "u32" => Ok(DataType::U32),
+                "u64" => Ok(DataType::U64),
+                "float" => Ok(DataType::Float),
+                "f32" => Ok(DataType::F32),
+                "f64" => Ok(DataType::F64),
+                "str" => Ok(DataType::Str),
+                "bool" => Ok(DataType::Bool),
+                "none" | "mu" => Ok(DataType::None),
+                "arr" => {
+                    self.expect(TokenType::Lbracket)?;
+                    let element_type = Box::new(self.parse_type()?);
+                    let size = self.expect_int_literal()?.parse().unwrap_or(0);
+                    self.expect(TokenType::Rbracket)?;
+                    Ok(DataType::Array { element_type, size })
+                }
+                "vec" => {
+                    let dynamic = if self.check(TokenType::Bang) {
+                        self.advance();
+                        true
+                    } else {
+                        false
+                    };
+                    self.expect(TokenType::Lbracket)?;
+                    let element_type = Box::new(self.parse_type()?);
+                    self.expect(TokenType::Rbracket)?;
+                    Ok(DataType::Vector {
+                        element_type,
+                        dynamic,
+                    })
+                }
+                "map" => {
+                    self.expect(TokenType::Lbracket)?;
+                    let key_type = Box::new(self.parse_type()?);
+                    let value_type = Box::new(self.parse_type()?);
+                    self.expect(TokenType::Rbracket)?;
+                    Ok(DataType::Map {
+                        key_type,
+                        value_type,
+                    })
+                }
+                other => {
+                    if self.check(TokenType::Bang) {
+                        self.advance();
+                        self.expect(TokenType::Lbracket)?;
+                        let element_type = Box::new(self.parse_type()?);
+                        self.expect(TokenType::Rbracket)?;
+                        Ok(DataType::Vector {
+                            element_type,
+                            dynamic: true,
+                        })
+                    } else {
+                        Ok(DataType::from_str(other))
+                    }
+                }
+            };
+        }
+
+        Err(self.error("Expected type"))
+    }
+
+    fn parse_type_name_string(&mut self) -> Result<String> {
+        let start = self.pos;
+        let _ = self.parse_type()?;
+        let mut out = String::new();
+        for token in &self.tokens[start..self.pos] {
+            out.push_str(&self.token_surface(token.clone()));
+        }
+        Ok(out)
+    }
+
+    fn parse_bracket_literal(&mut self) -> Result<Expression> {
+        self.expect(TokenType::Lbracket)?;
+        if self.check(TokenType::Rbracket) {
+            self.advance();
+            return Ok(Expression::List {
+                elements: Vec::new(),
+                element_type: DataType::Unknown,
+                data_type: DataType::List,
+            });
+        }
+
+        let contains_comma = self.bracket_contains_top_level_comma();
+        if contains_comma {
+            let mut entries = Vec::new();
+            while !self.check(TokenType::Rbracket) && !self.is_at_end() {
+                let key = self.parse_expression()?;
+                let value = self.parse_expression()?;
+                entries.push((key, value));
+                if self.check(TokenType::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect(TokenType::Rbracket)?;
+            Ok(Expression::Dict {
+                entries,
+                data_type: DataType::Dict,
+            })
+        } else {
+            let mut elements = Vec::new();
+            while !self.check(TokenType::Rbracket) && !self.is_at_end() {
+                elements.push(self.parse_expression()?);
+            }
+            self.expect(TokenType::Rbracket)?;
+            Ok(Expression::List {
+                elements,
+                element_type: DataType::Unknown,
+                data_type: DataType::List,
+            })
+        }
+    }
+
+    fn apply_pipeline(&self, input: Expression, stage: Expression) -> Result<Expression> {
+        if contains_self_placeholder(&stage) {
+            return Ok(replace_self_placeholder(stage, &input));
+        }
+
+        match stage {
+            Expression::Call {
+                name,
+                mut args,
+                data_type,
+            } => {
+                args.insert(0, input);
+                Ok(Expression::Call {
+                    name,
+                    args,
+                    data_type,
+                })
+            }
+            other => Err(MireError::new(ErrorKind::Parser {
+                line: self.peek().line,
+                column: self.peek().column,
+                message: format!("Pipeline stage must be callable, found {:?}", other),
+            })),
+        }
+    }
+
+    fn parse_assignment_target(&mut self) -> Result<String> {
+        let mut target = if self.check(TokenType::SelfToken) {
+            self.advance();
+            "self".to_string()
+        } else {
+            self.expect_ident()?
+        };
+
+        while self.check(TokenType::Dot) {
+            self.advance();
+            target.push('.');
+            target.push_str(&self.expect_ident()?);
+        }
+
+        Ok(target)
+    }
+
+    fn expect_ident(&mut self) -> Result<String> {
+        if self.check(TokenType::Ident) {
+            Ok(self.advance().value.unwrap_or_default())
+        } else {
+            Err(self.error("Expected identifier"))
+        }
+    }
+
+    fn expect_member_name(&mut self) -> Result<String> {
+        if self.check(TokenType::Ident) {
+            return Ok(self.advance().value.unwrap_or_default());
+        }
+
+        let token = self.peek();
+        let surface = self.token_surface(token.clone());
+        if is_word_surface(&surface) {
+            self.advance();
+            return Ok(surface);
+        }
+
+        Err(self.error("Expected identifier"))
+    }
+
+    fn expect_int_literal(&mut self) -> Result<String> {
+        if self.check(TokenType::IntLit) {
+            Ok(self.advance().value.unwrap_or_default())
+        } else {
+            Err(self.error("Expected integer literal"))
+        }
+    }
+
+    fn expect_block_close(&mut self) -> Result<()> {
+        self.expect(TokenType::Lt)
+    }
+
+    fn expect(&mut self, token_type: TokenType) -> Result<()> {
+        if self.check(token_type) {
+            self.advance();
+            Ok(())
+        } else {
+            Err(self.error(&format!(
+                "Expected {:?} but found {:?}",
+                token_type,
+                self.peek().ttype
+            )))
+        }
+    }
+
+    fn error(&self, message: &str) -> MireError {
+        let token = self.peek();
+        MireError::new(ErrorKind::Parser {
+            line: token.line,
+            column: token.column,
+            message: message.to_string(),
+        })
+    }
+
+    fn bracket_contains_top_level_comma(&self) -> bool {
+        let mut depth = 0usize;
+        let mut index = self.pos;
+        while let Some(token) = self.tokens.get(index) {
+            match token.ttype {
+                TokenType::Lbracket | TokenType::Lparen => depth += 1,
+                TokenType::Rbracket | TokenType::Rparen => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                    if depth == 0 && token.ttype == TokenType::Rbracket {
+                        return false;
+                    }
+                }
+                TokenType::Comma if depth == 1 => return true,
+                _ => {}
+            }
+            index += 1;
+        }
+        false
+    }
+
+    fn is_expression_start(&self, token: TokenType) -> bool {
+        matches!(
+            token,
+            TokenType::Ident
+                | TokenType::IntLit
+                | TokenType::FloatLit
+                | TokenType::StrLit
+                | TokenType::BoolLit
+                | TokenType::NoneLit
+                | TokenType::SelfToken
+                | TokenType::Use
+                | TokenType::If
+                | TokenType::Lparen
+                | TokenType::Lbracket
+                | TokenType::Minus
+                | TokenType::Not
+                | TokenType::Amp
+                | TokenType::Star
+        )
+    }
+
+    fn is_statement_terminator(&self) -> bool {
+        matches!(
+            self.peek().ttype,
+            TokenType::Newline | TokenType::Lt | TokenType::Else | TokenType::Elif | TokenType::Eof
+        )
+    }
+
+    fn skip_newlines(&mut self) {
+        while self.check(TokenType::Newline) {
+            self.advance();
+        }
+    }
+
+    fn check(&self, token_type: TokenType) -> bool {
+        !self.is_at_end() && self.peek().ttype == token_type
+    }
+
+    fn peek(&self) -> Token {
+        self.tokens
+            .get(self.pos)
+            .cloned()
+            .unwrap_or(Token::new(TokenType::Eof, 0, 0))
+    }
+
+    fn advance(&mut self) -> Token {
+        let token = self.peek();
+        if !self.is_at_end() {
+            self.pos += 1;
+        }
+        token
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.pos >= self.tokens.len() || self.peek().ttype == TokenType::Eof
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashSet::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn declare(&mut self, name: &str) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    fn is_declared(&self, name: &str) -> bool {
+        self.scopes.iter().rev().any(|scope| scope.contains(name))
+    }
+
+    fn token_surface(&self, token: Token) -> String {
+        match token.ttype {
+            TokenType::Ident
+            | TokenType::IntLit
+            | TokenType::FloatLit
+            | TokenType::StrLit
+            | TokenType::BoolLit => token.value.unwrap_or_default(),
+            TokenType::NoneLit => "none".to_string(),
+            TokenType::Colon => ":".to_string(),
+            TokenType::Comma => ",".to_string(),
+            TokenType::Dot => ".".to_string(),
+            TokenType::Plus => "+".to_string(),
+            TokenType::Minus => "-".to_string(),
+            TokenType::Star => "*".to_string(),
+            TokenType::Slash => "/".to_string(),
+            TokenType::Percent => "%".to_string(),
+            TokenType::Eq => "==".to_string(),
+            TokenType::Assign => "=".to_string(),
+            TokenType::Neq => "!=".to_string(),
+            TokenType::Gt => ">".to_string(),
+            TokenType::Lt => "<".to_string(),
+            TokenType::Gte => ">=".to_string(),
+            TokenType::Lte => "<=".to_string(),
+            TokenType::As => "as".to_string(),
+            TokenType::At => "at".to_string(),
+            TokenType::In => "in".to_string(),
+            TokenType::Of => "of".to_string(),
+            TokenType::To => "to".to_string(),
+            TokenType::Lparen => "(".to_string(),
+            TokenType::Rparen => ")".to_string(),
+            TokenType::Lbracket => "[".to_string(),
+            TokenType::Rbracket => "]".to_string(),
+            _ => token
+                .value
+                .unwrap_or_else(|| format!("{:?}", token.ttype).to_lowercase()),
+        }
+    }
+
+    fn coerce_unknown_identifier_to_string(&self, expr: Expression) -> Expression {
+        match expr {
+            Expression::Identifier(Identifier { name, .. }) if !self.is_declared(&name) => {
+                string_expr(&name)
+            }
+            other => other,
+        }
+    }
+
+    fn coerce_unknown_identifier_to_infer(&self, expr: Expression) -> Expression {
+        expr
+    }
+}
+
+fn identifier_expr(name: &str) -> Expression {
+    Expression::Identifier(Identifier {
+        name: name.to_string(),
+        data_type: DataType::Unknown,
+    })
+}
+
+fn string_expr(value: &str) -> Expression {
+    Expression::Literal(Literal::Str(value.to_string()))
+}
+
+fn concat_expressions(mut parts: Vec<Expression>) -> Expression {
+    parts.retain(
+        |part| !matches!(part, Expression::Literal(Literal::Str(value)) if value.is_empty()),
+    );
+
+    if parts.is_empty() {
+        return string_expr("");
+    }
+
+    if parts.len() == 1 {
+        return parts.remove(0);
+    }
+
+    let mut expr = parts.remove(0);
+    for part in parts {
+        expr = Expression::BinaryOp {
+            operator: "+".to_string(),
+            left: Box::new(expr),
+            right: Box::new(part),
+            data_type: DataType::Str,
+        };
+    }
+    expr
+}
+
+fn push_template_text(buf: &mut String, token: &Token) {
+    let surface = match token.ttype {
+        TokenType::Ident | TokenType::IntLit | TokenType::FloatLit | TokenType::BoolLit => {
+            token.value.clone().unwrap_or_default()
+        }
+        TokenType::NoneLit => "none".to_string(),
+        TokenType::Comma => ",".to_string(),
+        TokenType::Colon => ":".to_string(),
+        TokenType::Dot => ".".to_string(),
+        TokenType::Plus => "+".to_string(),
+        TokenType::Minus => "-".to_string(),
+        TokenType::Star => "*".to_string(),
+        TokenType::Slash => "/".to_string(),
+        TokenType::Percent => "%".to_string(),
+        TokenType::Lparen => "(".to_string(),
+        TokenType::Rparen => ")".to_string(),
+        TokenType::Lbracket => "[".to_string(),
+        TokenType::Rbracket => "]".to_string(),
+        TokenType::Newline => "\n".to_string(),
+        _ => token.value.clone().unwrap_or_default(),
+    };
+
+    if !buf.is_empty()
+        && !matches!(
+            token.ttype,
+            TokenType::Comma | TokenType::Dot | TokenType::Colon
+        )
+        && !buf.ends_with([' ', '\n', '(', '['])
+        && is_word_surface(&surface)
+    {
+        buf.push(' ');
+    }
+
+    buf.push_str(&surface);
+}
+
+fn is_word_surface(surface: &str) -> bool {
+    surface
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+}
+
+fn contains_self_placeholder(expr: &Expression) -> bool {
+    match expr {
+        Expression::Identifier(Identifier { name, .. }) => name == "self",
+        Expression::BinaryOp { left, right, .. } => {
+            contains_self_placeholder(left) || contains_self_placeholder(right)
+        }
+        Expression::UnaryOp { operand, .. } => contains_self_placeholder(operand),
+        Expression::NamedArg { value, .. } => contains_self_placeholder(value),
+        Expression::Call { args, .. }
+        | Expression::List { elements: args, .. }
+        | Expression::Tuple { elements: args, .. } => args.iter().any(contains_self_placeholder),
+        Expression::Dict { entries, .. } => entries
+            .iter()
+            .any(|(key, value)| contains_self_placeholder(key) || contains_self_placeholder(value)),
+        Expression::Index { target, index, .. } => {
+            contains_self_placeholder(target) || contains_self_placeholder(index)
+        }
+        Expression::MemberAccess { target, .. }
+        | Expression::Dereference { expr: target, .. }
+        | Expression::Reference { expr: target, .. }
+        | Expression::Box { value: target, .. } => contains_self_placeholder(target),
+        Expression::Closure { body, .. } => body.iter().any(statement_contains_self_placeholder),
+        Expression::Literal(_) => false,
+    }
+}
+
+fn statement_contains_self_placeholder(statement: &Statement) -> bool {
+    match statement {
+        Statement::Let { value, .. } => value.as_ref().is_some_and(contains_self_placeholder),
+        Statement::Assignment { value, .. } => contains_self_placeholder(value),
+        Statement::Function { body, .. }
+        | Statement::Unsafe { body }
+        | Statement::Module { body, .. }
+        | Statement::DmireTable { body, .. }
+        | Statement::DmireColumn { body, .. } => {
+            body.iter().any(statement_contains_self_placeholder)
+        }
+        Statement::Return(expr) => expr.as_ref().is_some_and(contains_self_placeholder),
+        Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_self_placeholder(condition)
+                || then_branch.iter().any(statement_contains_self_placeholder)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(statement_contains_self_placeholder))
+        }
+        Statement::While { condition, body } => {
+            contains_self_placeholder(condition)
+                || body.iter().any(statement_contains_self_placeholder)
+        }
+        Statement::For { iterable, body, .. } | Statement::Find { iterable, body, .. } => {
+            contains_self_placeholder(iterable)
+                || body.iter().any(statement_contains_self_placeholder)
+        }
+        Statement::Expression(expr) => contains_self_placeholder(expr),
+        Statement::Match {
+            value,
+            cases,
+            default,
+        } => {
+            contains_self_placeholder(value)
+                || cases.iter().any(|(expr, body)| {
+                    contains_self_placeholder(expr)
+                        || body.iter().any(statement_contains_self_placeholder)
+                })
+                || default.iter().any(statement_contains_self_placeholder)
+        }
+        Statement::Class { methods, .. }
+        | Statement::Impl { methods, .. }
+        | Statement::Code { methods, .. } => {
+            methods.iter().any(statement_contains_self_placeholder)
+        }
+        Statement::Type { fields, .. } => fields.iter().any(statement_contains_self_placeholder),
+        Statement::Skill { .. } => false,
+        Statement::Asm { instructions } => instructions
+            .iter()
+            .any(|(_, expr)| contains_self_placeholder(expr)),
+        Statement::Drop { value } => contains_self_placeholder(value),
+        Statement::Move { value, .. } => contains_self_placeholder(value),
+        Statement::DmireDlist { data, .. } => data.iter().any(contains_self_placeholder),
+        Statement::Query { .. }
+        | Statement::Break
+        | Statement::Continue
+        | Statement::Trait { .. }
+        | Statement::Type { .. }
+        | Statement::Skill { .. }
+        | Statement::Code { .. }
+        | Statement::ExternLib { .. }
+        | Statement::ExternFunction { .. }
+        | Statement::AddLib { .. }
+        | Statement::Use { .. }
+        | Statement::Enum { .. } => false,
+    }
+}
+
+fn replace_self_placeholder(expr: Expression, replacement: &Expression) -> Expression {
+    match expr {
+        Expression::Identifier(Identifier { name, .. }) if name == "self" => replacement.clone(),
+        Expression::BinaryOp {
+            operator,
+            left,
+            right,
+            data_type,
+        } => Expression::BinaryOp {
+            operator,
+            left: Box::new(replace_self_placeholder(*left, replacement)),
+            right: Box::new(replace_self_placeholder(*right, replacement)),
+            data_type,
+        },
+        Expression::UnaryOp {
+            operator,
+            operand,
+            data_type,
+        } => Expression::UnaryOp {
+            operator,
+            operand: Box::new(replace_self_placeholder(*operand, replacement)),
+            data_type,
+        },
+        Expression::NamedArg {
+            name,
+            value,
+            data_type,
+        } => Expression::NamedArg {
+            name,
+            value: Box::new(replace_self_placeholder(*value, replacement)),
+            data_type,
+        },
+        Expression::Call {
+            name,
+            args,
+            data_type,
+        } => Expression::Call {
+            name,
+            args: args
+                .into_iter()
+                .map(|arg| replace_self_placeholder(arg, replacement))
+                .collect(),
+            data_type,
+        },
+        Expression::List {
+            elements,
+            element_type,
+            data_type,
+        } => Expression::List {
+            elements: elements
+                .into_iter()
+                .map(|arg| replace_self_placeholder(arg, replacement))
+                .collect(),
+            element_type,
+            data_type,
+        },
+        Expression::Tuple {
+            elements,
+            data_type,
+        } => Expression::Tuple {
+            elements: elements
+                .into_iter()
+                .map(|arg| replace_self_placeholder(arg, replacement))
+                .collect(),
+            data_type,
+        },
+        Expression::Dict { entries, data_type } => Expression::Dict {
+            entries: entries
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        replace_self_placeholder(key, replacement),
+                        replace_self_placeholder(value, replacement),
+                    )
+                })
+                .collect(),
+            data_type,
+        },
+        Expression::Index {
+            target,
+            index,
+            data_type,
+        } => Expression::Index {
+            target: Box::new(replace_self_placeholder(*target, replacement)),
+            index: Box::new(replace_self_placeholder(*index, replacement)),
+            data_type,
+        },
+        Expression::MemberAccess {
+            target,
+            member,
+            data_type,
+        } => Expression::MemberAccess {
+            target: Box::new(replace_self_placeholder(*target, replacement)),
+            member,
+            data_type,
+        },
+        Expression::Reference {
+            expr,
+            is_mutable,
+            data_type,
+        } => Expression::Reference {
+            expr: Box::new(replace_self_placeholder(*expr, replacement)),
+            is_mutable,
+            data_type,
+        },
+        Expression::Dereference { expr, data_type } => Expression::Dereference {
+            expr: Box::new(replace_self_placeholder(*expr, replacement)),
+            data_type,
+        },
+        Expression::Box { value, data_type } => Expression::Box {
+            value: Box::new(replace_self_placeholder(*value, replacement)),
+            data_type,
+        },
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn parses_dynamic_vector_type_annotation() {
+        let source = "set xs = [] :vec![i64]\n";
+        let program = parse(source);
+        assert!(program.is_ok(), "{program:?}");
+    }
+
+    #[test]
+    fn parses_inline_nested_vector_literal() {
+        let source = "set xs = [[1 2] [3 4]] :vec[vec[i64]]\n";
+        let program = parse(source);
+        assert!(program.is_ok(), "{program:?}");
+    }
+}
