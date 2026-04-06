@@ -473,7 +473,16 @@ impl LlvmIrGen {
         out.push("declare ptr @mire_string_to_upper(ptr)".to_string());
         out.push("declare ptr @mire_string_to_lower(ptr)".to_string());
         out.push("declare ptr @mire_strings_replace(ptr, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_list_push_i64(ptr, i64)".to_string());
+        out.push("declare ptr @mire_list_push_scalar(ptr, i64, i64)".to_string());
+        out.push("declare ptr @mire_list_push_ptr(ptr, ptr)".to_string());
         out.push("declare ptr @mire_list_concat(ptr, ptr)".to_string());
+        out.push("declare i64 @mire_dict_get_i64(ptr, i64, i64, ptr, i64)".to_string());
+        out.push("declare ptr @mire_dict_get_ptr(ptr, i64, i64, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_dict_set_i64(ptr, i64, i64, i64, ptr, i64)".to_string());
+        out.push("declare ptr @mire_dict_set_ptr(ptr, i64, i64, i64, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_dict_to_string(ptr)".to_string());
+        out.push("declare ptr @mire_list_slice(ptr, i64, i64)".to_string());
         out.push("declare ptr @fgets(ptr, i64, ptr)".to_string());
         out.push("define ptr @concat(ptr %a, ptr %b) {".to_string());
         out.push("  %len_a = call i64 @strlen(ptr %a)".to_string());
@@ -739,11 +748,29 @@ impl LlvmIrGen {
                 operator,
                 left,
                 right,
+                data_type,
                 ..
             } => {
                 let lhs = self.compile_expr(left)?;
                 let rhs = self.compile_expr(right)?;
-                self.compile_binary(operator, lhs, rhs)
+
+                let left_is_list = matches!(data_type, DataType::Vector { .. } | DataType::List);
+                let right_is_list = matches!(data_type, DataType::Vector { .. } | DataType::List);
+
+                if operator == "+" && left_is_list && right_is_list {
+                    let result = self.tmp();
+                    self.body.push(format!(
+                        "  {result} = call ptr @mire_list_concat(ptr {}, ptr {})",
+                        lhs.repr, rhs.repr
+                    ));
+                    return Ok(LlValue {
+                        ty: LlType::Ptr,
+                        repr: result,
+                        owned: true,
+                    });
+                }
+
+                self.compile_binary(operator, lhs, rhs, data_type)
             }
             Expression::UnaryOp {
                 operator, operand, ..
@@ -841,6 +868,9 @@ impl LlvmIrGen {
             }
             Expression::Call { name, args, .. } if name == "lists.push" => {
                 self.compile_lists_push(args)
+            }
+            Expression::Call { name, args, .. } if name == "lists.slice" => {
+                self.compile_lists_slice(args)
             }
             Expression::Call { name, args, .. } if name == "lists.len" => {
                 self.compile_list_len(args)
@@ -1886,6 +1916,33 @@ impl LlvmIrGen {
         })
     }
 
+    fn compile_lists_slice(&mut self, args: &[Expression]) -> Result<LlValue> {
+        if args.len() != 3 {
+            return Err(MireError::new(ErrorKind::Runtime {
+                message: "Avenys lists.slice expects 3 arguments".to_string(),
+            }));
+        }
+
+        let list = self.compile_expr(&args[0])?;
+        let start = self.compile_expr(&args[1])?;
+        let end = self.compile_expr(&args[2])?;
+
+        let start_i64 = self.cast_to_i64(start)?;
+        let end_i64 = self.cast_to_i64(end)?;
+
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_list_slice(ptr {}, i64 {}, i64 {})",
+            list.repr, start_i64.repr, end_i64.repr
+        ));
+
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: result,
+            owned: true,
+        })
+    }
+
     fn compile_strings_replace(&mut self, args: &[Expression]) -> Result<LlValue> {
         self.compile_replace(args)
     }
@@ -2632,12 +2689,17 @@ impl LlvmIrGen {
         }
     }
 
-    fn compile_binary(&mut self, op: &str, lhs: LlValue, rhs: LlValue) -> Result<LlValue> {
+    fn compile_binary(
+        &mut self,
+        op: &str,
+        lhs: LlValue,
+        rhs: LlValue,
+        _data_type: &DataType,
+    ) -> Result<LlValue> {
         let left_repr = lhs.repr.clone();
         let right_repr = rhs.repr.clone();
         let left_is_ptr = lhs.ty == LlType::Ptr;
         let right_is_ptr = rhs.ty == LlType::Ptr;
-        let right = self.tmp();
         let result = self.tmp();
 
         if left_is_ptr && right_is_ptr && op == "+" {
@@ -2671,17 +2733,6 @@ impl LlvmIrGen {
                 ty: LlType::I1,
                 repr: result,
                 owned: false,
-            });
-        }
-
-        if op == "+" && left_is_ptr && right_is_ptr {
-            self.body.push(format!(
-                "  {result} = call ptr @mire_list_concat(ptr {left_repr}, ptr {right_repr})"
-            ));
-            return Ok(LlValue {
-                ty: LlType::Ptr,
-                repr: result,
-                owned: true,
             });
         }
 

@@ -533,7 +533,7 @@ impl TypeChecker {
             }
             Statement::Assignment { target, value, .. } => {
                 let value_type = self.check_expression(value)?;
-                let target_type = self.lookup_var(target).ok_or_else(|| {
+                let mut target_type = self.lookup_var(target).ok_or_else(|| {
                     type_error(format!("Assignment to undefined variable '{}'", target))
                 })?;
 
@@ -544,6 +544,9 @@ impl TypeChecker {
                     )));
                 }
                 Self::validate_explicit_nested_literal(&target_type, value)?;
+
+                target_type = Self::unify_types(&target_type, &value_type)?;
+                self.insert_var(target.clone(), target_type);
             }
             Statement::Function {
                 name,
@@ -958,6 +961,28 @@ impl TypeChecker {
                         other => {
                             return Err(type_error(format!(
                                 "lists.push expects vec![T], got {:?}",
+                                other
+                            )));
+                        }
+                    };
+                    *data_type = resolved.clone();
+                    return Ok(resolved);
+                }
+
+                if name == "lists.slice" {
+                    let list_type = arg_types.first().cloned().unwrap_or(DataType::Unknown);
+                    let resolved = match list_type {
+                        DataType::Vector { element_type, .. } => DataType::Vector {
+                            element_type: element_type.clone(),
+                            dynamic: true,
+                        },
+                        DataType::List => DataType::Vector {
+                            element_type: Box::new(DataType::Unknown),
+                            dynamic: true,
+                        },
+                        other => {
+                            return Err(type_error(format!(
+                                "lists.slice expects vector input, got {:?}",
                                 other
                             )));
                         }

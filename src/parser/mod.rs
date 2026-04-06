@@ -1845,9 +1845,9 @@ fn push_template_text(buf: &mut String, token: &Token) {
     if !buf.is_empty()
         && !matches!(
             token.ttype,
-            TokenType::Comma | TokenType::Dot | TokenType::Colon
+            TokenType::Comma | TokenType::Dot | TokenType::Colon | TokenType::Minus
         )
-        && !buf.ends_with([' ', '\n', '(', '['])
+        && !buf.ends_with([' ', '\n', '(', '[', '-'])
         && is_word_surface(&surface)
     {
         buf.push(' ');

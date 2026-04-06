@@ -1001,3 +1001,36 @@ void *mire_list_concat(void *left_ptr, void *right_ptr) {
     
     return new_len_ptr;
 }
+
+void *mire_list_slice(void *list_ptr, int64_t start, int64_t end) {
+    intptr_t *len_ptr = (intptr_t *)list_ptr;
+    if (len_ptr == NULL) {
+        return NULL;
+    }
+    
+    intptr_t len = len_ptr[0];
+    if (start < 0) start = 0;
+    if (end > len) end = len;
+    if (start >= end) {
+        return NULL;
+    }
+    
+    intptr_t new_len = end - start;
+    intptr_t cap = 4;
+    while (cap < new_len) {
+        cap *= 2;
+    }
+    
+    intptr_t *new_base = (intptr_t *)malloc((size_t)(2 + cap) * sizeof(intptr_t));
+    if (new_base == NULL) {
+        return NULL;
+    }
+    
+    new_base[0] = cap;
+    new_base[1] = new_len;
+    intptr_t *new_len_ptr = new_base + 1;
+    
+    memcpy(new_len_ptr, len_ptr + start, (size_t)new_len * sizeof(intptr_t));
+    
+    return new_len_ptr;
+}
