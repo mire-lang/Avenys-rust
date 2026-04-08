@@ -165,6 +165,12 @@ impl Parser {
         } else {
             None
         };
+        let is_mutable = if self.check(TokenType::Mut) {
+            self.advance();
+            true
+        } else {
+            false
+        };
         let is_constant = if self.check(TokenType::Const) {
             self.advance();
             true
@@ -222,6 +228,7 @@ impl Parser {
             data_type,
             value: Some(value),
             is_constant,
+            is_mutable,
             is_static: false,
             visibility: Visibility::Private,
         })
@@ -278,11 +285,11 @@ impl Parser {
         })
     }
 
-    fn parse_type_statement(&mut self) -> Result<Statement> {
+    fn parse_struct_statement(&mut self) -> Result<Statement> {
         if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
             self.advance();
         }
-        self.expect(TokenType::Type)?;
+        self.expect(TokenType::Struct)?;
         let name = self.expect_ident()?;
 
         let parent = if self.check(TokenType::Extends) {
@@ -300,11 +307,9 @@ impl Parser {
             if self.check(TokenType::Lt) {
                 break;
             }
-            // Parse as let statement: set fieldname :type (without value)
-            if self.check(TokenType::Set) {
-                self.advance();
+            // Parse field as: name :type (without set)
+            if self.peek().ttype == TokenType::Ident {
                 let field_name = self.expect_ident()?;
-                // Parse type annotation
                 let field_type = if self.check(TokenType::Colon) {
                     self.advance();
                     self.parse_type()?
@@ -316,6 +321,7 @@ impl Parser {
                     data_type: field_type,
                     value: None,
                     is_constant: false,
+                    is_mutable: true,
                     is_static: false,
                     visibility: Visibility::Private,
                 });
@@ -330,6 +336,10 @@ impl Parser {
             parent,
             fields,
         })
+    }
+
+    fn parse_type_statement(&mut self) -> Result<Statement> {
+        self.parse_struct_statement()
     }
 
     fn parse_skill_statement(&mut self) -> Result<Statement> {
@@ -406,43 +416,6 @@ impl Parser {
             trait_name,
             type_name,
             methods,
-        })
-    }
-
-    fn parse_struct_statement(&mut self) -> Result<Statement> {
-        if matches!(self.peek().ttype, TokenType::Pub | TokenType::Priv) {
-            self.advance();
-        }
-        self.expect(TokenType::Struct)?;
-        let name = self.expect_ident()?;
-        self.expect(TokenType::Gt)?;
-        let mut members = Vec::new();
-
-        while !self.check(TokenType::Lt) && !self.is_at_end() {
-            self.skip_newlines();
-            if self.check(TokenType::Lt) {
-                break;
-            }
-            let field_name = self.expect_ident()?;
-            self.expect(TokenType::Colon)?;
-            let field_type = self.parse_type()?;
-            members.push(Statement::Let {
-                name: field_name,
-                data_type: field_type,
-                value: None,
-                is_constant: false,
-                is_static: false,
-                visibility: Visibility::Private,
-            });
-            self.skip_newlines();
-        }
-
-        self.expect_block_close()?;
-        self.declare(&name);
-        Ok(Statement::Class {
-            name,
-            parent: None,
-            methods: members,
         })
     }
 
@@ -653,6 +626,7 @@ impl Parser {
                     data_type: DataType::Anything,
                     value: None,
                     is_constant: false,
+                    is_mutable: true,
                     is_static: false,
                     visibility: Visibility::Private,
                 },
@@ -1138,13 +1112,35 @@ impl Parser {
 
     fn parse_use_expression(&mut self) -> Result<Expression> {
         self.expect(TokenType::Use)?;
-        let mut expr = self.parse_pipeline_free_expression()?;
+        let expr = self.parse_pipeline_free_expression()?;
+
+        // If expr is just an identifier (function name), convert to call with empty args
+        let result = if let Expression::Identifier(ident) = expr {
+            Expression::Call {
+                name: ident.name.clone(),
+                args: Vec::new(),
+                data_type: DataType::Unknown,
+            }
+        } else if let Expression::Call { name, args, .. } = &expr {
+            // If it's already a Call but has no args, ensure it's treated as function call
+            // Check if this was parsed as identifier-only call, fix args
+            if args.is_empty() {
+                // Check what the next token is - if Lparen, args were already parsed
+                expr
+            } else {
+                expr
+            }
+        } else {
+            expr
+        };
+
+        let mut final_expr = result;
         while self.check(TokenType::Pipeline) {
             self.advance();
             let stage = self.parse_pipeline_free_expression()?;
-            expr = self.apply_pipeline(expr, stage)?;
+            final_expr = self.apply_pipeline(final_expr, stage)?;
         }
-        Ok(expr)
+        Ok(final_expr)
     }
 
     fn parse_if_expression(&mut self) -> Result<Expression> {
@@ -1282,10 +1278,19 @@ impl Parser {
         self.expect(TokenType::Lparen)?;
         let template = self.parse_template_expression()?;
         self.expect(TokenType::Rparen)?;
+
+        // Parse optional type annotation: ireru(prompt) :i64
+        let data_type = if self.check(TokenType::Colon) {
+            self.advance();
+            self.parse_type()?
+        } else {
+            DataType::Str // default to str
+        };
+
         Ok(Expression::Call {
             name,
             args: vec![template],
-            data_type: DataType::Unknown,
+            data_type,
         })
     }
 
@@ -1845,9 +1850,9 @@ fn push_template_text(buf: &mut String, token: &Token) {
     if !buf.is_empty()
         && !matches!(
             token.ttype,
-            TokenType::Comma | TokenType::Dot | TokenType::Colon
+            TokenType::Comma | TokenType::Dot | TokenType::Colon | TokenType::Minus
         )
-        && !buf.ends_with([' ', '\n', '(', '['])
+        && !buf.ends_with([' ', '\n', '(', '[', '-'])
         && is_word_surface(&surface)
     {
         buf.push(' ');

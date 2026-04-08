@@ -36,7 +36,7 @@ pub fn check_program_types(program: &mut Program) -> Result<()> {
 }
 
 struct TypeChecker {
-    scopes: Vec<HashMap<String, DataType>>,
+    scopes: Vec<HashMap<String, (DataType, bool)>>,
     functions: HashMap<String, FunctionSig>,
     classes: HashMap<String, ClassSig>,
     enum_variants: HashMap<String, EnumVariantSig>,
@@ -162,6 +162,7 @@ impl TypeChecker {
             "strings.to_lower",
             "strings.trim",
             "strings.concat",
+            "strings.to_string",
             "mem.format",
             "gpu.snapshot",
             "time.elapsed_ms",
@@ -237,6 +238,7 @@ impl TypeChecker {
             "dicts.set",
             "dicts.keys",
             "dicts.values",
+            "dicts.to_string",
         ] {
             builtins.insert(
                 name.to_string(),
@@ -378,7 +380,7 @@ impl TypeChecker {
         };
 
         for member in members {
-            self.insert_var((*member).to_string(), DataType::Anything);
+            self.insert_var((*member).to_string(), DataType::Anything, true);
         }
     }
 
@@ -505,8 +507,15 @@ impl TypeChecker {
                 name,
                 data_type,
                 value,
+                is_mutable,
+                is_constant,
                 ..
             } => {
+                if let Some(expr) = value {
+                    if let Expression::Literal(Literal::Int(int_val)) = expr {
+                        Self::validate_int_literal_range(data_type, *int_val)?;
+                    }
+                }
                 let inferred = if let Some(expr) = value {
                     self.check_expression(expr)?
                 } else {
@@ -529,13 +538,22 @@ impl TypeChecker {
                 };
 
                 *data_type = final_type.clone();
-                self.insert_var(name.clone(), final_type);
+                let mutable = *is_mutable;
+                self.insert_var(name.clone(), final_type, mutable);
             }
             Statement::Assignment { target, value, .. } => {
                 let value_type = self.check_expression(value)?;
-                let target_type = self.lookup_var(target).ok_or_else(|| {
-                    type_error(format!("Assignment to undefined variable '{}'", target))
-                })?;
+                let (mut target_type, is_target_mutable) =
+                    self.lookup_var(target).ok_or_else(|| {
+                        type_error(format!("Assignment to undefined variable '{}'", target))
+                    })?;
+
+                if !is_target_mutable {
+                    return Err(type_error(format!(
+                        "Cannot reassign immutable variable '{}'",
+                        target
+                    )));
+                }
 
                 if !self.is_assignable(&target_type, &value_type) {
                     return Err(type_error(format!(
@@ -544,6 +562,9 @@ impl TypeChecker {
                     )));
                 }
                 Self::validate_explicit_nested_literal(&target_type, value)?;
+
+                target_type = Self::unify_types(&target_type, &value_type)?;
+                self.insert_var(target.clone(), target_type, is_target_mutable);
             }
             Statement::Function {
                 name,
@@ -562,7 +583,7 @@ impl TypeChecker {
 
                 self.push_scope();
                 for (param_name, param_type) in params.iter() {
-                    self.insert_var(param_name.clone(), param_type.clone());
+                    self.insert_var(param_name.clone(), param_type.clone(), true);
                 }
 
                 self.return_type_stack.push(return_type.clone());
@@ -660,7 +681,7 @@ impl TypeChecker {
                         _ => DataType::Anything,
                     },
                 };
-                self.insert_var(variable.clone(), item_type);
+                self.insert_var(variable.clone(), item_type, true);
 
                 self.check_statements(body)?;
                 self.pop_scope();
@@ -712,7 +733,7 @@ impl TypeChecker {
             }
             Statement::Move { target, value } => {
                 let moved_type = self.check_expression(value)?;
-                self.insert_var(target.clone(), moved_type);
+                self.insert_var(target.clone(), moved_type, true);
             }
             Statement::Query {
                 ops,
@@ -722,8 +743,8 @@ impl TypeChecker {
                 table: _,
             } => {
                 for bind in bindings.iter() {
-                    self.insert_var(bind.target.clone(), DataType::Anything);
-                    self.insert_var(bind.alias.clone(), DataType::Anything);
+                    self.insert_var(bind.target.clone(), DataType::Anything, true);
+                    self.insert_var(bind.alias.clone(), DataType::Anything, true);
                 }
 
                 for op in ops.iter_mut() {
@@ -757,17 +778,17 @@ impl TypeChecker {
                 } else if let Some(rest) = path.strip_prefix("stdselect:") {
                     if let Some((_, items)) = rest.split_once(':') {
                         for item in items.split(',').filter(|item| !item.is_empty()) {
-                            self.insert_var(item.to_string(), DataType::Anything);
+                            self.insert_var(item.to_string(), DataType::Anything, true);
                         }
                     }
                 } else if let Some(rest) = path.strip_prefix("stdalias:") {
                     if let Some((alias, _)) = rest.split_once(':') {
-                        self.insert_var(alias.to_string(), DataType::Anything);
+                        self.insert_var(alias.to_string(), DataType::Anything, true);
                     }
                 } else if let Some(rest) = path.strip_prefix("stdaliasselect:") {
                     let mut parts = rest.splitn(3, ':');
                     if let Some(alias) = parts.next() {
-                        self.insert_var(alias.to_string(), DataType::Anything);
+                        self.insert_var(alias.to_string(), DataType::Anything, true);
                     }
                 }
             }
@@ -814,7 +835,7 @@ impl TypeChecker {
                 }
 
                 self.push_scope();
-                self.insert_var(get.target.clone(), DataType::Anything);
+                self.insert_var(get.target.clone(), DataType::Anything, true);
                 self.check_statements(&mut get.body)?;
                 self.pop_scope();
             }
@@ -826,9 +847,26 @@ impl TypeChecker {
 
     fn check_expression(&mut self, expression: &mut Expression) -> Result<DataType> {
         match expression {
-            Expression::Literal(lit) => Ok(Self::literal_type(lit)),
+            Expression::Literal(lit) => {
+                if let Literal::Int(value) = lit {
+                    if let Some(scope) = self.scopes.last() {
+                        for (name, (dt, _)) in scope.iter() {
+                            if let DataType::I8
+                            | DataType::I16
+                            | DataType::I32
+                            | DataType::U8
+                            | DataType::U16
+                            | DataType::U32 = dt
+                            {
+                                Self::validate_int_literal_range(dt, *value)?;
+                            }
+                        }
+                    }
+                }
+                Ok(Self::literal_type(lit))
+            }
             Expression::Identifier(ident) => {
-                let resolved = self
+                let (resolved, _) = self
                     .lookup_var(&ident.name)
                     .ok_or_else(|| type_error(format!("Unknown identifier '{}'", ident.name)))?;
                 ident.data_type = resolved.clone();
@@ -878,6 +916,12 @@ impl TypeChecker {
                 args,
                 data_type,
             } => {
+                // Special handling for ireru - use the explicit type annotation if present
+                if name == "ireru" && *data_type != DataType::Unknown {
+                    *data_type = data_type.clone();
+                    return Ok(data_type.clone());
+                }
+
                 let arg_types: Vec<DataType> = args
                     .iter_mut()
                     .map(|arg| self.check_expression(arg))
@@ -958,6 +1002,28 @@ impl TypeChecker {
                         other => {
                             return Err(type_error(format!(
                                 "lists.push expects vec![T], got {:?}",
+                                other
+                            )));
+                        }
+                    };
+                    *data_type = resolved.clone();
+                    return Ok(resolved);
+                }
+
+                if name == "lists.slice" {
+                    let list_type = arg_types.first().cloned().unwrap_or(DataType::Unknown);
+                    let resolved = match list_type {
+                        DataType::Vector { element_type, .. } => DataType::Vector {
+                            element_type: element_type.clone(),
+                            dynamic: true,
+                        },
+                        DataType::List => DataType::Vector {
+                            element_type: Box::new(DataType::Unknown),
+                            dynamic: true,
+                        },
+                        other => {
+                            return Err(type_error(format!(
+                                "lists.slice expects vector input, got {:?}",
                                 other
                             )));
                         }
@@ -1108,11 +1174,11 @@ impl TypeChecker {
                 self.push_scope();
 
                 for (name, value) in capture.iter() {
-                    self.insert_var(name.clone(), Self::mire_value_type(value));
+                    self.insert_var(name.clone(), Self::mire_value_type(value), true);
                 }
 
                 for (name, ptype) in params.iter() {
-                    self.insert_var(name.clone(), ptype.clone());
+                    self.insert_var(name.clone(), ptype.clone(), true);
                 }
 
                 self.return_type_stack.push(return_type.clone());
@@ -1248,6 +1314,61 @@ impl TypeChecker {
             },
             Literal::Tuple(_) => DataType::Tuple,
         }
+    }
+
+    fn validate_int_literal_range(data_type: &DataType, value: i64) -> Result<()> {
+        match data_type {
+            DataType::I8 => {
+                if value < -128 || value > 127 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds i8 range (-128 to 127)",
+                        value
+                    )));
+                }
+            }
+            DataType::I16 => {
+                if value < -32768 || value > 32767 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds i16 range (-32768 to 32767)",
+                        value
+                    )));
+                }
+            }
+            DataType::I32 => {
+                if value < -2147483648 || value > 2147483647 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds i32 range (-2147483648 to 2147483647)",
+                        value
+                    )));
+                }
+            }
+            DataType::U8 => {
+                if value < 0 || value > 255 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds u8 range (0 to 255)",
+                        value
+                    )));
+                }
+            }
+            DataType::U16 => {
+                if value < 0 || value > 65535 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds u16 range (0 to 65535)",
+                        value
+                    )));
+                }
+            }
+            DataType::U32 => {
+                if value < 0 || value > 4294967295 {
+                    return Err(type_error(format!(
+                        "Integer literal {} exceeds u32 range (0 to 4294967295)",
+                        value
+                    )));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn mire_value_type(value: &MireValue) -> DataType {
@@ -1666,13 +1787,13 @@ impl TypeChecker {
         }
     }
 
-    fn insert_var(&mut self, name: String, data_type: DataType) {
+    fn insert_var(&mut self, name: String, data_type: DataType, is_mutable: bool) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, data_type);
+            scope.insert(name, (data_type, is_mutable));
         }
     }
 
-    fn lookup_var(&self, name: &str) -> Option<DataType> {
+    fn lookup_var(&self, name: &str) -> Option<(DataType, bool)> {
         for scope in self.scopes.iter().rev() {
             if let Some(data_type) = scope.get(name) {
                 return Some(data_type.clone());

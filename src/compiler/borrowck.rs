@@ -587,9 +587,6 @@ impl BorrowChecker {
 
                     if should_consume {
                         self.ensure_can_move(&name)?;
-                        if let Some(state) = self.lookup_binding_mut(&name) {
-                            state.is_moved = true;
-                        }
                     }
                 }
             }

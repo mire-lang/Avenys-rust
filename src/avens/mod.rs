@@ -473,7 +473,21 @@ impl LlvmIrGen {
         out.push("declare ptr @mire_string_to_upper(ptr)".to_string());
         out.push("declare ptr @mire_string_to_lower(ptr)".to_string());
         out.push("declare ptr @mire_strings_replace(ptr, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_strings_split(ptr, ptr)".to_string());
+        out.push("declare ptr @mire_strings_join(ptr, i64, ptr)".to_string());
+        out.push("declare ptr @mire_strings_trim(ptr)".to_string());
+        out.push("declare ptr @mire_list_push_i64(ptr, i64)".to_string());
+        out.push("declare ptr @mire_list_push_scalar(ptr, i64, i64)".to_string());
+        out.push("declare ptr @mire_list_push_ptr(ptr, ptr)".to_string());
         out.push("declare ptr @mire_list_concat(ptr, ptr)".to_string());
+        out.push("declare i64 @mire_dict_get_i64(ptr, i64, i64, ptr, i64)".to_string());
+        out.push("declare ptr @mire_dict_get_ptr(ptr, i64, i64, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_dict_set_i64(ptr, i64, i64, i64, ptr, i64)".to_string());
+        out.push("declare ptr @mire_dict_set_ptr(ptr, i64, i64, i64, ptr, ptr)".to_string());
+        out.push("declare ptr @mire_dict_to_string(ptr)".to_string());
+        out.push("declare ptr @mire_dict_keys(ptr)".to_string());
+        out.push("declare ptr @mire_dict_values(ptr)".to_string());
+        out.push("declare ptr @mire_list_slice(ptr, i64, i64)".to_string());
         out.push("declare ptr @fgets(ptr, i64, ptr)".to_string());
         out.push("define ptr @concat(ptr %a, ptr %b) {".to_string());
         out.push("  %len_a = call i64 @strlen(ptr %a)".to_string());
@@ -739,11 +753,29 @@ impl LlvmIrGen {
                 operator,
                 left,
                 right,
+                data_type,
                 ..
             } => {
                 let lhs = self.compile_expr(left)?;
                 let rhs = self.compile_expr(right)?;
-                self.compile_binary(operator, lhs, rhs)
+
+                let left_is_list = matches!(data_type, DataType::Vector { .. } | DataType::List);
+                let right_is_list = matches!(data_type, DataType::Vector { .. } | DataType::List);
+
+                if operator == "+" && left_is_list && right_is_list {
+                    let result = self.tmp();
+                    self.body.push(format!(
+                        "  {result} = call ptr @mire_list_concat(ptr {}, ptr {})",
+                        lhs.repr, rhs.repr
+                    ));
+                    return Ok(LlValue {
+                        ty: LlType::Ptr,
+                        repr: result,
+                        owned: true,
+                    });
+                }
+
+                self.compile_binary(operator, lhs, rhs, data_type)
             }
             Expression::UnaryOp {
                 operator, operand, ..
@@ -842,6 +874,9 @@ impl LlvmIrGen {
             Expression::Call { name, args, .. } if name == "lists.push" => {
                 self.compile_lists_push(args)
             }
+            Expression::Call { name, args, .. } if name == "lists.slice" => {
+                self.compile_lists_slice(args)
+            }
             Expression::Call { name, args, .. } if name == "lists.len" => {
                 self.compile_list_len(args)
             }
@@ -885,6 +920,9 @@ impl LlvmIrGen {
             }
             Expression::Call { name, args, .. } if name == "strings.trim" => {
                 self.compile_trim(args)
+            }
+            Expression::Call { name, args, .. } if name == "strings.to_string" => {
+                self.compile_to_string(args)
             }
             Expression::Call { name, args, .. } if name == "abs" => self.compile_abs(args),
             Expression::Call { name, args, .. } if name == "sqrt" => self.compile_sqrt(args),
@@ -1380,26 +1418,38 @@ impl LlvmIrGen {
     fn compile_dict_keys(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 1 {
             return Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys keys(...) expects 1 argument".to_string(),
+                message: "dicts.keys(...) expects 1 argument".to_string(),
             }));
         }
+        let dict = self.compile_expr(&args[0])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_dict_keys(ptr {})",
+            dict.repr
+        ));
         Ok(LlValue {
             ty: LlType::Ptr,
-            repr: "null".to_string(),
-            owned: false,
+            repr: result,
+            owned: true,
         })
     }
 
     fn compile_dict_values(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 1 {
             return Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys values(...) expects 1 argument".to_string(),
+                message: "dicts.values(...) expects 1 argument".to_string(),
             }));
         }
+        let dict = self.compile_expr(&args[0])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_dict_values(ptr {})",
+            dict.repr
+        ));
         Ok(LlValue {
             ty: LlType::Ptr,
-            repr: "null".to_string(),
-            owned: false,
+            repr: result,
+            owned: true,
         })
     }
 
@@ -1498,23 +1548,60 @@ impl LlvmIrGen {
     fn compile_split(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 2 {
             return Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys split(...) expects 2 arguments".to_string(),
+                message: "strings.split(...) expects 2 arguments".to_string(),
             }));
         }
+        let input = self.compile_expr(&args[0])?;
+        let delimiter = self.compile_expr(&args[1])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_strings_split(ptr {}, ptr {})",
+            input.repr, delimiter.repr
+        ));
         Ok(LlValue {
             ty: LlType::Ptr,
-            repr: "null".to_string(),
-            owned: false,
+            repr: result,
+            owned: true,
         })
     }
 
     fn compile_join(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 2 {
             return Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys join(...) expects 2 arguments".to_string(),
+                message: "strings.join(...) expects 2 arguments".to_string(),
             }));
         }
-        self.compile_expr(&args[0])
+        let input = self.compile_expr(&args[0])?;
+        let delimiter = self.compile_expr(&args[1])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_strings_join(ptr {}, i64 0, ptr {})",
+            input.repr, delimiter.repr
+        ));
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: result,
+            owned: true,
+        })
+    }
+
+    fn compile_trim(&mut self, args: &[Expression]) -> Result<LlValue> {
+        if args.len() != 1 {
+            return Err(MireError::new(ErrorKind::Runtime {
+                message: "strings.trim(...) expects 1 argument".to_string(),
+            }));
+        }
+        let input = self.compile_expr(&args[0])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_strings_trim(ptr {})",
+            input.repr
+        ));
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: result,
+            owned: true,
+        })
     }
 
     fn compile_to_upper(&mut self, args: &[Expression]) -> Result<LlValue> {
@@ -1555,13 +1642,23 @@ impl LlvmIrGen {
         })
     }
 
-    fn compile_trim(&mut self, args: &[Expression]) -> Result<LlValue> {
+    fn compile_to_string(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 1 {
             return Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys trim(...) expects 1 argument".to_string(),
+                message: "strings.to_string(...) expects 1 argument".to_string(),
             }));
         }
-        self.compile_expr(&args[0])
+        let input = self.compile_expr(&args[0])?;
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_dict_to_string(ptr {})",
+            input.repr
+        ));
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: result,
+            owned: true,
+        })
     }
 
     fn compile_abs(&mut self, args: &[Expression]) -> Result<LlValue> {
@@ -1883,6 +1980,33 @@ impl LlvmIrGen {
             ty: LlType::Ptr,
             repr: result,
             owned: false,
+        })
+    }
+
+    fn compile_lists_slice(&mut self, args: &[Expression]) -> Result<LlValue> {
+        if args.len() != 3 {
+            return Err(MireError::new(ErrorKind::Runtime {
+                message: "Avenys lists.slice expects 3 arguments".to_string(),
+            }));
+        }
+
+        let list = self.compile_expr(&args[0])?;
+        let start = self.compile_expr(&args[1])?;
+        let end = self.compile_expr(&args[2])?;
+
+        let start_i64 = self.cast_to_i64(start)?;
+        let end_i64 = self.cast_to_i64(end)?;
+
+        let result = self.tmp();
+        self.body.push(format!(
+            "  {result} = call ptr @mire_list_slice(ptr {}, i64 {}, i64 {})",
+            list.repr, start_i64.repr, end_i64.repr
+        ));
+
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: result,
+            owned: true,
         })
     }
 
@@ -2372,41 +2496,56 @@ impl LlvmIrGen {
     }
 
     fn emit_ireru_expr(&mut self, expr: &Expression) -> Result<()> {
-        let value = self.compile_expr(expr)?;
+        let prompt = self.compile_expr(expr)?;
 
-        match value.ty {
-            LlType::Ptr => {
-                self.body.push(format!(
-                    "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
-                    value.repr
-                ));
-            }
-            _ => {
-                self.body.push(format!(
-                    "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 {})",
-                    value.repr
-                ));
-            }
-        }
+        // Print prompt
+        self.body.push(format!(
+            "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
+            prompt.repr
+        ));
 
         let malloc_result = self.tmp();
         let input_buf = self.tmp();
-        let scanf_result = self.tmp();
         self.body
             .push(format!("  {malloc_result} = call i64 @malloc(i64 256)"));
         self.body.push(format!(
             "  {input_buf} = inttoptr i64 {malloc_result} to ptr"
         ));
         self.body.push(format!(
-            "  {scanf_result} = call i32 (ptr, ...) @scanf(ptr @.scanf_str, ptr {input_buf})"
+            "  call i32 (ptr, ...) @scanf(ptr @.scanf_str, ptr {input_buf})"
         ));
 
-        let result = self.tmp();
-        self.body
-            .push(format!("  {result} = inttoptr i64 {malloc_result} to ptr"));
-        self.body.push(format!(
-            "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {result})"
-        ));
+        // Get the data_type from the call expression
+        let input_type = match expr {
+            Expression::Call { data_type, .. } => data_type.clone(),
+            _ => DataType::Str,
+        };
+
+        // Handle different types
+        match input_type {
+            DataType::I64 | DataType::I32 | DataType::I16 | DataType::I8 => {
+                let result = self.tmp();
+                let temp_buf = self.tmp();
+                self.body.push(format!("  {temp_buf} = alloca i64"));
+                self.body.push(format!(
+                    "  call i32 (ptr, ...) @scanf(ptr @.scanf_i64, ptr {temp_buf})"
+                ));
+                self.body
+                    .push(format!("  {result} = load i64, ptr {temp_buf}"));
+                self.body.push(format!(
+                    "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 {result})"
+                ));
+            }
+            _ => {
+                // For strings (default), just echo the input
+                let result = self.tmp();
+                self.body
+                    .push(format!("  {result} = inttoptr i64 {malloc_result} to ptr"));
+                self.body.push(format!(
+                    "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {result})"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -2632,12 +2771,17 @@ impl LlvmIrGen {
         }
     }
 
-    fn compile_binary(&mut self, op: &str, lhs: LlValue, rhs: LlValue) -> Result<LlValue> {
+    fn compile_binary(
+        &mut self,
+        op: &str,
+        lhs: LlValue,
+        rhs: LlValue,
+        _data_type: &DataType,
+    ) -> Result<LlValue> {
         let left_repr = lhs.repr.clone();
         let right_repr = rhs.repr.clone();
         let left_is_ptr = lhs.ty == LlType::Ptr;
         let right_is_ptr = rhs.ty == LlType::Ptr;
-        let right = self.tmp();
         let result = self.tmp();
 
         if left_is_ptr && right_is_ptr && op == "+" {
@@ -2671,17 +2815,6 @@ impl LlvmIrGen {
                 ty: LlType::I1,
                 repr: result,
                 owned: false,
-            });
-        }
-
-        if op == "+" && left_is_ptr && right_is_ptr {
-            self.body.push(format!(
-                "  {result} = call ptr @mire_list_concat(ptr {left_repr}, ptr {right_repr})"
-            ));
-            return Ok(LlValue {
-                ty: LlType::Ptr,
-                repr: result,
-                owned: true,
             });
         }
 

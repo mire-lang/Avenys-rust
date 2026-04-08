@@ -317,6 +317,7 @@ pub enum Statement {
         data_type: DataType,
         value: Option<Expression>,
         is_constant: bool,
+        is_mutable: bool,
         is_static: bool,
         visibility: Visibility,
     },

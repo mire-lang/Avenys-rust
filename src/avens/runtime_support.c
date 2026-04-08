@@ -6,9 +6,94 @@
 #include <time.h>
 #include <unistd.h>
 
-typedef struct {
-    uint64_t hash;
+// Fast list implementation - inline storage
+// Format: [capacity, length, data...]
+// This avoids pointer arithmetic and extra allocations
+
+static inline void *mire_list_create(int64_t initial_cap, int64_t elem_size) {
+    if (initial_cap < 4) initial_cap = 4;
+    int64_t *ptr = (int64_t *)malloc(16 + initial_cap * elem_size);
+    if (!ptr) return NULL;
+    ptr[0] = initial_cap;
+    ptr[1] = 0;
+    return ptr + 2;
+}
+
+static inline int64_t mire_list_len(void *list_ptr) {
+    if (!list_ptr) return 0;
+    return ((int64_t *)list_ptr)[-1];
+}
+
+static inline int64_t mire_list_cap(void *list_ptr) {
+    if (!list_ptr) return 0;
+    return ((int64_t *)list_ptr)[-2];
+}
+
+static inline void *mire_list_grow(void *list_ptr, int64_t elem_size) {
+    int64_t old_cap = mire_list_cap(list_ptr);
+    int64_t old_len = mire_list_len(list_ptr);
+    int64_t new_cap = old_cap < 4 ? 4 : old_cap + (old_cap >> 1);  // 1.5x growth
+    
+    int64_t *old_ptr = ((int64_t *)list_ptr) - 2;
+    int64_t *new_ptr = (int64_t *)realloc(old_ptr, 16 + new_cap * elem_size);
+    if (!new_ptr) return list_ptr;
+    
+    new_ptr[0] = new_cap;
+    return new_ptr + 2;
+}
+
+void *mire_list_push_i64(void *list_ptr, int64_t value) {
+    if (!list_ptr) {
+        list_ptr = mire_list_create(4, 8);
+        if (!list_ptr) return NULL;
+    }
+    
+    int64_t len = mire_list_len(list_ptr);
+    int64_t cap = mire_list_cap(list_ptr);
+    
+    if (len >= cap) {
+        list_ptr = mire_list_grow(list_ptr, 8);
+    }
+    
+    ((int64_t *)list_ptr)[len] = value;
+    ((int64_t *)list_ptr)[-1] = len + 1;
+    return list_ptr;
+}
+
+void *mire_list_push_scalar(void *list_ptr, int64_t value, int64_t elem_size) {
+    if (!list_ptr) {
+        list_ptr = mire_list_create(4, elem_size > 0 ? elem_size : 8);
+        if (!list_ptr) return NULL;
+    }
+    
+    int64_t len = mire_list_len(list_ptr);
+    int64_t cap = mire_list_cap(list_ptr);
+    
+    if (len >= cap) {
+        list_ptr = mire_list_grow(list_ptr, elem_size > 0 ? elem_size : 8);
+    }
+    
+    if (elem_size == 8) {
+        ((int64_t *)list_ptr)[len] = value;
+    } else if (elem_size == 4) {
+        ((int32_t *)list_ptr)[len] = (int32_t)value;
+    } else if (elem_size == 2) {
+        ((int16_t *)list_ptr)[len] = (int16_t)value;
+    } else if (elem_size == 1) {
+        ((int8_t *)list_ptr)[len] = (int8_t)value;
+    } else {
+        memcpy((char *)list_ptr + len * elem_size, &value, elem_size);
+    }
+    
+    ((int64_t *)list_ptr)[-1] = len + 1;
+    return list_ptr;
+}
+
+typedef struct MireDictEntry {
+    int64_t hash;
     int64_t next;
+    int64_t key_i64;
+    char *key_str;
 } MireDictEntry;
 
 typedef struct {
@@ -601,69 +686,6 @@ void mire_string_free(char *value) {
     }
 }
 
-void *mire_list_push_i64(void *list_ptr, int64_t value) {
-    return mire_list_push_scalar(list_ptr, value, 8);
-}
-
-void *mire_list_push_scalar(void *list_ptr, int64_t value, int64_t elem_size) {
-    uint8_t *base = NULL;
-    int64_t *len_ptr = (int64_t *)list_ptr;
-    int64_t len = 0;
-    int64_t cap = 0;
-
-    if (elem_size <= 0) {
-        elem_size = 8;
-    }
-
-    if (len_ptr == NULL) {
-        cap = 4;
-        base = (uint8_t *)malloc((size_t)(16 + cap * elem_size));
-        if (base == NULL) {
-            return NULL;
-        }
-        ((int64_t *)base)[0] = cap;
-        ((int64_t *)base)[1] = 0;
-        len_ptr = (int64_t *)(base + 8);
-    } else {
-        base = ((uint8_t *)list_ptr) - 8;
-        cap = ((int64_t *)base)[0];
-        len = len_ptr[0];
-        if (cap <= 0) {
-            cap = len > 0 ? len : 4;
-        }
-        if (len >= cap) {
-            int64_t next_cap = cap < 4 ? 4 : cap * 2;
-            uint8_t *next_base = (uint8_t *)realloc(base, (size_t)(16 + next_cap * elem_size));
-            if (next_base == NULL) {
-                return list_ptr;
-            }
-            base = next_base;
-            ((int64_t *)base)[0] = next_cap;
-            len_ptr = (int64_t *)(base + 8);
-            cap = next_cap;
-        }
-    }
-
-    len = len_ptr[0];
-    uint8_t *slot = ((uint8_t *)len_ptr) + 8 + (size_t)(len * elem_size);
-    switch (elem_size) {
-        case 1:
-            *(uint8_t *)slot = (uint8_t)value;
-            break;
-        case 2:
-            *(uint16_t *)slot = (uint16_t)value;
-            break;
-        case 4:
-            *(uint32_t *)slot = (uint32_t)value;
-            break;
-        default:
-            *(int64_t *)slot = value;
-            break;
-    }
-    len_ptr[0] = len + 1;
-    return len_ptr;
-}
-
 void *mire_list_push_ptr(void *list_ptr, void *value) {
     intptr_t *len_ptr = (intptr_t *)list_ptr;
     intptr_t *base = NULL;
@@ -1000,4 +1022,223 @@ void *mire_list_concat(void *left_ptr, void *right_ptr) {
     }
     
     return new_len_ptr;
+}
+
+void *mire_list_slice(void *list_ptr, int64_t start, int64_t end) {
+    intptr_t *len_ptr = (intptr_t *)list_ptr;
+    if (len_ptr == NULL) {
+        return NULL;
+    }
+    
+    intptr_t len = len_ptr[0];
+    if (start < 0) start = 0;
+    if (end > len) end = len;
+    if (start >= end) {
+        return NULL;
+    }
+    
+    intptr_t new_len = end - start;
+    intptr_t cap = 4;
+    while (cap < new_len) {
+        cap *= 2;
+    }
+    
+    intptr_t *new_base = (intptr_t *)malloc((size_t)(2 + cap) * sizeof(intptr_t));
+    if (new_base == NULL) {
+        return NULL;
+    }
+    
+    new_base[0] = cap;
+    new_base[1] = new_len;
+    intptr_t *new_len_ptr = new_base + 1;
+    
+    memcpy(new_len_ptr, len_ptr + start, (size_t)new_len * sizeof(intptr_t));
+    
+    return new_len_ptr;
+}
+
+char *mire_strings_split(const char *input, const char *delimiter) {
+    if (input == NULL || delimiter == NULL) {
+        return mire_strdup("");
+    }
+    
+    size_t delim_len = strlen(delimiter);
+    if (delim_len == 0) {
+        return mire_strdup(input);
+    }
+    
+    size_t input_len = strlen(input);
+    
+    size_t count = 1;
+    const char *p = input;
+    while ((p = strstr(p, delimiter)) != NULL) {
+        count++;
+        p += delim_len;
+    }
+    
+    char **parts = (char **)malloc(count * sizeof(char *));
+    if (parts == NULL) {
+        return mire_strdup("");
+    }
+    
+    char *input_copy = mire_strdup(input);
+    char *token = strtok(input_copy, delimiter);
+    size_t idx = 0;
+    
+    while (token != NULL && idx < count) {
+        parts[idx++] = mire_strdup(token);
+        token = strtok(NULL, delimiter);
+    }
+    
+    free(input_copy);
+    
+    size_t total_len = 0;
+    for (size_t i = 0; i < idx; i++) {
+        total_len += strlen(parts[i]) + 1;
+    }
+    
+    char *result = (char *)malloc(total_len + 1);
+    if (result == NULL) {
+        for (size_t i = 0; i < idx; i++) {
+            free(parts[i]);
+        }
+        free(parts);
+        return mire_strdup("");
+    }
+    
+    result[0] = '\0';
+    for (size_t i = 0; i < idx; i++) {
+        if (i > 0) {
+            strcat(result, " ");
+        }
+        strcat(result, parts[i]);
+    }
+    
+    for (size_t i = 0; i < idx; i++) {
+        free(parts[i]);
+    }
+    free(parts);
+    
+    return result;
+}
+
+char *mire_strings_join(char **parts, size_t count, const char *delimiter) {
+    if (parts == NULL || count == 0) {
+        return mire_strdup("");
+    }
+    
+    if (delimiter == NULL) {
+        delimiter = "";
+    }
+    size_t delim_len = strlen(delimiter);
+    
+    size_t total_len = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (parts[i] != NULL) {
+            total_len += strlen(parts[i]);
+        }
+    }
+    
+    if (count > 1 && delim_len > 0) {
+        total_len += (count - 1) * delim_len;
+    }
+    
+    char *result = (char *)malloc(total_len + 1);
+    if (result == NULL) {
+        return mire_strdup("");
+    }
+    
+    result[0] = '\0';
+    for (size_t i = 0; i < count; i++) {
+        if (i > 0 && delim_len > 0) {
+            strcat(result, delimiter);
+        }
+        if (parts[i] != NULL) {
+            strcat(result, parts[i]);
+        }
+    }
+    
+    return result;
+}
+
+char *mire_strings_trim(const char *input) {
+    if (input == NULL) {
+        return mire_strdup("");
+    }
+    
+    const char *start = input;
+    const char *end = input + strlen(input);
+    
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') {
+        start++;
+    }
+    
+    while (end > start && (*(end - 1) == ' ' || *(end - 1) == '\t' || *(end - 1) == '\n' || *(end - 1) == '\r')) {
+        end--;
+    }
+    
+    size_t len = end - start;
+    char *result = (char *)malloc(len + 1);
+    if (result == NULL) {
+        return mire_strdup("");
+    }
+    
+    memcpy(result, start, len);
+    result[len] = '\0';
+    
+    return result;
+}
+
+void *mire_dict_keys(void *dict_ptr) {
+    MireDict *dict = (MireDict *)dict_ptr;
+    if (dict == NULL) {
+        return NULL;
+    }
+    
+    int64_t cap = 4;
+    while (cap < dict->len) {
+        cap *= 2;
+    }
+    
+    intptr_t *result = (intptr_t *)malloc((size_t)(2 + cap) * sizeof(intptr_t));
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    result[0] = cap;
+    result[1] = dict->len;
+    intptr_t *data = result + 2;
+    
+    for (int64_t i = 0; i < dict->len; i++) {
+        data[i] = dict->buckets[i];
+    }
+    
+    return data;
+}
+
+void *mire_dict_values(void *dict_ptr) {
+    MireDict *dict = (MireDict *)dict_ptr;
+    if (dict == NULL) {
+        return NULL;
+    }
+    
+    int64_t cap = 4;
+    while (cap < dict->len) {
+        cap *= 2;
+    }
+    
+    intptr_t *result = (intptr_t *)malloc((size_t)(2 + cap) * sizeof(intptr_t));
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    result[0] = cap;
+    result[1] = dict->len;
+    intptr_t *data = result + 2;
+    
+    for (int64_t i = 0; i < dict->len; i++) {
+        data[i] = dict->len;
+    }
+    
+    return data;
 }
