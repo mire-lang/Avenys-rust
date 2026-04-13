@@ -1,31 +1,27 @@
 pub mod mss;
 
 use mss::MssError;
-use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum ErrorKind {
-    #[error("Lexical error")]
     Lexer {
         line: usize,
         column: usize,
         message: String,
     },
-
-    #[error("Syntax error")]
     Parser {
         line: usize,
         column: usize,
         message: String,
     },
-
-    #[error("Runtime error")]
-    Runtime { message: String },
-
-    #[error("Type error")]
-    Type { message: String },
-
-    #[error("Ownership error")]
+    Runtime {
+        message: String,
+    },
+    Type {
+        line: usize,
+        column: usize,
+        message: String,
+    },
     Ownership {
         line: usize,
         column: usize,
@@ -43,15 +39,43 @@ impl ErrorKind {
     }
 
     pub fn type_error(message: String) -> Self {
-        ErrorKind::Type { message }
+        ErrorKind::Type {
+            line: 0,
+            column: 0,
+            message,
+        }
     }
 
-    pub fn type_error_at(_line: usize, _column: usize, message: String) -> Self {
-        ErrorKind::Type { message }
+    pub fn type_error_at(line: usize, column: usize, message: String) -> Self {
+        ErrorKind::Type {
+            line,
+            column,
+            message,
+        }
     }
 
     pub fn ownership_error(line: usize, column: usize, kind: MssError) -> Self {
         ErrorKind::Ownership { line, column, kind }
+    }
+
+    fn error_type_name(&self) -> &'static str {
+        match self {
+            ErrorKind::Lexer { .. } => "lexer",
+            ErrorKind::Parser { .. } => "parser",
+            ErrorKind::Runtime { .. } => "runtime",
+            ErrorKind::Type { .. } => "type",
+            ErrorKind::Ownership { .. } => "ownership",
+        }
+    }
+
+    fn error_title(&self) -> &'static str {
+        match self {
+            ErrorKind::Lexer { .. } => "Lexical Error",
+            ErrorKind::Parser { .. } => "Syntax Error",
+            ErrorKind::Runtime { .. } => "Runtime Error",
+            ErrorKind::Type { .. } => "Type Error",
+            ErrorKind::Ownership { .. } => "Ownership Error",
+        }
     }
 }
 
@@ -62,8 +86,7 @@ pub struct MireError {
     pub filename: Option<String>,
     pub line: usize,
     pub column: usize,
-    pub hint: Option<String>,
-    pub suggestion: Option<String>,
+    pub explanation: Option<String>,
 }
 
 impl std::fmt::Display for MireError {
@@ -76,21 +99,23 @@ impl std::error::Error for MireError {}
 
 impl MireError {
     pub fn new(kind: ErrorKind) -> Self {
-        let (line, column, hint) = match &kind {
-            ErrorKind::Lexer { line, column, .. } => (*line, *column, None),
-            ErrorKind::Parser { line, column, .. } => (*line, *column, None),
-            ErrorKind::Runtime { message } => (1, 1, runtime_hint(message)),
-            ErrorKind::Type { .. } => (1, 1, None),
-            ErrorKind::Ownership { line, column, kind } => (*line, *column, Some(kind.to_string())),
+        let (line, column) = match &kind {
+            ErrorKind::Lexer { line, column, .. } => (*line, *column),
+            ErrorKind::Parser { line, column, .. } => (*line, *column),
+            ErrorKind::Runtime { .. } => (1, 1),
+            ErrorKind::Type { line, column, .. } => (*line, *column),
+            ErrorKind::Ownership { line, column, .. } => (*line, *column),
         };
+
+        let explanation = generate_explanation(&kind);
+
         Self {
             kind,
             source: None,
             filename: None,
             line,
             column,
-            hint,
-            suggestion: None,
+            explanation,
         }
     }
 
@@ -104,34 +129,25 @@ impl MireError {
         self
     }
 
-    pub fn with_hint(mut self, hint: String) -> Self {
-        self.hint = Some(hint);
-        self
-    }
-
-    pub fn with_suggestion(mut self, suggestion: String) -> Self {
-        self.suggestion = Some(suggestion);
+    pub fn with_explanation(mut self, explanation: String) -> Self {
+        self.explanation = Some(explanation);
         self
     }
 
     pub fn format(&self) -> String {
-        self.format_with_options(false, true)
+        self.format_with_options(false)
     }
 
     pub fn format_color(&self) -> String {
-        self.format_with_options(true, true)
+        self.format_with_options(true)
     }
 
-    pub fn format_simple(&self) -> String {
-        self.format_with_options(false, false)
-    }
-
-    fn format_with_options(&self, use_color: bool, show_context: bool) -> String {
+    fn format_with_options(&self, use_color: bool) -> String {
         let message = match &self.kind {
             ErrorKind::Lexer { message, .. } => message.clone(),
             ErrorKind::Parser { message, .. } => message.clone(),
             ErrorKind::Runtime { message } => message.clone(),
-            ErrorKind::Type { message } => message.clone(),
+            ErrorKind::Type { message, .. } => message.clone(),
             ErrorKind::Ownership { kind, .. } => kind.to_string(),
         };
 
@@ -140,56 +156,59 @@ impl MireError {
             .clone()
             .unwrap_or_else(|| "main.mire".to_string());
 
-        let error_type_str: &str = match &self.kind {
-            ErrorKind::Lexer { .. } => "Lexer",
-            ErrorKind::Parser { .. } => "Parser",
-            ErrorKind::Runtime { .. } => "Runtime",
-            ErrorKind::Type { .. } => "Type",
-            ErrorKind::Ownership { .. } => "Ownership",
-        };
+        let error_type = self.kind.error_type_name();
+        let error_title = self.kind.error_title();
 
-        let header = if use_color {
-            format!(
-                "\x1b[1;31merror\x1b[0m[{}]: {}",
-                error_type_str.to_lowercase(),
-                message
-            )
+        let mut output = String::new();
+
+        if use_color {
+            output.push_str(
+                "\n\x1b[1;36m✦\x1b[0m \x1b[1;37mAvenys Compiler\x1b[0m \x1b[1;36m✦\x1b[0m\n",
+            );
         } else {
-            format!("error[{}]: {}", error_type_str.to_lowercase(), message)
-        };
+            output.push_str("\n✦ Avenys Compiler ✦\n");
+        }
 
-        let location_str = if use_color {
-            format!(
-                "\x1b[1;34m--> {}:{}\x1b[0m",
+        if use_color {
+            output.push_str(&format!(
+                "\n\x1b[1;31merror[{}]\x1b[0m \x1b[90m───\x1b[0m \x1b[1;33m{}\x1b[0m\n",
+                error_type, error_title
+            ));
+        } else {
+            output.push_str(&format!("\nerror[{}] ── {}\n", error_type, error_title));
+        }
+
+        if use_color {
+            output.push_str(&format!(
+                "\x1b[1;36m╭─[ {}:{} ]\x1b[0m\n",
                 filename,
                 self.format_location()
-            )
+            ));
         } else {
-            format!("--> {}:{}", filename, self.format_location())
-        };
-
-        let mut output = format!("{}\n{}\n", location_str, header);
-
-        if show_context {
-            output.push_str(&self.format_code_context(use_color));
+            output.push_str(&format!(
+                "\n╭─[ {}:{} ]\n",
+                filename,
+                self.format_location()
+            ));
         }
 
-        if let Some(hint) = &self.hint {
-            let hint_str = if use_color {
-                format!("\x1b[1;90mhelp\x1b[0m: {}", hint)
-            } else {
-                format!("help: {}", hint)
-            };
-            output.push_str(&format!("{}\n", hint_str));
-        }
+        output.push_str(&self.format_code_context(use_color));
 
-        if let Some(suggestion) = &self.suggestion {
-            let sugg_str = if use_color {
-                format!("\x1b[1;32msuggestion\x1b[0m: {}", suggestion)
+        if let Some(explanation) = &self.explanation {
+            if use_color {
+                output.push_str(&format!(
+                    "\x1b[90m╰─\x1b[0m \x1b[90mexplanation:\x1b[0m\n   {}\n",
+                    explanation
+                ));
             } else {
-                format!("suggestion: {}", suggestion)
-            };
-            output.push_str(&format!("{}\n", sugg_str));
+                output.push_str(&format!("\n╰─ explanation:\n   {}\n", explanation));
+            }
+        } else {
+            if use_color {
+                output.push_str("\x1b[90m╰─\x1b[0m\n");
+            } else {
+                output.push_str("\n╰─\n");
+            }
         }
 
         output
@@ -206,7 +225,7 @@ impl MireError {
                 return String::new();
             }
 
-            let start_line = self.line.saturating_sub(2);
+            let start_line = if self.line > 2 { self.line - 2 } else { 1 };
             let end_line = (self.line + 2).min(lines.len());
 
             let line_num_width = end_line.to_string().len();
@@ -215,49 +234,63 @@ impl MireError {
             for (i, line) in lines
                 .iter()
                 .enumerate()
-                .skip(start_line)
-                .take(end_line - start_line)
+                .skip(start_line - 1)
+                .take(end_line - start_line + 1)
             {
                 let line_num = i + 1;
-                let line_num_str = format!("{:width$}", line_num, width = line_num_width);
 
                 if line_num == self.line {
-                    let caret_pos = self.column.saturating_sub(1);
-                    let line_len = line.len();
-                    let caret_len = line_len.saturating_sub(caret_pos).max(1);
+                    let error_col = self.column.saturating_sub(1);
+                    let marker = if error_col > 0 {
+                        format!("{}{}", "─".repeat(error_col), "^^^")
+                    } else {
+                        "^^^".to_string()
+                    };
 
                     if use_color {
-                        output
-                            .push_str(&format!("\x1b[1;32m{:>}\x1b[0m |{}\n", line_num_str, line));
                         output.push_str(&format!(
-                            "  {} |{}{}\x1b[31m{}\x1b[0m",
+                            "│ {:width$} │ \x1b[1;37m{}\x1b[0m\n",
+                            line_num,
+                            line,
+                            width = line_num_width
+                        ));
+                        output.push_str(&format!(
+                            "│ {} │ \x1b[1;31m{}\x1b[0m\n",
                             " ".repeat(line_num_width),
-                            " ".repeat(caret_pos),
-                            "^".repeat(caret_len.min(3).max(1)),
-                            if caret_len > 3 { "..." } else { "" }
+                            marker
                         ));
                     } else {
-                        output.push_str(&format!("{:>}|{}\n", line_num_str, line));
                         output.push_str(&format!(
-                            "  {}{}{}",
+                            "│ {:width$} │ {}\n",
+                            line_num,
+                            line,
+                            width = line_num_width
+                        ));
+                        output.push_str(&format!(
+                            "│ {} │ {}\n",
                             " ".repeat(line_num_width),
-                            " ".repeat(caret_pos),
-                            "^".repeat(caret_len.min(3).max(1))
+                            marker
                         ));
                     }
                 } else {
                     if use_color {
                         output.push_str(&format!(
-                            "\x1b[1;90m{:>}\x1b[0m |\x1b[90m{}\x1b[0m\n",
-                            line_num_str, line
+                            "│ \x1b[1;90m{:width$}\x1b[0m │ \x1b[90m{}\x1b[0m\n",
+                            line_num,
+                            line,
+                            width = line_num_width
                         ));
                     } else {
-                        output.push_str(&format!("{:>}|{}\n", line_num_str, line));
+                        output.push_str(&format!(
+                            "│ {:width$} │ {}\n",
+                            line_num,
+                            line,
+                            width = line_num_width
+                        ));
                     }
                 }
             }
 
-            output.push('\n');
             output
         } else {
             String::new()
@@ -286,14 +319,19 @@ impl MireError {
     }
 
     pub fn type_error(message: String) -> Self {
-        Self::new(ErrorKind::Type { message })
+        Self::new(ErrorKind::Type {
+            line: 0,
+            column: 0,
+            message,
+        })
     }
 
     pub fn type_error_at(line: usize, column: usize, message: String) -> Self {
-        let mut error = Self::new(ErrorKind::Type { message });
-        error.line = line;
-        error.column = column;
-        error
+        Self::new(ErrorKind::Type {
+            line,
+            column,
+            message,
+        })
     }
 
     pub fn ownership_error(line: usize, column: usize, kind: MssError) -> Self {
@@ -303,32 +341,65 @@ impl MireError {
 
 pub type Result<T> = std::result::Result<T, MireError>;
 
-fn runtime_hint(message: &str) -> Option<String> {
-    if message.starts_with("Undefined variable: ") {
-        Some("Declare the variable with add <type> > (name = ...), or check scope.".to_string())
-    } else if message.starts_with("Undefined field: ")
-        || message.starts_with("Unknown field ")
-        || message.starts_with("Field '")
-    {
-        Some("Check the field name, visibility, and that the instance has the field.".to_string())
-    } else if message.contains("Cannot access member on class") {
-        Some("Instantiate with ClassName(...) before accessing members.".to_string())
-    } else if message.contains("Cannot assign to '") && message.contains("already borrowed") {
-        Some("Release references (drop) or re-assign the reference before mutating.".to_string())
-    } else if message.contains("Cannot borrow '") {
-        Some("Avoid mixing mutable and immutable references at the same time.".to_string())
-    } else if message.contains("Cannot index") {
-        Some("Ensure the value is list/tuple/dict and the index is in range.".to_string())
-    } else if message.contains("Index out of bounds") {
-        Some("Check index bounds and collection length.".to_string())
-    } else if message.contains("is not callable") || message.contains("Cannot call") {
-        Some("Ensure the value is a function/method before calling.".to_string())
-    } else {
-        None
+fn generate_explanation(kind: &ErrorKind) -> Option<String> {
+    match kind {
+        ErrorKind::Lexer { message, .. } => {
+            if message.contains("Unexpected character") {
+                Some("The lexer found a character it cannot process.".to_string())
+            } else if message.contains("Unterminated") {
+                Some("A string or comment was not properly closed.".to_string())
+            } else if message.contains("Invalid") {
+                Some("The input contains invalid characters.".to_string())
+            } else {
+                Some("A lexical error was found while reading the code.".to_string())
+            }
+        }
+        ErrorKind::Parser { message, .. } => {
+            if message.contains("Expected") {
+                Some("The parser expected different syntax here.".to_string())
+            } else if message.contains("Unexpected") {
+                Some("The parser found unexpected syntax.".to_string())
+            } else if message.contains("Unexpected token") {
+                Some("This token is not valid in this context.".to_string())
+            } else if message.contains("Unexpected end") {
+                Some("The code ended unexpectedly.".to_string())
+            } else {
+                Some("A syntax error was found.".to_string())
+            }
+        }
+        ErrorKind::Runtime { message } => {
+            if message.contains("Undefined") {
+                Some("A variable or function was used before being defined.".to_string())
+            } else if message.contains("Cannot call") || message.contains("not callable") {
+                Some("You tried to call something that is not a function.".to_string())
+            } else if message.contains("Index") || message.contains("out of bounds") {
+                Some("The index is outside the valid range.".to_string())
+            } else if message.contains("division") || message.contains("divide") {
+                Some("Cannot divide by zero.".to_string())
+            } else if message.contains("No such file") || message.contains("not found") {
+                Some("The requested file was not found.".to_string())
+            } else {
+                Some("An error occurred while running the program.".to_string())
+            }
+        }
+        ErrorKind::Type { message, .. } => {
+            if message.contains("mismatch") || message.contains("incompatible") {
+                Some("The types do not match what was expected.".to_string())
+            } else if message.contains("Unknown identifier") {
+                Some("This name has not been defined in the current scope.".to_string())
+            } else if message.contains("cannot") && message.contains("+") {
+                Some("These types cannot be added together.".to_string())
+            } else if message.contains("Expected") {
+                Some("The type is different from what was expected.".to_string())
+            } else {
+                Some("A type error was found.".to_string())
+            }
+        }
+        ErrorKind::Ownership { kind, .. } => Some(format!("Ownership rule violated: {}", kind)),
     }
 }
 
-pub fn format_error_chain(errors: &[MireError], use_color: bool) -> String {
+pub fn format_error_chain(errors: &[MireError], _use_color: bool) -> String {
     if errors.is_empty() {
         return String::new();
     }
@@ -336,22 +407,12 @@ pub fn format_error_chain(errors: &[MireError], use_color: bool) -> String {
     let mut output = String::new();
 
     if errors.len() == 1 {
-        if use_color {
-            output.push_str(&errors[0].format_color());
-        } else {
-            output.push_str(&errors[0].format());
-        }
+        output.push_str(&errors[0].format_color());
         return output;
     }
 
     for (i, error) in errors.iter().enumerate() {
-        if use_color {
-            output.push_str(&format!("\x1b[1;31merror[{}]\x1b[0m\n", i + 1));
-            output.push_str(&error.format_color());
-        } else {
-            output.push_str(&format!("error[{}]\n", i + 1));
-            output.push_str(&error.format());
-        }
+        output.push_str(&error.format_color());
         if i < errors.len() - 1 {
             output.push_str("\n");
         }
