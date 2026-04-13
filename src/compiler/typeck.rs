@@ -29,10 +29,18 @@ struct EnumVariantSig {
     payload_types: Vec<DataType>,
 }
 
-pub fn check_program_types(program: &mut Program) -> Result<()> {
+pub fn check_program_types(program: &mut Program, source: &str) -> Result<()> {
+    TYPE_CHECKER_SOURCE.with(|s| {
+        *s.borrow_mut() = Some(source.to_string());
+    });
+
     let mut checker = TypeChecker::new();
     checker.collect_function_signatures(&program.statements)?;
     checker.check_statements(&mut program.statements)
+}
+
+thread_local! {
+    static TYPE_CHECKER_SOURCE: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 }
 
 struct TypeChecker {
@@ -43,6 +51,7 @@ struct TypeChecker {
     builtin_returns: HashMap<String, DataType>,
     return_type_stack: Vec<DataType>,
     visited_libs: HashSet<String>,
+    source: Option<String>,
 }
 
 impl TypeChecker {
@@ -55,6 +64,7 @@ impl TypeChecker {
             builtin_returns: Self::default_builtin_returns(),
             return_type_stack: Vec::new(),
             visited_libs: HashSet::new(),
+            source: None,
         }
     }
 
@@ -507,9 +517,10 @@ impl TypeChecker {
                 name,
                 data_type,
                 value,
-                is_mutable,
                 is_constant,
-                ..
+                is_mutable,
+                is_static,
+                visibility,
             } => {
                 if let Some(expr) = value {
                     if let Expression::Literal(Literal::Int(int_val)) = expr {
@@ -768,7 +779,7 @@ impl TypeChecker {
             | Statement::ExternFunction { .. }
             | Statement::Enum { .. } => {}
             Statement::AddLib { .. } => {}
-            Statement::Use { path } => {
+            Statement::Use { path, .. } => {
                 if path == "__std_all__" {
                     for module in ["math", "term", "strings", "lists", "dicts", "time"] {
                         self.import_std_members(module);
@@ -866,9 +877,13 @@ impl TypeChecker {
                 Ok(Self::literal_type(lit))
             }
             Expression::Identifier(ident) => {
-                let (resolved, _) = self
-                    .lookup_var(&ident.name)
-                    .ok_or_else(|| type_error(format!("Unknown identifier '{}'", ident.name)))?;
+                let (resolved, _) = self.lookup_var(&ident.name).ok_or_else(|| {
+                    type_error_at(
+                        ident.line,
+                        ident.column,
+                        format!("Unknown identifier '{}'", ident.name),
+                    )
+                })?;
                 ident.data_type = resolved.clone();
                 Ok(resolved)
             }
@@ -1225,6 +1240,31 @@ impl TypeChecker {
                 *data_type = DataType::Box;
                 Ok(DataType::Box)
             }
+            Expression::Pipeline {
+                input,
+                stage,
+                safe,
+                data_type,
+            } => {
+                let _ = self.check_expression(input)?;
+                let _ = self.check_expression(stage)?;
+                let _ = safe;
+                Ok(data_type.clone())
+            }
+            Expression::Match {
+                value,
+                cases,
+                default,
+                data_type,
+            } => {
+                let _ = self.check_expression(value)?;
+                for (case_expr, case_body) in cases.iter_mut() {
+                    let _ = self.check_expression(case_expr)?;
+                    let _ = self.check_expression(case_body)?;
+                }
+                let _ = self.check_expression(default)?;
+                Ok(data_type.clone())
+            }
         }
     }
 
@@ -1300,7 +1340,7 @@ impl TypeChecker {
     fn literal_type(lit: &Literal) -> DataType {
         match lit {
             Literal::Int(_) => DataType::I64,
-            Literal::Float(_) => DataType::Float,
+            Literal::Float(_) => DataType::F64,
             Literal::Str(_) => DataType::Str,
             Literal::Bool(_) => DataType::Bool,
             Literal::None => DataType::None,
@@ -1381,9 +1421,9 @@ impl TypeChecker {
             MireValue::U16(_) => DataType::U16,
             MireValue::U32(_) => DataType::U32,
             MireValue::U64(_) => DataType::U64,
-            MireValue::Float(_) => DataType::Float,
-            MireValue::F32(_) => DataType::F32,
+            MireValue::Float(_) => DataType::F64,
             MireValue::F64(_) => DataType::F64,
+            MireValue::F32(_) => DataType::F32,
             MireValue::Str(_) => DataType::Str,
             MireValue::Bool(_) => DataType::Bool,
             MireValue::None => DataType::None,
@@ -1508,17 +1548,11 @@ impl TypeChecker {
     }
 
     fn promote_numeric(left: &DataType, right: &DataType) -> DataType {
-        if matches!(left, DataType::F64 | DataType::Float)
-            || matches!(right, DataType::F64 | DataType::Float)
+        if matches!(left, DataType::F64 | DataType::F32)
+            || matches!(right, DataType::F64 | DataType::F32)
         {
-            DataType::Float
-        } else if matches!(left, DataType::F32) || matches!(right, DataType::F32) {
-            DataType::F32
-        } else if left == &DataType::I64
-            || right == &DataType::I64
-            || left == &DataType::Int
-            || right == &DataType::Int
-        {
+            DataType::F64
+        } else if left == &DataType::I64 || right == &DataType::I64 {
             DataType::I64
         } else {
             left.clone()
@@ -1528,8 +1562,7 @@ impl TypeChecker {
     fn is_numeric(dtype: &DataType) -> bool {
         matches!(
             dtype,
-            DataType::Int
-                | DataType::I8
+            DataType::I8
                 | DataType::I16
                 | DataType::I32
                 | DataType::I64
@@ -1537,7 +1570,6 @@ impl TypeChecker {
                 | DataType::U16
                 | DataType::U32
                 | DataType::U64
-                | DataType::Float
                 | DataType::F32
                 | DataType::F64
         )
@@ -1804,7 +1836,16 @@ impl TypeChecker {
 }
 
 fn type_error(message: String) -> MireError {
-    MireError::type_error(message)
+    type_error_at(0, 0, message)
+}
+
+fn type_error_at(line: usize, column: usize, message: String) -> MireError {
+    let source = TYPE_CHECKER_SOURCE.with(|source_guard| source_guard.borrow().clone());
+    let mut err = MireError::type_error_at(line, column, message);
+    if let Some(src) = source {
+        err = err.with_source(src);
+    }
+    err
 }
 
 #[cfg(test)]
@@ -1822,12 +1863,13 @@ mod tests {
                 data_type: DataType::Unknown,
                 value: Some(Expression::Literal(Literal::Int(42))),
                 is_constant: false,
+                is_mutable: false,
                 is_static: false,
                 visibility: Visibility::Public,
             }],
         };
 
-        check_program_types(&mut program).expect("type check must pass");
+        check_program_types(&mut program, "").expect("type check must pass");
 
         match &program.statements[0] {
             Statement::Let { data_type, .. } => assert_eq!(*data_type, DataType::I64),
@@ -1844,17 +1886,20 @@ mod tests {
                     data_type: DataType::I64,
                     value: Some(Expression::Literal(Literal::Int(1))),
                     is_constant: false,
+                    is_mutable: false,
                     is_static: false,
                     visibility: Visibility::Public,
                 },
                 Statement::Expression(Expression::Identifier(Identifier {
                     name: "x".to_string(),
                     data_type: DataType::Unknown,
+                    line: 0,
+                    column: 0,
                 })),
             ],
         };
 
-        check_program_types(&mut program).expect("type check must pass");
+        check_program_types(&mut program, "").expect("type check must pass");
 
         match &program.statements[1] {
             Statement::Expression(Expression::Identifier(ident)) => {
@@ -1879,10 +1924,14 @@ mod tests {
                         left: Box::new(Expression::Identifier(Identifier {
                             name: "a".to_string(),
                             data_type: DataType::Unknown,
+                            line: 0,
+                            column: 0,
                         })),
                         right: Box::new(Expression::Identifier(Identifier {
                             name: "b".to_string(),
                             data_type: DataType::Unknown,
+                            line: 0,
+                            column: 0,
                         })),
                         data_type: DataType::Unknown,
                     }))],
@@ -1901,7 +1950,7 @@ mod tests {
             ],
         };
 
-        check_program_types(&mut program).expect("type check must pass");
+        check_program_types(&mut program, "").expect("type check must pass");
 
         match &program.statements[1] {
             Statement::Expression(Expression::Call { data_type, .. }) => {
@@ -1917,10 +1966,12 @@ mod tests {
             statements: vec![Statement::Expression(Expression::Identifier(Identifier {
                 name: "missing".to_string(),
                 data_type: DataType::Unknown,
+                line: 0,
+                column: 0,
             }))],
         };
 
-        let err = check_program_types(&mut program).expect_err("must fail");
+        let err = check_program_types(&mut program, "").expect_err("must fail");
         assert!(err.to_string().contains("Unknown identifier 'missing'"));
     }
 
@@ -1933,6 +1984,7 @@ mod tests {
                     data_type: DataType::I64,
                     value: Some(Expression::Literal(Literal::Int(1))),
                     is_constant: false,
+                    is_mutable: false,
                     is_static: false,
                     visibility: Visibility::Public,
                 },
@@ -1944,7 +1996,7 @@ mod tests {
             ],
         };
 
-        let err = check_program_types(&mut program).expect_err("must fail");
+        let err = check_program_types(&mut program, "").expect_err("must fail");
         assert!(err
             .to_string()
             .contains("Type mismatch in assignment to 'x'"));
@@ -1970,7 +2022,7 @@ mod tests {
             ],
         };
 
-        check_program_types(&mut program).expect("type check must pass");
+        check_program_types(&mut program, "").expect("type check must pass");
 
         match &program.statements[0] {
             Statement::Expression(Expression::Call { data_type, .. }) => {
@@ -1991,10 +2043,11 @@ mod tests {
         let mut program = Program {
             statements: vec![
                 Statement::Let {
-                    name: "a".to_string(),
-                    data_type: DataType::Unknown,
-                    value: None,
+                    name: "x".to_string(),
+                    data_type: DataType::I64,
+                    value: Some(Expression::Literal(Literal::Int(1))),
                     is_constant: false,
+                    is_mutable: false,
                     is_static: false,
                     visibility: Visibility::Public,
                 },
@@ -2003,6 +2056,7 @@ mod tests {
                     data_type: DataType::Unknown,
                     value: None,
                     is_constant: false,
+                    is_mutable: false,
                     is_static: false,
                     visibility: Visibility::Public,
                 },
@@ -2011,16 +2065,20 @@ mod tests {
                     left: Box::new(Expression::Identifier(Identifier {
                         name: "a".to_string(),
                         data_type: DataType::Unknown,
+                        line: 0,
+                        column: 0,
                     })),
                     right: Box::new(Expression::Identifier(Identifier {
                         name: "b".to_string(),
                         data_type: DataType::Unknown,
+                        line: 0,
+                        column: 0,
                     })),
                     data_type: DataType::Unknown,
                 }),
             ],
         };
 
-        check_program_types(&mut program).expect("type check must pass");
+        check_program_types(&mut program, "").expect("type check must pass");
     }
 }

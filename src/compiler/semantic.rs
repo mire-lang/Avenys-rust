@@ -233,8 +233,8 @@ impl SemanticModelBuilder {
                 default,
             } => {
                 self.visit_expression(value);
-                for (case_expr, body) in cases {
-                    self.visit_expression(case_expr);
+                for (_case_expr, body) in cases {
+                    // Skip pattern - it's just a value for comparison
                     self.with_scope(|builder| builder.visit_statements(body));
                 }
                 self.with_scope(|builder| builder.visit_statements(default));
@@ -315,6 +315,23 @@ impl SemanticModelBuilder {
             }
             Expression::Closure { body, .. } => {
                 self.with_scope(|builder| builder.visit_statements(body));
+            }
+            Expression::Pipeline { input, stage, .. } => {
+                self.visit_expression(input);
+                self.visit_expression(stage);
+            }
+            Expression::Match {
+                value,
+                cases,
+                default,
+                ..
+            } => {
+                self.visit_expression(value);
+                for (_pattern, result) in cases {
+                    // Skip pattern - it's just a value for comparison, not a real expression
+                    self.visit_expression(result);
+                }
+                self.visit_expression(default);
             }
             Expression::Literal(_) | Expression::Identifier(_) => {}
         }

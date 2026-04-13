@@ -10,8 +10,8 @@ pub use semantic::{
 };
 pub use typeck::check_program_types;
 
-pub fn analyze_program(program: &mut Program) -> Result<SemanticModel> {
-    typeck::check_program_types(program)?;
+pub fn analyze_program(program: &mut Program, source: &str) -> Result<SemanticModel> {
+    typeck::check_program_types(program, source)?;
     let semantic_model = semantic::analyze_program(program);
     borrowck::check_program(program, &semantic_model)?;
     Ok(semantic_model)

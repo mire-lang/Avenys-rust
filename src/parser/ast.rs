@@ -14,7 +14,6 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataType {
-    Int,
     I8,
     I16,
     I32,
@@ -23,7 +22,6 @@ pub enum DataType {
     U16,
     U32,
     U64,
-    Float,
     F32,
     F64,
     Str,
@@ -41,6 +39,7 @@ pub enum DataType {
     },
     Anything,
     Function,
+    Struct,
     Db,
     Tuple,
     Set,
@@ -72,7 +71,6 @@ pub enum DataType {
 impl DataType {
     pub fn from_str(s: &str) -> Self {
         match s {
-            "int" => DataType::Int,
             "i8" => DataType::I8,
             "i16" => DataType::I16,
             "i32" => DataType::I32,
@@ -81,7 +79,6 @@ impl DataType {
             "u16" => DataType::U16,
             "u32" => DataType::U32,
             "u64" => DataType::U64,
-            "float" => DataType::Float,
             "f32" => DataType::F32,
             "f64" => DataType::F64,
             "str" => DataType::Str,
@@ -118,6 +115,8 @@ pub struct Program {
 pub struct Identifier {
     pub name: String,
     pub data_type: DataType,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +191,18 @@ pub enum Expression {
     },
     Box {
         value: Box<Expression>,
+        data_type: DataType,
+    },
+    Pipeline {
+        input: Box<Expression>,
+        stage: Box<Expression>,
+        safe: bool,
+        data_type: DataType,
+    },
+    Match {
+        value: Box<Expression>,
+        cases: Vec<(Expression, Expression)>,
+        default: Box<Expression>,
         data_type: DataType,
     },
 }
@@ -411,6 +422,9 @@ pub enum Statement {
     },
     Use {
         path: String,
+        alias: Option<String>,
+        items: Option<Vec<String>>,
+        is_local: bool,
     },
     Module {
         name: String,

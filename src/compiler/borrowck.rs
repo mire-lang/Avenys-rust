@@ -141,8 +141,8 @@ impl BorrowChecker {
                 default,
             } => {
                 self.check_expression(value)?;
-                for (case_expr, case_body) in cases {
-                    self.check_expression(case_expr)?;
+                for (_case_expr, case_body) in cases {
+                    // Skip pattern checking - they're just comparison values
                     self.push_scope();
                     self.check_statements(case_body)?;
                     self.pop_scope();
@@ -307,6 +307,23 @@ impl BorrowChecker {
             }
             Expression::Dereference { expr, .. } | Expression::Box { value: expr, .. } => {
                 self.check_expression(expr)?;
+            }
+            Expression::Pipeline { input, stage, .. } => {
+                self.check_expression(input)?;
+                self.check_expression(stage)?;
+            }
+            Expression::Match {
+                value,
+                cases,
+                default,
+                ..
+            } => {
+                self.check_expression(value)?;
+                for (_pattern, result) in cases {
+                    // Skip pattern checking - they're just comparison values
+                    self.check_expression(result)?;
+                }
+                self.check_expression(default)?;
             }
         }
         Ok(())
@@ -587,6 +604,9 @@ impl BorrowChecker {
 
                     if should_consume {
                         self.ensure_can_move(&name)?;
+                        if let Some(state) = self.lookup_binding_mut(&name) {
+                            state.is_moved = true;
+                        }
                     }
                 }
             }
@@ -654,6 +674,7 @@ mod tests {
             data_type: DataType::Unknown,
             value,
             is_constant: false,
+            is_mutable: false,
             is_static: false,
             visibility: Visibility::Public,
         }
@@ -663,6 +684,8 @@ mod tests {
         Expression::Identifier(Identifier {
             name: name.to_string(),
             data_type: DataType::Unknown,
+            line: 0,
+            column: 0,
         })
     }
 
@@ -869,6 +892,7 @@ mod tests {
                     data_type: DataType::Str,
                     value: Some(Expression::Literal(Literal::Str("mire".to_string()))),
                     is_constant: false,
+                    is_mutable: false,
                     is_static: false,
                     visibility: Visibility::Public,
                 },

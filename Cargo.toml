@@ -1,8 +1,8 @@
 [package]
-name = "mire-compiler"
-version = "0.1.0"
-edition = "2021"
-description = "Primary compiler repository for the Mire programming language"
+name = "Avenys"
+version = "1.0.0"
+edition = "2026"
+description = "(AMC) Avenys is the mire compiler"
 
 [dependencies]
 thiserror = "2.0"

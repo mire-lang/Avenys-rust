@@ -10,7 +10,7 @@ pub enum TokenType {
     StrLit,
     BoolLit,
     NoneLit,
-    Add,
+    Import,
     Set,
     Use,
     Return,
@@ -60,6 +60,7 @@ pub enum TokenType {
     Percent,
     Amp,
     Pipeline,
+    PipelineSafe, // =>? - safe pipeline that returns Option
     PlusAssign,
     MinusAssign,
     StarAssign,
@@ -75,6 +76,7 @@ pub enum TokenType {
     Colon,
     Comma,
     Dot,
+    Question,
     Newline,
     Eof,
 }
@@ -308,7 +310,7 @@ impl Lexer {
             if c.is_alphabetic() || c == '_' {
                 let ident = self.read_identifier();
                 let token = match ident.as_str() {
-                    "add" => Token::new(TokenType::Add, self.line, self.column),
+                    "import" => Token::new(TokenType::Import, self.line, self.column),
                     "set" => Token::new(TokenType::Set, self.line, self.column),
                     "use" => Token::new(TokenType::Use, self.line, self.column),
                     "return" => Token::new(TokenType::Return, self.line, self.column),
@@ -379,7 +381,12 @@ impl Lexer {
                     self.advance();
                     if self.peek(0) == Some('>') {
                         self.advance();
-                        Token::new(TokenType::Pipeline, self.line, self.column)
+                        if self.peek(0) == Some('?') {
+                            self.advance();
+                            Token::new(TokenType::PipelineSafe, self.line, self.column)
+                        } else {
+                            Token::new(TokenType::Pipeline, self.line, self.column)
+                        }
                     } else if self.peek(0) == Some('=') {
                         self.advance();
                         Token::new(TokenType::Eq, self.line, self.column)
@@ -498,6 +505,15 @@ impl Lexer {
                 '.' => {
                     self.advance();
                     Token::new(TokenType::Dot, self.line, self.column)
+                }
+                '@' => {
+                    self.advance();
+                    Token::new(TokenType::At, self.line, self.column).with_value("@".to_string())
+                }
+                '?' => {
+                    self.advance();
+                    Token::new(TokenType::Question, self.line, self.column)
+                        .with_value("?".to_string())
                 }
                 _ => {
                     return Err(MireError::new(ErrorKind::Lexer {
