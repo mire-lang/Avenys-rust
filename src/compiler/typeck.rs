@@ -29,6 +29,9 @@ struct EnumVariantSig {
     payload_types: Vec<DataType>,
 }
 
+#[derive(Debug, Clone)]
+struct TraitSig;
+
 pub fn check_program_types(program: &mut Program, source: &str) -> Result<()> {
     TYPE_CHECKER_SOURCE.with(|s| {
         *s.borrow_mut() = Some(source.to_string());
@@ -48,10 +51,10 @@ struct TypeChecker {
     functions: HashMap<String, FunctionSig>,
     classes: HashMap<String, ClassSig>,
     enum_variants: HashMap<String, EnumVariantSig>,
+    traits: HashMap<String, TraitSig>,
     builtin_returns: HashMap<String, DataType>,
     return_type_stack: Vec<DataType>,
     visited_libs: HashSet<String>,
-    source: Option<String>,
 }
 
 impl TypeChecker {
@@ -61,10 +64,10 @@ impl TypeChecker {
             functions: HashMap::new(),
             classes: HashMap::new(),
             enum_variants: HashMap::new(),
+            traits: HashMap::new(),
             builtin_returns: Self::default_builtin_returns(),
             return_type_stack: Vec::new(),
             visited_libs: HashSet::new(),
-            source: None,
         }
     }
 
@@ -77,6 +80,7 @@ impl TypeChecker {
             "print",
             "println",
             "print_fmt",
+            "output",
             "hr",
             "clear",
             "style",
@@ -412,6 +416,11 @@ impl TypeChecker {
                     );
                 }
                 Statement::Module { body, .. } => self.collect_function_signatures(body)?,
+                Statement::Skill {
+                    name, methods: _, ..
+                } => {
+                    self.traits.insert(name.clone(), TraitSig);
+                }
                 Statement::Class { name, methods, .. } => {
                     let fields = methods
                         .iter()
@@ -457,20 +466,12 @@ impl TypeChecker {
                     );
                     self.collect_function_signatures(fields)?
                 }
-                Statement::Skill { name, methods, .. } => {
-                    // Register skill/methods in type system
-                    for method in methods {
-                        // Skill method signatures are already handled
-                    }
-                }
-                Statement::Code {
-                    type_name, methods, ..
-                } => {
-                    self.collect_function_signatures(methods)?;
+                Statement::Code { .. } => {
+                    // Code no longer supported
                 }
                 Statement::Impl { methods, .. } => self.collect_function_signatures(methods)?,
                 Statement::AddLib { path } => self.collect_library_signatures(path)?,
-                Statement::Enum { variants, .. } => {
+                Statement::Enum { name, variants, .. } => {
                     for (variant_name, payload_types) in variants {
                         self.enum_variants.insert(
                             variant_name.clone(),
@@ -479,6 +480,7 @@ impl TypeChecker {
                             },
                         );
                     }
+                    self.insert_var(name.clone(), DataType::Enum, true);
                 }
                 _ => {}
             }
@@ -517,10 +519,10 @@ impl TypeChecker {
                 name,
                 data_type,
                 value,
-                is_constant,
+                is_constant: _,
                 is_mutable,
-                is_static,
-                visibility,
+                is_static: _,
+                visibility: _,
             } => {
                 if let Some(expr) = value {
                     if let Expression::Literal(Literal::Int(int_val)) = expr {
@@ -559,17 +561,17 @@ impl TypeChecker {
                         type_error(format!("Assignment to undefined variable '{}'", target))
                     })?;
 
-                if !is_target_mutable {
-                    return Err(type_error(format!(
-                        "Cannot reassign immutable variable '{}'",
-                        target
-                    )));
-                }
-
                 if !self.is_assignable(&target_type, &value_type) {
                     return Err(type_error(format!(
                         "Type mismatch in assignment to '{}': expected {:?}, got {:?}",
                         target, target_type, value_type
+                    )));
+                }
+
+                if !is_target_mutable {
+                    return Err(type_error(format!(
+                        "Cannot reassign immutable variable '{}'",
+                        target
                     )));
                 }
                 Self::validate_explicit_nested_literal(&target_type, value)?;
@@ -707,15 +709,17 @@ impl TypeChecker {
             } => {
                 let value_type = self.check_expression(value)?;
                 for (case_expr, case_body) in cases.iter_mut() {
-                    let case_type = self.check_expression(case_expr)?;
-                    if value_type != DataType::Unknown
-                        && case_type != DataType::Unknown
-                        && !self.is_assignable(&value_type, &case_type)
-                    {
-                        return Err(type_error(format!(
-                            "Match case type mismatch: value is {:?}, case is {:?}",
-                            value_type, case_type
-                        )));
+                    if !Self::is_match_identifier_pattern(case_expr) {
+                        let case_type = self.check_expression(case_expr)?;
+                        if value_type != DataType::Unknown
+                            && case_type != DataType::Unknown
+                            && !self.is_assignable(&value_type, &case_type)
+                        {
+                            return Err(type_error(format!(
+                                "Match case type mismatch: value is {:?}, case is {:?}",
+                                value_type, case_type
+                            )));
+                        }
                     }
                     self.push_scope();
                     self.check_statements(case_body)?;
@@ -861,7 +865,7 @@ impl TypeChecker {
             Expression::Literal(lit) => {
                 if let Literal::Int(value) = lit {
                     if let Some(scope) = self.scopes.last() {
-                        for (name, (dt, _)) in scope.iter() {
+                        for (_name, (dt, _)) in scope.iter() {
                             if let DataType::I8
                             | DataType::I16
                             | DataType::I32
@@ -893,8 +897,16 @@ impl TypeChecker {
                 right,
                 data_type,
             } => {
-                let left_type = self.check_expression(left)?;
-                let right_type = self.check_expression(right)?;
+                let left_type = if Self::is_logical_operator(operator) {
+                    self.check_expression_allow_unknown_identifier(left)?
+                } else {
+                    self.check_expression(left)?
+                };
+                let right_type = if Self::is_logical_operator(operator) {
+                    self.check_expression_allow_unknown_identifier(right)?
+                } else {
+                    self.check_expression(right)?
+                };
                 let resolved = self.resolve_binary_type(operator, &left_type, &right_type)?;
                 *data_type = resolved.clone();
                 Ok(resolved)
@@ -931,8 +943,10 @@ impl TypeChecker {
                 args,
                 data_type,
             } => {
-                // Special handling for ireru - use the explicit type annotation if present
-                if name == "ireru" && *data_type != DataType::Unknown {
+                // Special handling for explicit typed input-style builtins.
+                if matches!(name.as_str(), "ireru" | "input" | "std.input")
+                    && *data_type != DataType::Unknown
+                {
                     *data_type = data_type.clone();
                     return Ok(data_type.clone());
                 }
@@ -1078,6 +1092,13 @@ impl TypeChecker {
                 if let Some(ret) = self.builtin_returns.get(name).cloned() {
                     *data_type = ret.clone();
                     return Ok(ret);
+                }
+
+                if let Some(rest) = name.strip_prefix("std.") {
+                    if let Some(ret) = self.builtin_returns.get(rest).cloned() {
+                        *data_type = ret.clone();
+                        return Ok(ret);
+                    }
                 }
 
                 if let Some(variant_sig) = self.enum_variants.get(name).cloned() {
@@ -1259,7 +1280,9 @@ impl TypeChecker {
             } => {
                 let _ = self.check_expression(value)?;
                 for (case_expr, case_body) in cases.iter_mut() {
-                    let _ = self.check_expression(case_expr)?;
+                    if !Self::is_match_identifier_pattern(case_expr) {
+                        let _ = self.check_expression(case_expr)?;
+                    }
                     let _ = self.check_expression(case_body)?;
                 }
                 let _ = self.check_expression(default)?;
@@ -1284,18 +1307,18 @@ impl TypeChecker {
                     match (left, right) {
                         (
                             DataType::Vector {
-                                element_type: lElem,
-                                dynamic: lDyn,
+                                element_type: l_elem,
+                                dynamic: l_dyn,
                             },
                             DataType::Vector {
-                                element_type: rElem,
-                                dynamic: rDyn,
+                                element_type: r_elem,
+                                dynamic: r_dyn,
                             },
                         ) => {
-                            let unified_elem = Self::unify_types(lElem, rElem)?;
+                            let unified_elem = Self::unify_types(l_elem, r_elem)?;
                             return Ok(DataType::Vector {
                                 element_type: Box::new(unified_elem),
-                                dynamic: *lDyn || *rDyn,
+                                dynamic: *l_dyn || *r_dyn,
                             });
                         }
                         (DataType::Vector { .. }, DataType::List)
@@ -1335,6 +1358,44 @@ impl TypeChecker {
             }
             _ => Ok(DataType::Unknown),
         }
+    }
+
+    fn check_expression_allow_unknown_identifier(
+        &mut self,
+        expression: &mut Expression,
+    ) -> Result<DataType> {
+        match expression {
+            Expression::Identifier(ident) => {
+                if let Some((resolved, _)) = self.lookup_var(&ident.name) {
+                    ident.data_type = resolved.clone();
+                    Ok(resolved)
+                } else {
+                    ident.data_type = DataType::Unknown;
+                    Ok(DataType::Unknown)
+                }
+            }
+            Expression::BinaryOp {
+                operator,
+                left,
+                right,
+                data_type,
+            } if Self::is_logical_operator(operator) => {
+                let left_type = self.check_expression_allow_unknown_identifier(left)?;
+                let right_type = self.check_expression_allow_unknown_identifier(right)?;
+                let resolved = self.resolve_binary_type(operator, &left_type, &right_type)?;
+                *data_type = resolved.clone();
+                Ok(resolved)
+            }
+            _ => self.check_expression(expression),
+        }
+    }
+
+    fn is_logical_operator(operator: &str) -> bool {
+        matches!(operator, "and" | "or" | "xor" | "&&" | "||")
+    }
+
+    fn is_match_identifier_pattern(expression: &Expression) -> bool {
+        matches!(expression, Expression::Identifier(_))
     }
 
     fn literal_type(lit: &Literal) -> DataType {
@@ -1608,7 +1669,7 @@ impl TypeChecker {
 
         match expected {
             DataType::Array { .. } | DataType::Slice { .. } => {
-                return matches!(actual, DataType::Vector { .. } | DataType::List)
+                return matches!(actual, DataType::Vector { .. } | DataType::List);
             }
             _ => {}
         }
@@ -1841,7 +1902,8 @@ fn type_error(message: String) -> MireError {
 
 fn type_error_at(line: usize, column: usize, message: String) -> MireError {
     let source = TYPE_CHECKER_SOURCE.with(|source_guard| source_guard.borrow().clone());
-    let mut err = MireError::type_error_at(line, column, message);
+    let (err_line, err_col) = if line == 0 { (1, 1) } else { (line, column) };
+    let mut err = MireError::type_error_at(err_line, err_col, message);
     if let Some(src) = source {
         err = err.with_source(src);
     }

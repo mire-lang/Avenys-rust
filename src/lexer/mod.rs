@@ -308,6 +308,8 @@ impl Lexer {
             };
 
             if c.is_alphabetic() || c == '_' {
+                let start_line = self.line;
+                let start_col = self.column;
                 let ident = self.read_identifier();
                 let token = match ident.as_str() {
                     "import" => Token::new(TokenType::Import, self.line, self.column),
@@ -341,17 +343,17 @@ impl Lexer {
                     "of" => Token::new(TokenType::Of, self.line, self.column),
                     "to" => Token::new(TokenType::To, self.line, self.column),
                     "at" => Token::new(TokenType::At, self.line, self.column),
-                    "self" => Token::new(TokenType::SelfToken, self.line, self.column),
-                    "and" => Token::new(TokenType::And, self.line, self.column),
-                    "or" => Token::new(TokenType::Or, self.line, self.column),
-                    "not" => Token::new(TokenType::Not, self.line, self.column),
-                    "break" => Token::new(TokenType::Break, self.line, self.column),
-                    "continue" => Token::new(TokenType::Continue, self.line, self.column),
+                    "self" => Token::new(TokenType::SelfToken, start_line, start_col),
+                    "and" => Token::new(TokenType::And, start_line, start_col),
+                    "or" => Token::new(TokenType::Or, start_line, start_col),
+                    "not" => Token::new(TokenType::Not, start_line, start_col),
+                    "break" => Token::new(TokenType::Break, start_line, start_col),
+                    "continue" => Token::new(TokenType::Continue, start_line, start_col),
                     "true" | "false" => {
-                        Token::new(TokenType::BoolLit, self.line, self.column).with_value(ident)
+                        Token::new(TokenType::BoolLit, start_line, start_col).with_value(ident)
                     }
-                    "none" => Token::new(TokenType::NoneLit, self.line, self.column),
-                    _ => Token::new(TokenType::Ident, self.line, self.column).with_value(ident),
+                    "none" => Token::new(TokenType::NoneLit, start_line, start_col),
+                    _ => Token::new(TokenType::Ident, start_line, start_col).with_value(ident),
                 };
                 self.tokens.push(token);
                 continue;

@@ -1,7 +1,7 @@
 pub mod ast;
 
 use crate::error::{ErrorKind, MireError, Result};
-use crate::lexer::{tokenize, Token, TokenType};
+use crate::lexer::{Token, TokenType, tokenize};
 use crate::parser::ast::{
     DataType, Expression, Identifier, Literal, Statement, TraitMethodSig, Visibility,
 };
@@ -750,10 +750,6 @@ impl Parser {
         })
     }
 
-    fn make_expression_statement(&self, expr: Expression) -> Result<Statement> {
-        Ok(Statement::Expression(expr))
-    }
-
     fn parse_return_statement(&mut self) -> Result<Statement> {
         self.expect(TokenType::Return)?;
         if self.is_statement_terminator() {
@@ -1146,10 +1142,12 @@ impl Parser {
                 Ok(Expression::Literal(Literal::None))
             }
             TokenType::SelfToken => {
+                let token = self.peek();
                 self.advance();
-                Ok(identifier_expr("self"))
+                Ok(identifier_expr_with_pos("self", token.line, token.column))
             }
             TokenType::Ident => {
+                let token = self.peek();
                 let name = self.advance().value.unwrap_or_default();
                 if name == "type" && self.is_expression_start(self.peek().ttype) {
                     let expr = self.parse_expression()?;
@@ -1159,7 +1157,7 @@ impl Parser {
                         data_type: DataType::Str,
                     });
                 }
-                Ok(identifier_expr(&name))
+                Ok(identifier_expr_with_pos(&name, token.line, token.column))
             }
             TokenType::Lparen => {
                 self.advance();
@@ -1355,82 +1353,13 @@ impl Parser {
         })
     }
 
-    fn parse_value_until_block_open(&mut self) -> Result<Expression> {
-        // Skip whitespace and newlines to find start
-        while self.pos < self.tokens.len() {
-            let tt = self.peek().ttype;
-            if tt == TokenType::Newline || tt == TokenType::Comma {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-
-        let start = self.pos;
-        let mut depth_paren = 0usize;
-        let mut depth_bracket = 0usize;
-
-        while self.pos < self.tokens.len() {
-            let tt = self.peek().ttype;
-            if tt == TokenType::Lparen {
-                depth_paren += 1;
-            } else if tt == TokenType::Rparen {
-                depth_paren = depth_paren.saturating_sub(1);
-            } else if tt == TokenType::Lbracket {
-                depth_bracket += 1;
-            } else if tt == TokenType::Rbracket {
-                depth_bracket = depth_bracket.saturating_sub(1);
-            } else if tt == TokenType::Lbrace && depth_paren == 0 && depth_bracket == 0 {
-                break;
-            }
-            self.advance();
-        }
-
-        let end = self.pos;
-
-        // Reset position to start
-        self.pos = start;
-
-        if self.pos >= end {
-            return Err(self.error("Expected value in match expression"));
-        }
-
-        let token = self.peek();
-
-        match token.ttype {
-            TokenType::Ident => {
-                let name = self.advance().value.unwrap_or_default();
-                Ok(identifier_expr(&name))
-            }
-            TokenType::IntLit => {
-                let val = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Int(val.parse().unwrap_or(0))))
-            }
-            TokenType::FloatLit => {
-                let val = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Float(
-                    val.parse().unwrap_or(0.0),
-                )))
-            }
-            TokenType::StrLit => {
-                let val = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Str(val)))
-            }
-            _ => Err(self.error("Expected identifier or literal in match value")),
-        }
-    }
-
     fn parse_match_pattern(&mut self) -> Result<Expression> {
         let token = self.peek();
 
         match token.ttype {
             TokenType::Ident => {
                 let name = self.advance().value.unwrap_or_default();
-                if name == "_" {
-                    Ok(identifier_expr("_"))
-                } else {
-                    Ok(identifier_expr(&name))
-                }
+                Ok(identifier_expr_with_pos(&name, token.line, token.column))
             }
             TokenType::IntLit => {
                 let val = self.advance().value.unwrap_or_default();
@@ -1463,7 +1392,7 @@ impl Parser {
         match token.ttype {
             TokenType::Ident => {
                 let name = self.advance().value.unwrap_or_default();
-                Ok(identifier_expr(&name))
+                Ok(identifier_expr_with_pos(&name, token.line, token.column))
             }
             TokenType::IntLit => {
                 let val = self.advance().value.unwrap_or_default();
@@ -2188,25 +2117,6 @@ impl Parser {
                 {
                     return true;
                 }
-                // Newlines don't terminate a match case - they're just separators
-                TokenType::Newline => {
-                    index += 1;
-                    continue;
-                }
-                TokenType::Lparen => depth_paren += 1,
-                TokenType::Rparen => depth_paren = depth_paren.saturating_sub(1),
-                TokenType::Lbracket => depth_bracket += 1,
-                TokenType::Rbracket => depth_bracket = depth_bracket.saturating_sub(1),
-                // Also return true for literals that can start a pattern
-                TokenType::IntLit
-                | TokenType::FloatLit
-                | TokenType::StrLit
-                | TokenType::BoolLit
-                | TokenType::NoneLit
-                    if depth_paren == 0 && depth_bracket == 0 =>
-                {
-                    return true;
-                }
                 // Also return true for identifiers (including _ for default)
                 TokenType::Ident if depth_paren == 0 && depth_bracket == 0 => {
                     return true;
@@ -2333,12 +2243,12 @@ impl Parser {
     }
 }
 
-fn identifier_expr(name: &str) -> Expression {
+fn identifier_expr_with_pos(name: &str, line: usize, column: usize) -> Expression {
     Expression::Identifier(Identifier {
         name: name.to_string(),
         data_type: DataType::Unknown,
-        line: 0,
-        column: 0,
+        line,
+        column,
     })
 }
 
@@ -2549,9 +2459,6 @@ fn statement_contains_self_placeholder(statement: &Statement) -> bool {
         | Statement::Break
         | Statement::Continue
         | Statement::Trait { .. }
-        | Statement::Type { .. }
-        | Statement::Skill { .. }
-        | Statement::Code { .. }
         | Statement::ExternLib { .. }
         | Statement::ExternFunction { .. }
         | Statement::AddLib { .. }
@@ -2791,8 +2698,7 @@ mod tests {
 
     #[test]
     fn parses_inline_match_expression_case_bodies() {
-        let source =
-            "pub fn main: () {\nset x = 5 :i64\nset result = match x { 1 { 10 } _ { 0 } } :i64\n}\n";
+        let source = "pub fn main: () {\nset x = 5 :i64\nset result = match x { 1 { 10 } _ { 0 } } :i64\n}\n";
         let program = parse(source).expect("parse should succeed");
 
         let Statement::Function { body, .. } = &program.statements[0] else {

@@ -1,3 +1,8 @@
+use mire::BuildMode;
+use mire::BuildOptions;
+use mire::MireError;
+use mire::MireManifest;
+use mire::MireProject;
 use mire::analyze_program;
 use mire::compile_file_with_avenys;
 use mire::default_output_dir;
@@ -7,11 +12,6 @@ use mire::load_project_manifest;
 use mire::parser::parse;
 use mire::project_manifest_path;
 use mire::write_lock_file;
-use mire::BuildMode;
-use mire::BuildOptions;
-use mire::MireError;
-use mire::MireManifest;
-use mire::MireProject;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -143,12 +143,13 @@ fn run_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
         debug_dump: common.debug,
         output: output.or_else(|| Some(default_binary_path(&path, common.debug))),
         emit_binary: true,
+        persist_ir: false,
     };
     let build = compile_file_with_avenys(&path, &options)?;
     if common.debug {
         println!("[AVENYS] binary: {}", build.binary_path.display());
-        println!("[AVENYS] ir: {}", build.ir_path.display());
-        println!("[AVENYS] opt-ir: {}", build.optimized_ir_path.display());
+        println!("[AVENYS] ir: <memory>");
+        println!("[AVENYS] opt-ir: <memory>");
     }
     let stats = run_process_with_stats(Command::new(&build.binary_path))?;
     print_run_stats(&stats_options, &stats);
@@ -169,6 +170,7 @@ fn build_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
         debug_dump: common.debug,
         output: output.or_else(|| Some(default_binary_path(&path, common.debug))),
         emit_binary: true,
+        persist_ir: false,
     };
     let build = compile_file_with_avenys(&path, &options)?;
     println!("{}", build.binary_path.display());
@@ -192,13 +194,7 @@ fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     if test_root.is_file() {
         files.push(test_root);
     } else if test_root.is_dir() {
-        for entry in fs::read_dir(&test_root).map_err(runtime_err)? {
-            let entry = entry.map_err(runtime_err)?;
-            let path = entry.path();
-            if path.extension().and_then(|v| v.to_str()) == Some("mire") {
-                files.push(path);
-            }
-        }
+        collect_mire_files_recursive(&test_root, &mut files)?;
         files.sort();
     }
 
@@ -218,6 +214,7 @@ fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
             debug_dump: common.debug,
             output: Some(default_binary_path(&file, common.debug)),
             emit_binary: true,
+            persist_ir: false,
         };
         let build = compile_file_with_avenys(&file, &options)?;
         let code = Command::new(&build.binary_path)
@@ -235,6 +232,28 @@ fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     }
 
     Ok(if failed == 0 { 0 } else { 1 })
+}
+
+fn collect_mire_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), MireError> {
+    for entry in fs::read_dir(dir).map_err(runtime_err)? {
+        let entry = entry.map_err(runtime_err)?;
+        let path = entry.path();
+        if path.is_dir() {
+            if should_descend_test_dir(&path) {
+                collect_mire_files_recursive(&path, files)?;
+            }
+        } else if path.extension().and_then(|v| v.to_str()) == Some("mire") {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn should_descend_test_dir(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return true;
+    };
+    !matches!(name, "broken_mire" | "error" | "test_proyet_mire_cli")
 }
 
 fn bench_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
@@ -309,6 +328,7 @@ fn bench_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
             debug_dump: false,
             output: Some(default_binary_path(&file, false)),
             emit_binary: true,
+            persist_ir: false,
         };
 
         let start = std::time::Instant::now();
@@ -423,6 +443,7 @@ fn debug_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
         debug_dump: true,
         output: Some(default_binary_path(&path, true)),
         emit_binary: !options.emit_ir_only,
+        persist_ir: true,
     };
     let build = compile_file_with_avenys(&path, &build_options)?;
     if options.show_log {
@@ -433,10 +454,18 @@ fn debug_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
         if !options.emit_ir_only {
             println!("Binary: {}", build.binary_path.display());
         }
-        println!("IR: {}", build.ir_path.display());
-        println!("Optimized IR: {}", build.optimized_ir_path.display());
+        if let Some(ir_path) = &build.ir_path {
+            println!("IR: {}", ir_path.display());
+        }
+        if let Some(ir_path) = &build.optimized_ir_path {
+            println!("Optimized IR: {}", ir_path.display());
+        }
     } else if options.emit_ir_only {
-        println!("{}", build.optimized_ir_path.display());
+        let ir_path = build
+            .optimized_ir_path
+            .as_ref()
+            .ok_or_else(|| runtime_msg("Debug IR was not persisted to disk"))?;
+        println!("{}", ir_path.display());
     } else {
         println!("{}", build.binary_path.display());
     }
@@ -472,10 +501,11 @@ fn clean_command(cwd: &Path, _args: &[String]) -> Result<i32, MireError> {
         println!("Cleaned {}", bin_dir.display());
     }
 
-    let build_dir = cwd.join("build");
-    if build_dir.exists() {
-        fs::remove_dir_all(&build_dir).map_err(runtime_err)?;
-        println!("Cleaned {}", build_dir.display());
+    for dir in [cwd.join("debug"), cwd.join("release"), cwd.join(".cache")] {
+        if dir.exists() {
+            fs::remove_dir_all(&dir).map_err(runtime_err)?;
+            println!("Cleaned {}", dir.display());
+        }
     }
 
     println!("Build artifacts cleaned");
@@ -516,7 +546,8 @@ fn info_command(cwd: &Path, _args: &[String]) -> Result<i32, MireError> {
     println!("Build Configuration:");
     println!("  Release optimizations: -O3");
     println!("  Debug mode: -O0");
-    println!("  Output dir: bin/debug or bin/release");
+    println!("  Project output dir: bin/debug or bin/release");
+    println!("  Project incremental cache: bin/.cache");
 
     Ok(0)
 }

@@ -194,20 +194,17 @@ impl MireError {
 
         output.push_str(&self.format_code_context(use_color));
 
+        if use_color {
+            output.push_str(&format!("\x1b[90m╰─\x1b[0m \x1b[1;37m{}\x1b[0m\n", message));
+        } else {
+            output.push_str(&format!("\n╰─ {}\n", message));
+        }
+
         if let Some(explanation) = &self.explanation {
             if use_color {
-                output.push_str(&format!(
-                    "\x1b[90m╰─\x1b[0m \x1b[90mexplanation:\x1b[0m\n   {}\n",
-                    explanation
-                ));
+                output.push_str(&format!("   \x1b[90mexplanation:\x1b[0m {}\n", explanation));
             } else {
-                output.push_str(&format!("\n╰─ explanation:\n   {}\n", explanation));
-            }
-        } else {
-            if use_color {
-                output.push_str("\x1b[90m╰─\x1b[0m\n");
-            } else {
-                output.push_str("\n╰─\n");
+                output.push_str(&format!("   explanation: {}\n", explanation));
             }
         }
 
@@ -240,12 +237,11 @@ impl MireError {
                 let line_num = i + 1;
 
                 if line_num == self.line {
-                    let error_col = self.column.saturating_sub(1);
-                    let marker = if error_col > 0 {
-                        format!("{}{}", "─".repeat(error_col), "^^^")
-                    } else {
-                        "^^^".to_string()
-                    };
+                    let col = self
+                        .column
+                        .saturating_sub(1)
+                        .min(line.len().saturating_sub(3));
+                    let marker = format!("{}{}", " ".repeat(col), "^^^");
 
                     if use_color {
                         output.push_str(&format!(

@@ -635,10 +635,6 @@ impl BorrowChecker {
         )
     }
 
-    fn is_copy_type(data_type: &DataType) -> bool {
-        !Self::is_move_type(data_type)
-    }
-
     fn reference_target(expression: Option<&Expression>) -> Option<(String, bool)> {
         match expression? {
             Expression::Reference {

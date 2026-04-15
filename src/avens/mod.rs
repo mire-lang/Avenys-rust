@@ -1,14 +1,16 @@
 use crate::compiler::analyze_program;
 use crate::error::{ErrorKind, MireError, Result};
-use crate::loader::load_program_from_file;
+use crate::incremental::{build_fingerprint, BuildCacheEntry, IncrementalCache};
+use crate::loader::load_program_with_metadata;
 use crate::parser::ast::{DataType, Expression, Identifier, Literal, Program, Statement};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BuildMode {
     Debug,
     Release,
@@ -20,13 +22,14 @@ pub struct BuildOptions {
     pub debug_dump: bool,
     pub output: Option<PathBuf>,
     pub emit_binary: bool,
+    pub persist_ir: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct BuildResult {
     pub binary_path: PathBuf,
-    pub ir_path: PathBuf,
-    pub optimized_ir_path: PathBuf,
+    pub ir_path: Option<PathBuf>,
+    pub optimized_ir_path: Option<PathBuf>,
     pub used_optimizations: bool,
 }
 
@@ -128,9 +131,6 @@ pub fn write_lock_file(cwd: &Path, manifest: &MireManifest, mode: BuildMode) -> 
 
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
     let source = fs::read_to_string(source_path)?;
-    let mut program = load_program_from_file(source_path)?;
-    analyze_program(&mut program, &source)?;
-
     let output_dir = default_output_dir(source_path, options.mode);
     fs::create_dir_all(&output_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
@@ -150,56 +150,98 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         .output
         .clone()
         .unwrap_or_else(|| output_dir.join(stem));
-    let ir_path = output_dir.join(format!("{stem}.ll"));
-    let optimized_ir_path = output_dir.join(format!("{stem}.opt.ll"));
-
-    let ir = LlvmIrGen::new().compile_program(&program)?;
-    fs::write(&ir_path, ir).map_err(|err| {
+    let ir_path = options
+        .persist_ir
+        .then(|| output_dir.join(format!("{stem}.ll")));
+    let optimized_ir_path = options
+        .persist_ir
+        .then(|| output_dir.join(format!("{stem}.opt.ll")));
+    let runtime_support =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/avens/runtime_support.c");
+    let runtime_support_source = fs::read_to_string(&runtime_support).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            message: format!("Could not write '{}': {}", ir_path.display(), err),
+            message: format!("Could not read '{}': {}", runtime_support.display(), err),
         })
     })?;
+    let mut cache = IncrementalCache::load_for(source_path);
+    let loaded = load_program_with_metadata(source_path)?;
+    let fingerprint = build_fingerprint(
+        source_path,
+        &loaded.files,
+        options.mode,
+        options.emit_binary,
+        &runtime_support_source,
+    );
 
-    let final_ir = if matches!(options.mode, BuildMode::Release) {
-        run_command(
-            Command::new("opt")
-                .arg("-S")
-                .arg("-O3")
-                .arg(&ir_path)
-                .arg("-o")
-                .arg(&optimized_ir_path),
-            "opt",
-        )?;
-        optimized_ir_path.clone()
-    } else {
-        fs::copy(&ir_path, &optimized_ir_path).map_err(|err| {
+    if let Some(entry) = cache.build_entry(
+        source_path,
+        options.mode,
+        options.emit_binary,
+        options.persist_ir,
+    ) {
+        if entry.fingerprint == fingerprint
+            && (!options.emit_binary || entry.binary_path.exists())
+            && entry.binary_path == binary_path
+            && entry.ir_path == ir_path
+            && entry.optimized_ir_path == optimized_ir_path
+            && entry.ir_path.as_ref().is_none_or(|path| path.exists())
+            && entry
+                .optimized_ir_path
+                .as_ref()
+                .is_none_or(|path| path.exists())
+        {
+            return Ok(BuildResult {
+                binary_path,
+                ir_path,
+                optimized_ir_path,
+                used_optimizations: matches!(options.mode, BuildMode::Release),
+            });
+        }
+    }
+
+    let mut program = loaded.program;
+    analyze_program(&mut program, &source)?;
+
+    let ir = LlvmIrGen::new().compile_program(&program)?;
+    if let Some(path) = &ir_path {
+        fs::write(path, &ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                message: format!(
-                    "Could not prepare debug IR '{}': {}",
-                    optimized_ir_path.display(),
-                    err
-                ),
+                message: format!("Could not write '{}': {}", path.display(), err),
             })
         })?;
-        optimized_ir_path.clone()
+    }
+
+    let final_ir = if matches!(options.mode, BuildMode::Release) {
+        optimize_ir(&ir)?
+    } else {
+        ir
     };
 
-    if options.emit_binary {
-        let mut clang = Command::new("clang");
-        let runtime_support =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/avens/runtime_support.c");
-        clang
-            .arg(&final_ir)
-            .arg(&runtime_support)
-            .arg("-o")
-            .arg(&binary_path);
-        if matches!(options.mode, BuildMode::Release) {
-            clang.arg("-O3");
-        } else {
-            clang.arg("-O0");
-        }
-        run_command(&mut clang, "clang")?;
+    if let Some(path) = &optimized_ir_path {
+        fs::write(path, &final_ir).map_err(|err| {
+            MireError::new(ErrorKind::Runtime {
+                message: format!("Could not write '{}': {}", path.display(), err),
+            })
+        })?;
     }
+
+    if options.emit_binary {
+        compile_binary_from_ir(&final_ir, &runtime_support, &binary_path, options.mode)?;
+    }
+
+    cache.store_build(
+        source_path,
+        BuildCacheEntry {
+            fingerprint,
+            mode: options.mode,
+            emit_binary: options.emit_binary,
+            persist_ir: options.persist_ir,
+            binary_path: binary_path.clone(),
+            ir_path: ir_path.clone(),
+            optimized_ir_path: optimized_ir_path.clone(),
+        },
+    );
+    cache.save()?;
 
     Ok(BuildResult {
         binary_path,
@@ -222,11 +264,102 @@ pub fn default_output_dir(source_path: &Path, mode: BuildMode) -> PathBuf {
     source_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("build")
         .join(match mode {
             BuildMode::Debug => "debug",
             BuildMode::Release => "release",
         })
+}
+
+fn optimize_ir(ir: &str) -> Result<String> {
+    let mut command = Command::new("opt");
+    command
+        .arg("-S")
+        .arg("-O3")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    let mut child = command.spawn().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            message: format!("Failed to run opt: {}", err),
+        })
+    })?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(ir.as_bytes()).map_err(|err| {
+            MireError::new(ErrorKind::Runtime {
+                message: format!("Failed to stream IR into opt: {}", err),
+            })
+        })?;
+    }
+    let output = child.wait_with_output().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            message: format!("Failed to wait for opt: {}", err),
+        })
+    })?;
+    if !output.status.success() {
+        return Err(MireError::new(ErrorKind::Runtime {
+            message: format!(
+                "opt failed with status {}.\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn compile_binary_from_ir(
+    ir: &str,
+    runtime_support: &Path,
+    binary_path: &Path,
+    mode: BuildMode,
+) -> Result<()> {
+    let mut clang = Command::new("clang");
+    clang
+        .arg("-x")
+        .arg("ir")
+        .arg("-")
+        .arg("-x")
+        .arg("c")
+        .arg(runtime_support)
+        .arg("-o")
+        .arg(binary_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if matches!(mode, BuildMode::Release) {
+        clang.arg("-O3");
+    } else {
+        clang.arg("-O0");
+    }
+
+    let mut child = clang.spawn().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            message: format!("Failed to run clang: {}", err),
+        })
+    })?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(ir.as_bytes()).map_err(|err| {
+            MireError::new(ErrorKind::Runtime {
+                message: format!("Failed to stream IR into clang: {}", err),
+            })
+        })?;
+    }
+    let output = child.wait_with_output().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            message: format!("Failed to wait for clang: {}", err),
+        })
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(MireError::new(ErrorKind::Runtime {
+        message: format!(
+            "clang failed with status {}.\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+    }))
 }
 
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {
@@ -246,29 +379,6 @@ pub fn project_manifest_path(cwd: &Path) -> PathBuf {
 
 pub fn project_lock_path(cwd: &Path) -> PathBuf {
     cwd.join("project.lock")
-}
-
-fn run_command(command: &mut Command, label: &str) -> Result<()> {
-    let output = command.output().map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            message: format!("Failed to run {}: {}", label, err),
-        })
-    })?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(MireError::new(ErrorKind::Runtime {
-        message: format!(
-            "{} failed with status {}.\nstdout:\n{}\nstderr:\n{}",
-            label,
-            output.status,
-            stdout.trim(),
-            stderr.trim()
-        ),
-    }))
 }
 
 fn llvm_version() -> Result<String> {
@@ -293,7 +403,6 @@ enum LlType {
     I64,
     I1,
     Ptr,
-    Struct(Vec<LlType>),
 }
 
 #[derive(Debug, Clone)]
@@ -343,10 +452,7 @@ struct LlvmIrGen {
     current_return: LlType,
     next_tmp: usize,
     next_label: usize,
-    debug_enabled: bool,
 }
-
-const AVENYS_DEBUG: bool = false;
 
 impl LlvmIrGen {
     fn new() -> Self {
@@ -362,18 +468,7 @@ impl LlvmIrGen {
             current_return: LlType::I64,
             next_tmp: 0,
             next_label: 0,
-            debug_enabled: false,
         }
-    }
-
-    #[inline]
-    fn debug(&self, msg: &str) {
-        eprintln!("[AVENYS] {}", msg);
-    }
-
-    #[inline]
-    fn debug_value(&self, name: &str, value: &LlValue) {
-        eprintln!("[AVENYS] {} = {} (ty: {:?})", name, value.repr, value.ty);
     }
 
     fn compile_program(mut self, program: &Program) -> Result<String> {
@@ -400,6 +495,19 @@ impl LlvmIrGen {
                     StructInfo {
                         fields: field_types,
                         field_indices,
+                    },
+                );
+            }
+            // First pass: collect enum definitions
+            if let Statement::Enum { name, .. } = stmt {
+                self.vars.insert(
+                    name.clone(),
+                    VarInfo {
+                        ptr: format!("@enum_{}", sanitize_symbol(&name)),
+                        ty: LlType::Ptr,
+                        data_type: DataType::Enum,
+                        owns_heap_string: false,
+                        struct_name: None,
                     },
                 );
             }
@@ -876,10 +984,6 @@ impl LlvmIrGen {
                                 owned: true,
                             })
                         }
-                        LlType::Struct(_) => Err(MireError::new(ErrorKind::Runtime {
-                            message: "Avenys does not yet lower str(...) for struct values"
-                                .to_string(),
-                        })),
                     },
                 }
             }
@@ -1058,9 +1162,8 @@ impl LlvmIrGen {
                                     "Avenys cannot cast argument for function '{}'",
                                     name
                                 ),
-                            }))
+                            }));
                         }
-                        LlType::Struct(_) => value,
                     };
                     let expected_ty = expected_ty.clone();
                     rendered_args.push(format!("{} {}", self.ty(expected_ty.clone()), casted.repr));
@@ -1281,7 +1384,7 @@ impl LlvmIrGen {
             DataType::List | DataType::Vector { .. } => self.compile_list_len_value(value),
             _ => match value.ty {
                 LlType::Ptr => self.compile_list_len_value(value),
-                LlType::I64 | LlType::I1 | LlType::Struct(_) => Ok(LlValue {
+                LlType::I64 | LlType::I1 => Ok(LlValue {
                     ty: LlType::I64,
                     repr: "0".to_string(),
                     owned: false,
@@ -1379,12 +1482,6 @@ impl LlvmIrGen {
                     owned: false,
                 })
             }
-            LlType::Struct(_) => Err(MireError::new(ErrorKind::Runtime {
-                message: format!(
-                    "Avenys does not yet lower nested struct member '{}.{}'",
-                    struct_name, member
-                ),
-            })),
         }
     }
 
@@ -1510,10 +1607,6 @@ impl LlvmIrGen {
                 message: format!("Avenys cannot index type {:?}", target_data_type),
             })),
         }
-    }
-
-    fn compile_list_push(&mut self, args: &[Expression]) -> Result<LlValue> {
-        self.compile_lists_push(args)
     }
 
     fn compile_list_pop(&mut self, args: &[Expression]) -> Result<LlValue> {
@@ -2349,12 +2442,6 @@ impl LlvmIrGen {
                             self.body
                                 .push(format!("  store ptr {}, ptr {field_ptr}", field_value.repr));
                         }
-                        LlType::Struct(_) => {
-                            self.body.push(format!(
-                                "  store {}, ptr {field_ptr}",
-                                self.ty(field_type.clone())
-                            ));
-                        }
                     }
                 }
             }
@@ -2410,7 +2497,7 @@ impl LlvmIrGen {
             DataType::List | DataType::Vector { .. } => self.compile_list_len(args),
             _ => match value.ty {
                 LlType::Ptr => self.compile_list_len(args),
-                LlType::I64 | LlType::I1 | LlType::Struct(_) => Ok(LlValue {
+                LlType::I64 | LlType::I1 => Ok(LlValue {
                     ty: LlType::I64,
                     repr: "0".to_string(),
                     owned: false,
@@ -2790,7 +2877,7 @@ impl LlvmIrGen {
                         "Avenys does not yet compare match values of type {:?} against {:?}",
                         value.ty, pattern_value.ty
                     ),
-                }))
+                }));
             }
         }
 
@@ -2859,7 +2946,7 @@ impl LlvmIrGen {
                 _ => {
                     return Err(MireError::new(ErrorKind::Runtime {
                         message: "Avenys range(...) supports 1 to 3 arguments".to_string(),
-                    }))
+                    }));
                 }
             },
             other => {
@@ -2868,7 +2955,7 @@ impl LlvmIrGen {
                         "Avenys for-loop currently supports range(...) only, found {:?}",
                         other
                     ),
-                }))
+                }));
             }
         };
 
@@ -3036,13 +3123,6 @@ impl LlvmIrGen {
                 ));
                 Ok(())
             }
-            LlType::Struct(_) => {
-                self.body.push(format!(
-                    "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
-                    value.repr
-                ));
-                Ok(())
-            }
         }
     }
 
@@ -3149,13 +3229,9 @@ impl LlvmIrGen {
         }
     }
 
-    fn is_list_type(&self, value: &LlValue) -> bool {
-        matches!(value.ty, LlType::Ptr)
-    }
-
     fn map_type(&self, data_type: &DataType) -> Result<LlType> {
         match data_type {
-            DataType::I64 | DataType::Unknown => Ok(LlType::I64),
+            DataType::I64 | DataType::Unknown | DataType::Anything => Ok(LlType::I64),
             DataType::I32 => Ok(LlType::I64),
             DataType::I8 | DataType::I16 => Ok(LlType::I64),
             DataType::U8 | DataType::U16 | DataType::U32 | DataType::U64 => Ok(LlType::I64),
@@ -3170,7 +3246,8 @@ impl LlvmIrGen {
             | DataType::Tuple
             | DataType::Array { .. }
             | DataType::Slice { .. }
-            | DataType::Struct => Ok(LlType::Ptr),
+            | DataType::Struct
+            | DataType::Enum => Ok(LlType::Ptr),
             DataType::None => Ok(LlType::I64),
             other => Err(MireError::new(ErrorKind::Runtime {
                 message: format!("Avenys does not yet lower type {:?}", other),
@@ -3276,11 +3353,6 @@ impl LlvmIrGen {
                 owned: false,
             },
             LlType::Ptr => self.string_value(""),
-            LlType::Struct(_) => LlValue {
-                ty,
-                repr: "null".to_string(),
-                owned: false,
-            },
         }
     }
 
@@ -3315,7 +3387,7 @@ impl LlvmIrGen {
                     owned: false,
                 })
             }
-            LlType::Ptr | LlType::Struct(_) => Err(MireError::new(ErrorKind::Runtime {
+            LlType::Ptr => Err(MireError::new(ErrorKind::Runtime {
                 message: "Avenys cannot cast pointer/struct to i64".to_string(),
             })),
         }
@@ -3334,7 +3406,7 @@ impl LlvmIrGen {
                     owned: false,
                 })
             }
-            LlType::Ptr | LlType::Struct(_) => Err(MireError::new(ErrorKind::Runtime {
+            LlType::Ptr => Err(MireError::new(ErrorKind::Runtime {
                 message: "Avenys cannot cast pointer/struct to bool".to_string(),
             })),
         }
@@ -3630,7 +3702,6 @@ impl LlvmIrGen {
             LlType::Ptr => Err(MireError::new(ErrorKind::Runtime {
                 message: "Avenys cannot cast non-pointer value to string".to_string(),
             })),
-            LlType::Struct(_) => Ok(value),
         }
     }
 
@@ -3642,9 +3713,8 @@ impl LlvmIrGen {
             LlType::Ptr => {
                 return Err(MireError::new(ErrorKind::Runtime {
                     message: "Avenys cannot store non-pointer into string slot".to_string(),
-                }))
+                }));
             }
-            LlType::Struct(_) => value,
         };
         self.body.push(format!(
             "  store {} {}, ptr {}",
@@ -3762,7 +3832,6 @@ impl LlvmIrGen {
             LlType::I64 => "i64",
             LlType::I1 => "i1",
             LlType::Ptr => "ptr",
-            LlType::Struct(_) => "ptr",
         }
     }
 
