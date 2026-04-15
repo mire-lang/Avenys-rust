@@ -1,14 +1,14 @@
 # Mire
 
-**Version 1.0.0**
+**Version 1.0.2**
 
-Mire is a compiled, statically typed programming language with an ownership-oriented memory model. Version 1.0.0 marks a complete syntax break from all prior versions of the language. No code written for Avenys or pre-1.0 Mire is compatible with this release.
+Mire is a compiled, statically typed programming language with an ownership-oriented memory model. Version 1.0.2 builds on the v1.0.0 syntax break — no code written for Avenys or pre-1.0 Mire is compatible with this release.
 
 ---
 
 ## What this version actually provides
 
-This section is intentionally honest. V1.0.0 is a working compiler with a real type checker, a real ownership checker, and a real standard library surface — but not every feature that appears in the syntax reference is fully guaranteed at the compiler level yet. The distinction matters.
+This section is intentionally honest. V1.0.2 is a working compiler with a real type checker, a real ownership checker, and a real standard library surface — but not every feature that appears in the syntax reference is fully guaranteed at the compiler level yet. The distinction matters.
 
 ### What the compiler fully checks and enforces
 
@@ -20,11 +20,14 @@ This section is intentionally honest. V1.0.0 is a working compiler with a real t
 - Assignment type mismatch errors: assigning `str` to an `i64` binding is a hard error
 - Undefined identifier errors at the use site
 - `match` arm type consistency: all arm patterns must be compatible with the matched value's type
+- Identifier patterns in `match` are treated as comparison-side patterns and are not rejected as undefined bindings during type analysis
 - Loop variable type inference: `for i in range(10)` gives `i` type `i64`; iterating over a typed array or vector infers the element type
 - `if` and `while` conditions are checked to be bool-like; a condition of type `i64` is an error
 - Function call return type propagation: calling a known function resolves the call expression's type
 - All standard library modules (`math`, `strings`, `lists`, `dicts`, `time`, `term`, `mem`, `cpu`, `gpu`, `fs`, `env`, `proc`) are registered with known member return types
 - Builtin functions (`dasu`, `len`, `range`, `str`, `int`, `float`, `bool`, `input`, etc.) have registered return types and are accepted without errors
+- `std.<builtin>` calls such as `std.input` resolve to the same builtin surface when imported through `import std`
+- `std.output` is now fully supported in type checking (previously only worked in codegen)
 
 **Ownership and borrow checking** (`borrowck.rs` / MSS)
 
@@ -48,6 +51,13 @@ This section is intentionally honest. V1.0.0 is a working compiler with a real t
 - Borrow fact recording for all `&` and `&mut` expressions
 - Move fact and drop fact recording
 
+**Compiler infrastructure**
+
+- Incremental compilation: AST is cached in `bin/.cache/incremental.json`, fingerprints consider source path, mode, version, dependencies, and runtime
+- IR kept in RAM for run/build operations; written to disk only for debug mode
+- Recursive test discovery: `mire test` recursively finds `.mire` files, excluding negative/fixture suites (`tests/error/`, `tests/broken_mire/`, `tests/test_proyet_mire_cli/`)
+- Error diagnostics include line, column, and caret markers (^^^) at error location
+
 ---
 
 ### What exists in the parser but is not fully guaranteed
@@ -56,7 +66,7 @@ The following constructs parse without errors but the compiler does not currentl
 
 - **`struct` and `type` construction** — object creation (`User(name="Evelyn" age=20)`) is parsed, and type signatures are collected by the type checker, but field-level type checking during construction is not enforced
 - **`impl` and method calls** — method resolution exists in the semantic model but method bodies are not checked against `self`'s field types
-- **`enum` declarations and matching** — enum variants parse and the type checker skips them (`Statement::Enum` is a no-op in both `typeck.rs` and `borrowck.rs`); enum-qualified patterns are not validated
+- **`enum` declarations** — enum declarations now parse and the name is registered in the type checker scope, but variant instantiation (`Status.Ok`) and pattern matching are not yet implemented
 - **Pipelines (`=>`)** — pipelines are walked by both the type checker and borrow checker but their semantics are not fully resolved; `x => len()` may or may not behave as `len(x)` depending on the runtime
 - **`trait` and `skill` declarations** — registered in the type checker's scope but methods are not checked for conformance
 - **`if` as an expression** — parsed and desugared via `__if_expr` builtin; return type is `Unknown`, not unified from branches
@@ -217,15 +227,15 @@ Modules available via `import`: `math`, `strings`, `lists`, `dicts`, `time`, `te
 
 All members of these modules are registered in the type checker. Return types are known for the majority of members; some return `Anything` where the type is collection-generic or polymorphic.
 
-For full member listings see [syntax-V1.0.0.md](./syntax-V1.0.0.md).
+For full member listings see [syntax-V1.0.0.md](./syntax-V1.0.2.md).
 
 ---
 
 ## What is experimental or under review
 
-The following should not be treated as stable surface in 1.0.0:
+The following should not be treated as stable surface in 1.0.2:
 
-- Enums and enum-qualified pattern matching
+- **Enums** — declaration works, but variant instantiation (`Status.Ok`) and pattern matching are not yet implemented
 - Pipelines (`=>` and `=>?`)
 - `if` as an expression
 - `tuple` type
@@ -260,6 +270,14 @@ src/
     main.rs
 ```
 
+Build artifacts:
+
+- `mire debug` writes binaries and LLVM IR to `bin/debug/`
+- `mire run` and `mire build` write only the binary to `bin/release/` by default
+- Outside a project, outputs fall back to `debug/` or `release/` next to the source
+- Incremental compiler metadata is stored under `bin/.cache/`
+- LLVM IR is written to disk only by `mire debug`; normal run/build flows keep IR in memory
+
 ---
 
 ## Migration from Avenys / pre-1.0 Mire
@@ -275,5 +293,7 @@ V1.0.0 is a hard break. Nothing from previous versions is source-compatible. Key
 ---
 
 ## Version
+
+`1.0.2` — incremental compilation, std.output in typeck, enum name registration, improved diagnostics. Based on v1.0.0 syntax.
 
 `1.0.0` — first stable syntax release. Compiled from the Avenys 0.x codebase with a full parser rewrite and a rewritten `typeck.rs` following a corruption event during development. The semantic and borrow checking layers are original to this release.

@@ -14,6 +14,12 @@ It is intended as the practical reference for writing Mire code right now, not a
 - Enums, pipelines, and expression-oriented control-flow forms should currently be treated as experimental or under review.
 - Some older grammar paths still exist internally and will be removed in later cleanups.
 
+## Toolchain Notes
+
+- `mire debug` persists LLVM IR to disk for inspection.
+- `mire run` and `mire build` keep LLVM IR in memory and persist only the binary plus incremental-cache metadata.
+- Logical operators currently tolerate unresolved identifiers as `Unknown` operands during type inference, matching historic Avenys behavior.
+
 ## Minimal File
 
 ```mire
@@ -95,6 +101,7 @@ Rules:
 - Local imports must start with `./`.
 - Local imports do not support aliasing.
 - Local imports use the original file name as their surface name.
+- `import std` exposes the standard builtin surface, including qualified calls such as `std.input`.
 
 ## Variables and Assignment
 
