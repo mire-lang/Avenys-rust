@@ -225,6 +225,16 @@ static int64_t mire_clock_ns(clockid_t clock_id) {
     return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
 }
 
+void mire_runtime_panic(const char *message) {
+    if (message && *message) {
+        fprintf(stderr, "runtime error: %s\n", message);
+    } else {
+        fprintf(stderr, "runtime error\n");
+    }
+    fflush(stderr);
+    exit(101);
+}
+
 static double mire_cpu_mhz(void) {
     static int initialized = 0;
     static double cached = 0.0;

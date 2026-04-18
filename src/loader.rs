@@ -31,9 +31,15 @@ pub fn load_program_with_metadata(path: &Path) -> Result<LoadedProgram> {
     let mut resolver = ImportResolver::new(project_root, IncrementalCache::load_for(&canonical));
     let statements = resolver.load_file(&canonical)?;
     resolver.cache.save()?;
+    let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
+    let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     Ok(LoadedProgram {
-        program: Program { statements },
+        program: Program {
+            statements: program_statements,
+        },
         files: resolver.files,
+        statement_origins,
+        sources: resolver.sources,
     })
 }
 
@@ -41,7 +47,7 @@ fn load_shallow_program(path: &Path) -> Result<LoadedProgram> {
     let source = read_source_file(path)?;
     let hash = source_hash(&source);
     let program = parse(&source).map_err(|err| {
-        err.with_source(source)
+        err.with_source(source.clone())
             .with_filename(path.display().to_string())
     })?;
     if contains_local_import(&program.statements) {
@@ -60,15 +66,24 @@ fn load_shallow_program(path: &Path) -> Result<LoadedProgram> {
             direct_dependencies: Vec::new(),
         },
     );
-    Ok(LoadedProgram { program, files })
+    let statement_origins = vec![path.to_path_buf(); program.statements.len()];
+    let mut sources = HashMap::new();
+    sources.insert(path.to_path_buf(), source);
+    Ok(LoadedProgram {
+        program,
+        files,
+        statement_origins,
+        sources,
+    })
 }
 
 struct ImportResolver {
     project_root: PathBuf,
     cache: IncrementalCache,
-    expanded_cache: HashMap<PathBuf, Vec<Statement>>,
+    expanded_cache: HashMap<PathBuf, Vec<ExpandedStatement>>,
     active_stack: HashSet<PathBuf>,
     files: HashMap<PathBuf, LoadedFile>,
+    sources: HashMap<PathBuf, String>,
 }
 
 impl ImportResolver {
@@ -79,10 +94,11 @@ impl ImportResolver {
             expanded_cache: HashMap::new(),
             active_stack: HashSet::new(),
             files: HashMap::new(),
+            sources: HashMap::new(),
         }
     }
 
-    fn load_file(&mut self, path: &Path) -> Result<Vec<Statement>> {
+    fn load_file(&mut self, path: &Path) -> Result<Vec<ExpandedStatement>> {
         let canonical = path.canonicalize().map_err(|err| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Could not resolve '{}': {}", path.display(), err),
@@ -137,14 +153,17 @@ impl ImportResolver {
                     } else {
                         self.load_file(&imported_path)?
                     };
-                    direct_dependencies.push(imported_path);
+                    direct_dependencies.push(imported_path.clone());
                     expanded.extend(select_imported_statements(
                         &imported,
                         items.as_deref(),
-                        &path,
+                        &imported_path,
                     )?);
                 }
-                other => expanded.push(other),
+                other => expanded.push(ExpandedStatement {
+                    statement: other,
+                    origin: canonical.clone(),
+                }),
             }
         }
 
@@ -162,13 +181,14 @@ impl ImportResolver {
 
     fn load_or_parse_file(&mut self, path: &Path) -> Result<ResolvedFile> {
         let source = read_source_file(path)?;
+        self.sources.insert(path.to_path_buf(), source.clone());
         let hash = source_hash(&source);
         if let Some(cached) = self.cache.cached_file(path, hash) {
-            return Ok(ResolvedFile::from_cached(cached));
+            return Ok(ResolvedFile::from_cached(cached, source));
         }
 
         let program = parse(&source).map_err(|err| {
-            err.with_source(source)
+            err.with_source(source.clone())
                 .with_filename(path.display().to_string())
         })?;
         let mut local_imports = Vec::new();
@@ -201,14 +221,14 @@ impl ImportResolver {
             program: program.clone(),
         };
         self.cache.store_file(path, cached.clone());
-        Ok(ResolvedFile::from_cached(cached))
+        Ok(ResolvedFile::from_cached(cached, source))
     }
 
     fn load_selected_imports(
         &mut self,
         path: &Path,
         items: Option<&[String]>,
-    ) -> Result<Vec<Statement>> {
+    ) -> Result<Vec<ExpandedStatement>> {
         let parsed = self.load_or_parse_file(path)?;
         if !parsed.local_imports.is_empty() {
             return self.load_file(path);
@@ -220,10 +240,19 @@ impl ImportResolver {
                 direct_dependencies: Vec::new(),
             },
         );
+        let expanded: Vec<ExpandedStatement> = parsed
+            .program
+            .statements
+            .into_iter()
+            .map(|statement| ExpandedStatement {
+                statement,
+                origin: path.to_path_buf(),
+            })
+            .collect();
         select_imported_statements(
-            &parsed.program.statements,
+            &expanded,
             items,
-            &path.display().to_string(),
+            path,
         )
     }
 
@@ -261,22 +290,23 @@ impl ImportResolver {
 }
 
 fn select_imported_statements(
-    statements: &[Statement],
+    statements: &[ExpandedStatement],
     items: Option<&[String]>,
-    import_path: &str,
-) -> Result<Vec<Statement>> {
+    import_path: &Path,
+) -> Result<Vec<ExpandedStatement>> {
     if let Some(items) = items {
         let mut selected = Vec::new();
         for item in items {
             let statement = statements
                 .iter()
-                .find(|statement| statement_export_name(statement) == Some(item.as_str()))
+                .find(|statement| statement_export_name(&statement.statement) == Some(item.as_str()))
                 .cloned()
                 .ok_or_else(|| {
                     MireError::new(ErrorKind::Runtime {
                         message: format!(
                             "Local import '{}' does not export '{}'",
-                            import_path, item
+                            import_path.display(),
+                            item
                         ),
                     })
                 })?;
@@ -287,7 +317,7 @@ fn select_imported_statements(
 
     Ok(statements
         .iter()
-        .filter(|statement| statement_export_name(statement).is_some())
+        .filter(|statement| statement_export_name(&statement.statement).is_some())
         .cloned()
         .collect())
 }
@@ -325,8 +355,14 @@ struct ResolvedFile {
     local_imports: Vec<CachedImport>,
 }
 
+#[derive(Clone)]
+struct ExpandedStatement {
+    statement: Statement,
+    origin: PathBuf,
+}
+
 impl ResolvedFile {
-    fn from_cached(cached: CachedParsedFile) -> Self {
+    fn from_cached(cached: CachedParsedFile, _source: String) -> Self {
         Self {
             hash: cached.hash,
             program: cached.program,

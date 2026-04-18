@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::PathBuf;
 
 use crate::error::{MireError, Result};
 use crate::lexer::tokenize;
-use crate::parser::ast::{DataType, Expression, Literal, MireValue, Program, QueryOp, Statement};
 use crate::parser::Parser;
+use crate::parser::ast::{
+    DataType, Expression, Identifier, Literal, MireValue, Program, QueryOp, Statement,
+    TraitMethodSig,
+};
 
 #[derive(Debug, Clone)]
 struct FunctionSig {
@@ -30,7 +34,15 @@ struct EnumVariantSig {
 }
 
 #[derive(Debug, Clone)]
-struct TraitSig;
+struct TraitSig {
+    methods: Vec<TraitMethodSig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MethodKind {
+    Instance,
+    Associated,
+}
 
 pub fn check_program_types(program: &mut Program, source: &str) -> Result<()> {
     TYPE_CHECKER_SOURCE.with(|s| {
@@ -39,7 +51,30 @@ pub fn check_program_types(program: &mut Program, source: &str) -> Result<()> {
 
     let mut checker = TypeChecker::new();
     checker.collect_function_signatures(&program.statements)?;
-    checker.check_statements(&mut program.statements)
+    checker.check_top_level_statements(&mut program.statements)
+}
+
+pub fn check_program_types_with_origins(
+    program: &mut Program,
+    source: &str,
+    statement_origins: &[PathBuf],
+    sources: &HashMap<PathBuf, String>,
+) -> Result<()> {
+    TYPE_CHECKER_SOURCE.with(|s| {
+        *s.borrow_mut() = Some(source.to_string());
+    });
+
+    let mut checker = TypeChecker::new();
+    checker.statement_origins = statement_origins
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+    checker.sources_by_filename = sources
+        .iter()
+        .map(|(path, source)| (path.display().to_string(), source.clone()))
+        .collect();
+    checker.collect_function_signatures(&program.statements)?;
+    checker.check_top_level_statements(&mut program.statements)
 }
 
 thread_local! {
@@ -48,6 +83,7 @@ thread_local! {
 
 struct TypeChecker {
     scopes: Vec<HashMap<String, (DataType, bool)>>,
+    struct_scopes: Vec<HashMap<String, String>>,
     functions: HashMap<String, FunctionSig>,
     classes: HashMap<String, ClassSig>,
     enum_variants: HashMap<String, EnumVariantSig>,
@@ -55,12 +91,18 @@ struct TypeChecker {
     builtin_returns: HashMap<String, DataType>,
     return_type_stack: Vec<DataType>,
     visited_libs: HashSet<String>,
+    impl_self_type: Option<DataType>,
+    impl_self_name: Option<String>,
+    statement_origins: Vec<String>,
+    sources_by_filename: HashMap<String, String>,
+    current_filename: Option<String>,
 }
 
 impl TypeChecker {
     fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            struct_scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             classes: HashMap::new(),
             enum_variants: HashMap::new(),
@@ -68,7 +110,43 @@ impl TypeChecker {
             builtin_returns: Self::default_builtin_returns(),
             return_type_stack: Vec::new(),
             visited_libs: HashSet::new(),
+            impl_self_type: None,
+            impl_self_name: None,
+            statement_origins: Vec::new(),
+            sources_by_filename: HashMap::new(),
+            current_filename: None,
         }
+    }
+
+    fn check_top_level_statements(&mut self, statements: &mut [Statement]) -> Result<()> {
+        for (index, statement) in statements.iter_mut().enumerate() {
+            self.current_filename = self.statement_origins.get(index).cloned();
+            self.check_statement(statement)
+                .map_err(|err| self.attach_current_context(err))?;
+        }
+        Ok(())
+    }
+
+    fn attach_current_context(&self, err: MireError) -> MireError {
+        let err = if err.filename.is_none() {
+            if let Some(filename) = &self.current_filename {
+                err.with_filename(filename.clone())
+            } else {
+                err
+            }
+        } else {
+            err
+        };
+
+        if err.source.is_none() {
+            if let Some(filename) = err.filename.as_ref() {
+                if let Some(source) = self.sources_by_filename.get(filename) {
+                    return err.with_source(source.clone());
+                }
+            }
+        }
+
+        err
     }
 
     fn default_builtin_returns() -> HashMap<String, DataType> {
@@ -415,11 +493,50 @@ impl TypeChecker {
                         },
                     );
                 }
-                Statement::Module { body, .. } => self.collect_function_signatures(body)?,
-                Statement::Skill {
-                    name, methods: _, ..
+                Statement::Impl {
+                    type_name, methods, ..
                 } => {
-                    self.traits.insert(name.clone(), TraitSig);
+                    for method in methods {
+                        if let Statement::Function {
+                            name,
+                            params,
+                            return_type,
+                            ..
+                        } = method
+                        {
+                            let mut full_params = params.clone();
+                            if let Some((_, self_ty)) =
+                                full_params.iter_mut().find(|(param, _)| param == "self")
+                            {
+                                *self_ty = DataType::StructNamed(type_name.clone());
+                            }
+                            self.functions.insert(
+                                format!("{}.{}", type_name, name),
+                                FunctionSig {
+                                    params: full_params.iter().map(|(_, t)| t.clone()).collect(),
+                                    return_type: return_type.clone(),
+                                },
+                            );
+                        }
+                    }
+                    self.collect_function_signatures(methods)?;
+                }
+                Statement::Module { body, .. } => self.collect_function_signatures(body)?,
+                Statement::Skill { name, methods, .. } => {
+                    self.traits.insert(
+                        name.clone(),
+                        TraitSig {
+                            methods: methods.clone(),
+                        },
+                    );
+                }
+                Statement::Trait { name, methods } => {
+                    self.traits.insert(
+                        name.clone(),
+                        TraitSig {
+                            methods: methods.clone(),
+                        },
+                    );
                 }
                 Statement::Class { name, methods, .. } => {
                     let fields = methods
@@ -469,18 +586,18 @@ impl TypeChecker {
                 Statement::Code { .. } => {
                     // Code no longer supported
                 }
-                Statement::Impl { methods, .. } => self.collect_function_signatures(methods)?,
                 Statement::AddLib { path } => self.collect_library_signatures(path)?,
                 Statement::Enum { name, variants, .. } => {
-                    for (variant_name, payload_types) in variants {
+                    for variant in variants {
+                        let full_name = format!("{}.{}", name, variant.name);
                         self.enum_variants.insert(
-                            variant_name.clone(),
+                            full_name,
                             EnumVariantSig {
-                                payload_types: payload_types.clone(),
+                                payload_types: variant.data_types.clone(),
                             },
                         );
                     }
-                    self.insert_var(name.clone(), DataType::Enum, true);
+                    self.insert_var(name.clone(), DataType::EnumNamed(name.clone()), true);
                 }
                 _ => {}
             }
@@ -553,6 +670,7 @@ impl TypeChecker {
                 *data_type = final_type.clone();
                 let mutable = *is_mutable;
                 self.insert_var(name.clone(), final_type, mutable);
+                self.bind_struct_name(name, value.as_ref());
             }
             Statement::Assignment { target, value, .. } => {
                 let value_type = self.check_expression(value)?;
@@ -578,6 +696,7 @@ impl TypeChecker {
 
                 target_type = Self::unify_types(&target_type, &value_type)?;
                 self.insert_var(target.clone(), target_type, is_target_mutable);
+                self.bind_struct_name(target, Some(value));
             }
             Statement::Function {
                 name,
@@ -710,7 +829,7 @@ impl TypeChecker {
                 let value_type = self.check_expression(value)?;
                 for (case_expr, case_body) in cases.iter_mut() {
                     if !Self::is_match_identifier_pattern(case_expr) {
-                        let case_type = self.check_expression(case_expr)?;
+                        let case_type = self.check_match_pattern(case_expr)?;
                         if value_type != DataType::Unknown
                             && case_type != DataType::Unknown
                             && !self.is_assignable(&value_type, &case_type)
@@ -721,7 +840,11 @@ impl TypeChecker {
                             )));
                         }
                     }
+
                     self.push_scope();
+
+                    self.insert_match_pattern_bindings(case_expr);
+
                     self.check_statements(case_body)?;
                     self.pop_scope();
                 }
@@ -772,13 +895,48 @@ impl TypeChecker {
                 }
             }
             Statement::Class { methods, .. } => self.check_statements(methods)?,
-            Statement::Impl { methods, .. } => self.check_statements(methods)?,
+            Statement::Impl {
+                trait_name,
+                type_name,
+                methods,
+            } => {
+                self.validate_impl_method_declarations(type_name, methods)?;
+                if let Some(trait_name) = trait_name {
+                    self.validate_trait_impl(trait_name, type_name, methods)?;
+                }
+                let old_self = self.impl_self_type.take();
+                let old_self_name = self.impl_self_name.take();
+
+                for method in methods.iter_mut() {
+                    let has_self = matches!(
+                        method,
+                        Statement::Function { params, .. }
+                            if params.iter().any(|(param_name, _)| param_name == "self")
+                    );
+                    self.impl_self_type = has_self.then(|| DataType::StructNamed(type_name.clone()));
+                    self.impl_self_name = has_self.then(|| type_name.clone());
+                    self.check_statement(method)?;
+                }
+
+                self.impl_self_type = old_self;
+                self.impl_self_name = old_self_name;
+            }
             Statement::Type { fields, .. } => self.check_statements(fields)?,
             Statement::Code { methods, .. } => self.check_statements(methods)?,
-            Statement::Skill { .. } => {}
+            Statement::Skill { name, methods } => {
+                if methods.is_empty() {
+                    return Err(type_error(format!(
+                        "Skill '{}' must declare at least one method",
+                        name
+                    )));
+                }
+                self.validate_trait_method_declarations(name, methods, "Skill")?;
+            }
+            Statement::Trait { name, methods } => {
+                self.validate_trait_method_declarations(name, methods, "Trait")?;
+            }
             Statement::Break
             | Statement::Continue
-            | Statement::Trait { .. }
             | Statement::ExternLib { .. }
             | Statement::ExternFunction { .. }
             | Statement::Enum { .. } => {}
@@ -956,6 +1114,34 @@ impl TypeChecker {
                     .map(|arg| self.check_expression(arg))
                     .collect::<Result<_>>()?;
 
+                if name == "__if_expr" {
+                    if args.len() != 3 {
+                        return Err(type_error(
+                            "__if_expr expects condition, then branch, and else branch"
+                                .to_string(),
+                        ));
+                    }
+
+                    let cond_type = arg_types.first().cloned().unwrap_or(DataType::Unknown);
+                    if !Self::is_bool_like(&cond_type) {
+                        return Err(type_error(format!(
+                            "If expression condition must be bool, got {:?}",
+                            cond_type
+                        )));
+                    }
+
+                    let then_type = Self::closure_return_type(&args[1], "__if_expr then")?;
+                    let else_type = Self::closure_return_type(&args[2], "__if_expr else")?;
+                    let resolved = Self::unify_types(&then_type, &else_type)?;
+                    *data_type = resolved.clone();
+                    return Ok(resolved);
+                }
+
+                if let Some(resolved) = self.resolve_instance_method_call(name, &arg_types)? {
+                    *data_type = resolved.clone();
+                    return Ok(resolved);
+                }
+
                 if name == "dicts.get" {
                     let resolved = match arg_types.first().cloned().unwrap_or(DataType::Unknown) {
                         DataType::Map { value_type, .. } => *value_type,
@@ -1101,16 +1287,36 @@ impl TypeChecker {
                     }
                 }
 
-                if let Some(variant_sig) = self.enum_variants.get(name).cloned() {
-                    self.check_enum_variant_call(name, &variant_sig, &arg_types)?;
-                    *data_type = DataType::Enum;
-                    return Ok(DataType::Enum);
+                if let Some(sig) = self.functions.get(name).cloned() {
+                    if sig.params.len() != args.len() {
+                        return Err(type_error(format!(
+                            "Function '{}' expects {} arguments, got {}",
+                            name,
+                            sig.params.len(),
+                            args.len()
+                        )));
+                    }
+                    *data_type = sig.return_type.clone();
+                    return Ok(sig.return_type);
                 }
 
+                // Check class constructors BEFORE enum variants.
+                // Associated methods use `Type::method(...)`, while direct constructors
+                // still use `(Type field: value, ...)`.
                 if let Some(class_sig) = self.classes.get(name).cloned() {
                     self.check_class_constructor_call(name, &class_sig, args, &arg_types)?;
-                    *data_type = DataType::Unknown;
-                    return Ok(DataType::Unknown);
+                    *data_type = DataType::StructNamed(name.clone());
+                    return Ok(DataType::StructNamed(name.clone()));
+                }
+
+                if let Some(variant_sig) = self.enum_variants.get(name).cloned() {
+                    self.check_enum_variant_call(name, &variant_sig, &arg_types)?;
+                    let enum_name = name
+                        .split_once('.')
+                        .map(|(enum_name, _)| enum_name.to_string())
+                        .unwrap_or_else(|| name.clone());
+                    *data_type = DataType::EnumNamed(enum_name.clone());
+                    return Ok(DataType::EnumNamed(enum_name));
                 }
 
                 Err(type_error(format!("Unknown function '{}'", name)))
@@ -1194,12 +1400,81 @@ impl TypeChecker {
             }
             Expression::MemberAccess {
                 target,
-                member: _,
+                member,
                 data_type,
             } => {
-                self.check_expression(target)?;
+                let target_type = self.check_expression(target)?;
+                if target_type.is_struct_like() {
+                    if let Some(struct_name) = self.struct_name_for_expr(target).or_else(|| {
+                        target_type.struct_name().map(ToOwned::to_owned)
+                    }) {
+                        if let Some(class_sig) = self.classes.get(&struct_name) {
+                            if let Some(field) = class_sig.fields.iter().find(|f| f.name == *member)
+                            {
+                                *data_type = field.data_type.clone();
+                                return Ok(field.data_type.clone());
+                            }
+                        }
+                        if let Some(fn_sig) =
+                            self.functions.get(&format!("{}.{}", struct_name, member))
+                        {
+                            *data_type = fn_sig.return_type.clone();
+                            return Ok(fn_sig.return_type.clone());
+                        }
+                        return Err(type_error(format!(
+                            "Struct '{}' has no field or method '{}'",
+                            struct_name, member
+                        )));
+                    }
+
+                    for class_sig in self.classes.values() {
+                        if let Some(field) = class_sig.fields.iter().find(|f| f.name == *member) {
+                            *data_type = field.data_type.clone();
+                            return Ok(field.data_type.clone());
+                        }
+                    }
+                    for (fn_name, fn_sig) in &self.functions {
+                        if let Some((_base_type, method_name)) = fn_name.split_once('.') {
+                            if method_name == *member {
+                                *data_type = fn_sig.return_type.clone();
+                                return Ok(fn_sig.return_type.clone());
+                            }
+                        }
+                    }
+                }
                 *data_type = DataType::Anything;
                 Ok(DataType::Anything)
+            }
+            Expression::EnumVariantPath {
+                enum_name,
+                variant_name,
+                data_type,
+            } => {
+                let full_name = format!("{}.{}", enum_name, variant_name);
+                if !self.enum_variants.contains_key(&full_name) {
+                    return Err(type_error(format!("Unknown enum variant '{}'", full_name)));
+                }
+                *data_type = DataType::EnumNamed(enum_name.clone());
+                Ok(DataType::EnumNamed(enum_name.clone()))
+            }
+            Expression::EnumVariant {
+                enum_name,
+                variant_name,
+                payloads,
+                data_type,
+            } => {
+                let mut arg_types = Vec::with_capacity(payloads.len());
+                for payload in payloads.iter_mut() {
+                    arg_types.push(self.check_expression(payload)?);
+                }
+                let full_name = format!("{}.{}", enum_name, variant_name);
+                let variant_sig =
+                    self.enum_variants.get(&full_name).cloned().ok_or_else(|| {
+                        type_error(format!("Unknown enum variant '{}'", full_name))
+                    })?;
+                self.check_enum_variant_call(&full_name, &variant_sig, &arg_types)?;
+                *data_type = DataType::EnumNamed(enum_name.clone());
+                Ok(DataType::EnumNamed(enum_name.clone()))
             }
             Expression::Closure {
                 params,
@@ -1281,9 +1556,15 @@ impl TypeChecker {
                 let _ = self.check_expression(value)?;
                 for (case_expr, case_body) in cases.iter_mut() {
                     if !Self::is_match_identifier_pattern(case_expr) {
-                        let _ = self.check_expression(case_expr)?;
+                        let _ = self.check_match_pattern(case_expr)?;
                     }
+
+                    self.push_scope();
+
+                    self.insert_match_pattern_bindings(case_expr);
+
                     let _ = self.check_expression(case_body)?;
+                    self.pop_scope();
                 }
                 let _ = self.check_expression(default)?;
                 Ok(data_type.clone())
@@ -1545,13 +1826,38 @@ impl TypeChecker {
                     element_type: Box::new(element_type),
                 }
             }
-            MireValue::EnumVariant { .. } => DataType::Enum,
+            MireValue::EnumVariant { enum_name, .. } => DataType::EnumNamed(enum_name.clone()),
         }
     }
 
     fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
         if left == right {
             return Ok(left.clone());
+        }
+
+        if left.is_struct_like() && right.is_struct_like() {
+            return match (left.struct_name(), right.struct_name()) {
+                (Some(left_name), Some(right_name)) if left_name != right_name => Err(type_error(
+                    format!(
+                        "Cannot unify incompatible struct types {:?} and {:?}",
+                        left, right
+                    ),
+                )),
+                (Some(_), _) => Ok(left.clone()),
+                (_, Some(_)) => Ok(right.clone()),
+                _ => Ok(DataType::Struct),
+            };
+        }
+
+        if left.is_enum_like() && right.is_enum_like() {
+            return match (left.enum_name(), right.enum_name()) {
+                (Some(left_name), Some(right_name)) if left_name != right_name => Err(type_error(
+                    format!("Cannot unify incompatible enum types {:?} and {:?}", left, right),
+                )),
+                (Some(_), _) => Ok(left.clone()),
+                (_, Some(_)) => Ok(right.clone()),
+                _ => Ok(DataType::Enum),
+            };
         }
 
         if left == &DataType::Unknown {
@@ -1648,6 +1954,20 @@ impl TypeChecker {
             return true;
         }
 
+        if expected.is_struct_like() && actual.is_struct_like() {
+            return match (expected.struct_name(), actual.struct_name()) {
+                (Some(expected_name), Some(actual_name)) => expected_name == actual_name,
+                _ => true,
+            };
+        }
+
+        if expected.is_enum_like() && actual.is_enum_like() {
+            return match (expected.enum_name(), actual.enum_name()) {
+                (Some(expected_name), Some(actual_name)) => expected_name == actual_name,
+                _ => true,
+            };
+        }
+
         if expected == &DataType::Anything || actual == &DataType::Unknown {
             return true;
         }
@@ -1730,6 +2050,17 @@ impl TypeChecker {
         }
     }
 
+    fn closure_return_type(expr: &Expression, context: &str) -> Result<DataType> {
+        if let Expression::Closure { return_type, .. } = expr {
+            Ok(return_type.clone())
+        } else {
+            Err(type_error(format!(
+                "{} must be represented as a closure in the AST",
+                context
+            )))
+        }
+    }
+
     fn requires_explicit_nested_element(dtype: &DataType) -> bool {
         matches!(
             dtype,
@@ -1770,6 +2101,212 @@ impl TypeChecker {
         }
 
         Ok(())
+    }
+
+    fn check_match_pattern(&mut self, pattern: &mut Expression) -> Result<DataType> {
+        match pattern {
+            Expression::EnumVariantPath {
+                enum_name,
+                variant_name,
+                data_type,
+            } => {
+                let full_name = format!("{}.{}", enum_name, variant_name);
+                if !self.enum_variants.contains_key(&full_name) {
+                    return Err(type_error(format!("Unknown enum variant '{}'", full_name)));
+                }
+                *data_type = DataType::EnumNamed(enum_name.clone());
+                Ok(DataType::EnumNamed(enum_name.clone()))
+            }
+            Expression::EnumVariant {
+                enum_name,
+                variant_name,
+                payloads,
+                data_type,
+            } => {
+                let full_name = format!("{}.{}", enum_name, variant_name);
+                let variant_sig =
+                    self.enum_variants.get(&full_name).cloned().ok_or_else(|| {
+                        type_error(format!("Unknown enum variant '{}'", full_name))
+                    })?;
+                let mut arg_types = Vec::with_capacity(payloads.len());
+                for (index, payload) in payloads.iter_mut().enumerate() {
+                    if matches!(payload, Expression::Identifier(_)) {
+                        arg_types.push(
+                            variant_sig
+                                .payload_types
+                                .get(index)
+                                .cloned()
+                                .unwrap_or(DataType::Unknown),
+                        );
+                    } else {
+                        arg_types.push(self.check_expression(payload)?);
+                    }
+                }
+                self.check_enum_variant_call(&full_name, &variant_sig, &arg_types)?;
+                *data_type = DataType::EnumNamed(enum_name.clone());
+                Ok(DataType::EnumNamed(enum_name.clone()))
+            }
+            _ => self.check_expression(pattern),
+        }
+    }
+
+    fn insert_match_pattern_bindings(&mut self, case_expr: &Expression) {
+        if let Expression::EnumVariant {
+            enum_name,
+            variant_name,
+            payloads,
+            ..
+        } = case_expr
+        {
+            let full_name = format!("{}.{}", enum_name, variant_name);
+            if let Some(variant_sig) = self.enum_variants.get(&full_name).cloned() {
+                for (payload_expr, payload_type) in
+                    payloads.iter().zip(variant_sig.payload_types.iter())
+                {
+                    if let Expression::Identifier(id) = payload_expr {
+                        self.insert_var(id.name.clone(), payload_type.clone(), true);
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_trait_impl(
+        &self,
+        trait_name: &str,
+        type_name: &str,
+        methods: &[Statement],
+    ) -> Result<()> {
+        let trait_sig = self
+            .traits
+            .get(trait_name)
+            .ok_or_else(|| type_error(format!("Unknown skill/trait '{}'", trait_name)))?;
+
+        for required_method in &trait_sig.methods {
+            let implemented = methods.iter().find_map(|statement| match statement {
+                Statement::Function {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } if name == &required_method.name => Some((params.clone(), return_type.clone())),
+                _ => None,
+            });
+
+            let Some((implemented_params, implemented_return)) = implemented else {
+                return Err(type_error(format!(
+                    "Type '{}' does not implement required method '{}.{}'",
+                    type_name, trait_name, required_method.name
+                )));
+            };
+
+            let required_kind = Self::method_kind_for_params(&required_method.params);
+            let implemented_kind = Self::method_kind_for_params(&implemented_params);
+            if required_kind != implemented_kind {
+                return Err(type_error(format!(
+                    "Method '{}.{}' must be implemented as {}, got {}",
+                    trait_name,
+                    required_method.name,
+                    Self::describe_method_kind(required_kind),
+                    Self::describe_method_kind(implemented_kind),
+                )));
+            }
+
+            let required_params =
+                Self::normalize_trait_impl_params(type_name, &required_method.params);
+            let implemented_params =
+                Self::normalize_trait_impl_params(type_name, &implemented_params);
+
+            if implemented_params != required_params
+                || implemented_return != required_method.return_type
+            {
+                return Err(type_error(format!(
+                    "Method '{}.{}' implementation signature does not match declaration: expected {:?} -> {:?}, got {:?} -> {:?}",
+                    trait_name,
+                    required_method.name,
+                    required_params,
+                    required_method.return_type,
+                    implemented_params,
+                    implemented_return,
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_trait_method_declarations(
+        &self,
+        container_name: &str,
+        methods: &[TraitMethodSig],
+        container_kind: &str,
+    ) -> Result<()> {
+        for method in methods {
+            Self::validate_self_param_position(
+                &method.params,
+                format!(
+                    "{} '{}.{}'",
+                    container_kind, container_name, method.name
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn validate_impl_method_declarations(&self, type_name: &str, methods: &[Statement]) -> Result<()> {
+        for method in methods {
+            if let Statement::Function { name, params, .. } = method {
+                Self::validate_self_param_position(
+                    params,
+                    format!("Method '{}.{}'", type_name, name),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_trait_impl_params(
+        owner_type_name: &str,
+        params: &[(String, DataType)],
+    ) -> Vec<DataType> {
+        params
+            .iter()
+            .map(|(name, data_type)| {
+                if name == "self" && matches!(data_type, DataType::Unknown | DataType::Struct) {
+                    DataType::StructNamed(owner_type_name.to_string())
+                } else {
+                    data_type.clone()
+                }
+            })
+            .collect()
+    }
+
+    fn validate_self_param_position(
+        params: &[(String, DataType)],
+        context: String,
+    ) -> Result<()> {
+        if params.iter().skip(1).any(|(name, _)| name == "self") {
+            return Err(type_error(format!(
+                "{} must declare 'self' as the first parameter",
+                context
+            )));
+        }
+        Ok(())
+    }
+
+    fn method_kind_for_params(params: &[(String, DataType)]) -> MethodKind {
+        if params.first().is_some_and(|(name, _)| name == "self") {
+            MethodKind::Instance
+        } else {
+            MethodKind::Associated
+        }
+    }
+
+    fn describe_method_kind(kind: MethodKind) -> &'static str {
+        match kind {
+            MethodKind::Instance => "an instance method",
+            MethodKind::Associated => "an associated method",
+        }
     }
 
     fn check_class_constructor_call(
@@ -1872,11 +2409,15 @@ impl TypeChecker {
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
+        self.struct_scopes.push(HashMap::new());
     }
 
     fn pop_scope(&mut self) {
         if self.scopes.len() > 1 {
             self.scopes.pop();
+        }
+        if self.struct_scopes.len() > 1 {
+            self.struct_scopes.pop();
         }
     }
 
@@ -1886,13 +2427,117 @@ impl TypeChecker {
         }
     }
 
+    fn bind_struct_name(&mut self, name: &str, value: Option<&Expression>) {
+        let struct_name = value.and_then(|expr| self.struct_name_for_expr(expr));
+        if let Some(scope) = self.struct_scopes.last_mut() {
+            if let Some(struct_name) = struct_name {
+                scope.insert(name.to_string(), struct_name);
+            } else {
+                scope.remove(name);
+            }
+        }
+    }
+
     fn lookup_var(&self, name: &str) -> Option<(DataType, bool)> {
+        if name == "self" {
+            if let Some(ref self_type) = self.impl_self_type {
+                return Some((self_type.clone(), true));
+            }
+        }
         for scope in self.scopes.iter().rev() {
             if let Some(data_type) = scope.get(name) {
                 return Some(data_type.clone());
             }
         }
         None
+    }
+
+    fn lookup_struct_name(&self, name: &str) -> Option<String> {
+        if name == "self" {
+            return self.impl_self_name.clone();
+        }
+        for scope in self.struct_scopes.iter().rev() {
+            if let Some(struct_name) = scope.get(name) {
+                return Some(struct_name.clone());
+            }
+        }
+        None
+    }
+
+    fn struct_name_for_expr(&self, expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Call {
+                name, data_type, ..
+            } if data_type.is_struct_like() => {
+                data_type
+                    .struct_name()
+                    .map(ToOwned::to_owned)
+                    .or_else(|| {
+                        if self.classes.contains_key(name) {
+                            Some(name.clone())
+                        } else if let Some((owner, _method)) = name.split_once('.') {
+                            self.lookup_struct_name(owner).or_else(|| {
+                                self.classes.contains_key(owner).then(|| owner.to_string())
+                            })
+                        } else {
+                            None
+                        }
+                    })
+            }
+            Expression::Identifier(Identifier { name, .. }) => self.lookup_struct_name(name),
+            _ => None,
+        }
+    }
+
+    fn resolve_instance_method_call(
+        &self,
+        name: &str,
+        arg_types: &[DataType],
+    ) -> Result<Option<DataType>> {
+        let Some((receiver_name, method_name)) = name.split_once('.') else {
+            return Ok(None);
+        };
+        let Some(struct_name) = self.lookup_struct_name(receiver_name) else {
+            return Ok(None);
+        };
+        let full_name = format!("{}.{}", struct_name, method_name);
+        let Some(sig) = self.functions.get(&full_name) else {
+            return Err(type_error(format!(
+                "Struct '{}' has no method '{}'",
+                struct_name, method_name
+            )));
+        };
+
+        if !sig.params.first().is_some_and(DataType::is_struct_like) {
+            return Ok(None);
+        }
+
+        let expected_args = sig.params.get(1..).unwrap_or(&[]);
+
+        if expected_args.len() != arg_types.len() {
+            return Err(type_error(format!(
+                "Method '{}.{}' expects {} arguments, got {}",
+                struct_name,
+                method_name,
+                expected_args.len(),
+                arg_types.len()
+            )));
+        }
+
+        for (idx, (expected, actual)) in expected_args.iter().zip(arg_types.iter()).enumerate() {
+            if !self.is_assignable(expected, actual) {
+                return Err(type_error(format!(
+                    "Method '{}.{}' argument {} expects {:?}, got {:?}",
+                    struct_name,
+                    method_name,
+                    idx + 1,
+                    expected,
+                    actual
+                )));
+            }
+        }
+
+        Ok(Some(sig.return_type.clone()))
     }
 }
 
@@ -2059,9 +2704,10 @@ mod tests {
         };
 
         let err = check_program_types(&mut program, "").expect_err("must fail");
-        assert!(err
-            .to_string()
-            .contains("Type mismatch in assignment to 'x'"));
+        assert!(
+            err.to_string()
+                .contains("Type mismatch in assignment to 'x'")
+        );
     }
 
     #[test]

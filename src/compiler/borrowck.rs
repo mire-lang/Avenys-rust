@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::compiler::semantic::{BindingInfo, BindingKind, SemanticModel};
 use crate::error::mss::MssError;
@@ -7,7 +8,25 @@ use crate::parser::ast::{DataType, Expression, Program, QueryOp, Statement};
 
 pub fn check_program(program: &Program, semantic_model: &SemanticModel) -> Result<()> {
     let mut checker = BorrowChecker::new(semantic_model);
-    checker.check_statements(&program.statements)
+    checker.check_top_level_statements(&program.statements)
+}
+
+pub fn check_program_with_origins(
+    program: &Program,
+    semantic_model: &SemanticModel,
+    statement_origins: &[PathBuf],
+    sources: &HashMap<PathBuf, String>,
+) -> Result<()> {
+    let mut checker = BorrowChecker::new(semantic_model);
+    checker.statement_origins = statement_origins
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+    checker.sources_by_filename = sources
+        .iter()
+        .map(|(path, source)| (path.display().to_string(), source.clone()))
+        .collect();
+    checker.check_top_level_statements(&program.statements)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -29,6 +48,9 @@ struct BorrowChecker {
     scopes: Vec<HashMap<String, BindingState>>,
     unsafe_depth: usize,
     function_stack: Vec<FunctionContext>,
+    statement_origins: Vec<String>,
+    sources_by_filename: HashMap<String, String>,
+    current_filename: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +65,41 @@ impl BorrowChecker {
             scopes: vec![HashMap::new()],
             unsafe_depth: 0,
             function_stack: Vec::new(),
+            statement_origins: Vec::new(),
+            sources_by_filename: HashMap::new(),
+            current_filename: None,
         }
+    }
+
+    fn check_top_level_statements(&mut self, statements: &[Statement]) -> Result<()> {
+        for (index, statement) in statements.iter().enumerate() {
+            self.current_filename = self.statement_origins.get(index).cloned();
+            self.check_statement(statement)
+                .map_err(|err| self.attach_current_context(err))?;
+        }
+        Ok(())
+    }
+
+    fn attach_current_context(&self, err: MireError) -> MireError {
+        let err = if err.filename.is_none() {
+            if let Some(filename) = &self.current_filename {
+                err.with_filename(filename.clone())
+            } else {
+                err
+            }
+        } else {
+            err
+        };
+
+        if err.source.is_none() {
+            if let Some(filename) = err.filename.as_ref() {
+                if let Some(source) = self.sources_by_filename.get(filename) {
+                    return err.with_source(source.clone());
+                }
+            }
+        }
+
+        err
     }
 
     fn check_statements(&mut self, statements: &[Statement]) -> Result<()> {
@@ -141,9 +197,10 @@ impl BorrowChecker {
                 default,
             } => {
                 self.check_expression(value)?;
-                for (_case_expr, case_body) in cases {
+                for (case_expr, case_body) in cases {
                     // Skip pattern checking - they're just comparison values
                     self.push_scope();
+                    self.insert_match_pattern_bindings(case_expr);
                     self.check_statements(case_body)?;
                     self.pop_scope();
                 }
@@ -319,11 +376,20 @@ impl BorrowChecker {
                 ..
             } => {
                 self.check_expression(value)?;
-                for (_pattern, result) in cases {
+                for (pattern, result) in cases {
                     // Skip pattern checking - they're just comparison values
+                    self.push_scope();
+                    self.insert_match_pattern_bindings(pattern);
                     self.check_expression(result)?;
+                    self.pop_scope();
                 }
                 self.check_expression(default)?;
+            }
+            Expression::EnumVariantPath { .. } => {}
+            Expression::EnumVariant { payloads, .. } => {
+                for payload in payloads {
+                    self.check_expression(payload)?;
+                }
             }
         }
         Ok(())
@@ -448,6 +514,16 @@ impl BorrowChecker {
             .and_then(|scope| scope.insert(name, state));
         if let Some(previous) = previous.and_then(|binding| binding.ref_target) {
             self.release_borrow(&previous.target, previous.is_mutable);
+        }
+    }
+
+    fn insert_match_pattern_bindings(&mut self, pattern: &Expression) {
+        if let Expression::EnumVariant { payloads, .. } = pattern {
+            for payload in payloads {
+                if let Expression::Identifier(ident) = payload {
+                    self.insert_binding(ident.name.clone(), BindingState::default());
+                }
+            }
         }
     }
 

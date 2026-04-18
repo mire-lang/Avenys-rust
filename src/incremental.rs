@@ -38,6 +38,8 @@ pub struct LoadedFile {
 pub struct LoadedProgram {
     pub program: Program,
     pub files: HashMap<PathBuf, LoadedFile>,
+    pub statement_origins: Vec<PathBuf>,
+    pub sources: HashMap<PathBuf, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

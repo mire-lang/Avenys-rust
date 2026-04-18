@@ -40,6 +40,7 @@ pub enum DataType {
     Anything,
     Function,
     Struct,
+    StructNamed(String),
     Db,
     Tuple,
     Set,
@@ -49,6 +50,7 @@ pub enum DataType {
     RefMut,
     Box,
     Enum,
+    EnumNamed(String),
     DynTrait {
         trait_name: String,
     },
@@ -102,6 +104,28 @@ impl DataType {
             "datetime" => DataType::Datetime,
             "box" => DataType::Box,
             _ => DataType::Unknown,
+        }
+    }
+
+    pub fn is_struct_like(&self) -> bool {
+        matches!(self, DataType::Struct | DataType::StructNamed(_))
+    }
+
+    pub fn is_enum_like(&self) -> bool {
+        matches!(self, DataType::Enum | DataType::EnumNamed(_))
+    }
+
+    pub fn struct_name(&self) -> Option<&str> {
+        match self {
+            DataType::StructNamed(name) => Some(name.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn enum_name(&self) -> Option<&str> {
+        match self {
+            DataType::EnumNamed(name) => Some(name.as_str()),
+            _ => None,
         }
     }
 }
@@ -203,6 +227,17 @@ pub enum Expression {
         value: Box<Expression>,
         cases: Vec<(Expression, Expression)>,
         default: Box<Expression>,
+        data_type: DataType,
+    },
+    EnumVariantPath {
+        enum_name: String,
+        variant_name: String,
+        data_type: DataType,
+    },
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        payloads: Vec<Expression>,
         data_type: DataType,
     },
 }
@@ -439,7 +474,7 @@ pub enum Statement {
     },
     Enum {
         name: String,
-        variants: Vec<(String, Vec<DataType>)>,
+        variants: Vec<EnumVariantDef>,
     },
     DmireTable {
         name: String,
@@ -519,6 +554,7 @@ pub struct EnumDef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumVariantDef {
+    pub enum_name: String,
     pub name: String,
     pub data_types: Vec<DataType>,
 }
@@ -576,7 +612,7 @@ pub enum MireValue {
     EnumVariant {
         enum_name: String,
         variant_name: String,
-        data: Option<Box<MireValue>>,
+        data: Vec<MireValue>,
     },
 }
 

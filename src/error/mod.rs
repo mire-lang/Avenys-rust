@@ -9,9 +9,17 @@ pub enum ErrorKind {
         column: usize,
         message: String,
     },
+    DeprecatedSyntax {
+        line: usize,
+        column: usize,
+        message: String,
+    },
     Parser {
         line: usize,
         column: usize,
+        message: String,
+    },
+    Backend {
         message: String,
     },
     Runtime {
@@ -61,7 +69,9 @@ impl ErrorKind {
     fn error_type_name(&self) -> &'static str {
         match self {
             ErrorKind::Lexer { .. } => "lexer",
+            ErrorKind::DeprecatedSyntax { .. } => "deprecated",
             ErrorKind::Parser { .. } => "parser",
+            ErrorKind::Backend { .. } => "backend",
             ErrorKind::Runtime { .. } => "runtime",
             ErrorKind::Type { .. } => "type",
             ErrorKind::Ownership { .. } => "ownership",
@@ -71,7 +81,9 @@ impl ErrorKind {
     fn error_title(&self) -> &'static str {
         match self {
             ErrorKind::Lexer { .. } => "Lexical Error",
+            ErrorKind::DeprecatedSyntax { .. } => "Deprecated Syntax",
             ErrorKind::Parser { .. } => "Syntax Error",
+            ErrorKind::Backend { .. } => "Backend Limitation",
             ErrorKind::Runtime { .. } => "Runtime Error",
             ErrorKind::Type { .. } => "Type Error",
             ErrorKind::Ownership { .. } => "Ownership Error",
@@ -101,7 +113,9 @@ impl MireError {
     pub fn new(kind: ErrorKind) -> Self {
         let (line, column) = match &kind {
             ErrorKind::Lexer { line, column, .. } => (*line, *column),
+            ErrorKind::DeprecatedSyntax { line, column, .. } => (*line, *column),
             ErrorKind::Parser { line, column, .. } => (*line, *column),
+            ErrorKind::Backend { .. } => (1, 1),
             ErrorKind::Runtime { .. } => (1, 1),
             ErrorKind::Type { line, column, .. } => (*line, *column),
             ErrorKind::Ownership { line, column, .. } => (*line, *column),
@@ -145,7 +159,9 @@ impl MireError {
     fn format_with_options(&self, use_color: bool) -> String {
         let message = match &self.kind {
             ErrorKind::Lexer { message, .. } => message.clone(),
+            ErrorKind::DeprecatedSyntax { message, .. } => message.clone(),
             ErrorKind::Parser { message, .. } => message.clone(),
+            ErrorKind::Backend { message } => message.clone(),
             ErrorKind::Runtime { message } => message.clone(),
             ErrorKind::Type { message, .. } => message.clone(),
             ErrorKind::Ownership { kind, .. } => kind.to_string(),
@@ -303,6 +319,18 @@ impl From<std::io::Error> for MireError {
 }
 
 impl MireError {
+    pub fn deprecated_syntax(line: usize, column: usize, message: String) -> Self {
+        Self::new(ErrorKind::DeprecatedSyntax {
+            line,
+            column,
+            message,
+        })
+    }
+
+    pub fn backend(message: String) -> Self {
+        Self::new(ErrorKind::Backend { message })
+    }
+
     pub fn runtime(message: String) -> Self {
         Self::new(ErrorKind::Runtime { message })
     }
@@ -350,6 +378,13 @@ fn generate_explanation(kind: &ErrorKind) -> Option<String> {
                 Some("A lexical error was found while reading the code.".to_string())
             }
         }
+        ErrorKind::DeprecatedSyntax { message, .. } => {
+            if message.contains("use `import`") {
+                Some("This source uses obsolete syntax from an older Mire version. Replace `add` with `import`.".to_string())
+            } else {
+                Some("This source uses syntax that is no longer supported.".to_string())
+            }
+        }
         ErrorKind::Parser { message, .. } => {
             if message.contains("Expected") {
                 Some("The parser expected different syntax here.".to_string())
@@ -361,6 +396,13 @@ fn generate_explanation(kind: &ErrorKind) -> Option<String> {
                 Some("The code ended unexpectedly.".to_string())
             } else {
                 Some("A syntax error was found.".to_string())
+            }
+        }
+        ErrorKind::Backend { message } => {
+            if message.contains("does not yet lower") {
+                Some("The frontend accepted this program, but the current Avenys backend cannot lower this construct yet.".to_string())
+            } else {
+                Some("The current backend cannot compile this construct yet.".to_string())
             }
         }
         ErrorKind::Runtime { message } => {

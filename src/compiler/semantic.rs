@@ -233,9 +233,12 @@ impl SemanticModelBuilder {
                 default,
             } => {
                 self.visit_expression(value);
-                for (_case_expr, body) in cases {
+                for (case_expr, body) in cases {
                     // Skip pattern - it's just a value for comparison
-                    self.with_scope(|builder| builder.visit_statements(body));
+                    self.with_scope(|builder| {
+                        builder.register_match_pattern_bindings(case_expr);
+                        builder.visit_statements(body);
+                    });
                 }
                 self.with_scope(|builder| builder.visit_statements(default));
             }
@@ -327,11 +330,20 @@ impl SemanticModelBuilder {
                 ..
             } => {
                 self.visit_expression(value);
-                for (_pattern, result) in cases {
+                for (pattern, result) in cases {
                     // Skip pattern - it's just a value for comparison, not a real expression
-                    self.visit_expression(result);
+                    self.with_scope(|builder| {
+                        builder.register_match_pattern_bindings(pattern);
+                        builder.visit_expression(result);
+                    });
                 }
                 self.visit_expression(default);
+            }
+            Expression::EnumVariantPath { .. } => {}
+            Expression::EnumVariant { payloads, .. } => {
+                for payload in payloads {
+                    self.visit_expression(payload);
+                }
             }
             Expression::Literal(_) | Expression::Identifier(_) => {}
         }
@@ -363,6 +375,23 @@ impl SemanticModelBuilder {
             .entry(name)
             .or_default()
             .push(index);
+    }
+
+    fn register_match_pattern_bindings(&mut self, pattern: &Expression) {
+        if let Expression::EnumVariant { payloads, .. } = pattern {
+            for payload in payloads {
+                if let Expression::Identifier(ident) = payload {
+                    self.register_binding(
+                        ident.name.clone(),
+                        DataType::Anything,
+                        BindingKind::Value,
+                        None,
+                        false,
+                        false,
+                    );
+                }
+            }
+        }
     }
 
     fn with_scope<F>(&mut self, f: F)

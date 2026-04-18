@@ -18,17 +18,62 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     scopes: Vec<HashSet<String>>,
+    enum_names: HashSet<String>,
+    nominal_type_names: HashSet<String>,
     method_context: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
+        let enum_names = Self::collect_top_level_nominal_names(&tokens, TokenType::Enum);
+        let mut nominal_type_names =
+            Self::collect_top_level_nominal_names(&tokens, TokenType::Struct);
+        nominal_type_names.extend(Self::collect_top_level_nominal_names(
+            &tokens,
+            TokenType::Type,
+        ));
         Self {
             tokens,
             pos: 0,
             scopes: vec![HashSet::new()],
+            enum_names,
+            nominal_type_names,
             method_context: 0,
         }
+    }
+
+    fn collect_top_level_nominal_names(tokens: &[Token], keyword: TokenType) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let mut brace_depth = 0usize;
+        let mut index = 0usize;
+
+        while index < tokens.len() {
+            match tokens[index].ttype {
+                TokenType::Lbrace => brace_depth += 1,
+                TokenType::Rbrace => brace_depth = brace_depth.saturating_sub(1),
+                TokenType::Pub | TokenType::Priv if brace_depth == 0 => {
+                    if index + 2 < tokens.len()
+                        && tokens[index + 1].ttype == keyword
+                        && tokens[index + 2].ttype == TokenType::Ident
+                    {
+                        if let Some(name) = tokens[index + 2].value.clone() {
+                            names.insert(name);
+                        }
+                    }
+                }
+                ttype if brace_depth == 0 && ttype == keyword => {
+                    if index + 1 < tokens.len() && tokens[index + 1].ttype == TokenType::Ident {
+                        if let Some(name) = tokens[index + 1].value.clone() {
+                            names.insert(name);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+
+        names
     }
 
     pub fn parse(&mut self) -> Result<Program> {
@@ -45,10 +90,20 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Result<Statement> {
+        if self.is_legacy_add_statement() {
+            let token = self.peek();
+            return Err(MireError::deprecated_syntax(
+                token.line,
+                token.column,
+                "Legacy `add` imports are no longer supported; use `import ...` instead"
+                    .to_string(),
+            ));
+        }
+
         match self.peek().ttype {
             TokenType::Import => self.parse_import_statement(),
             TokenType::Set => self.parse_set_statement(),
-            TokenType::Use => Ok(Statement::Expression(self.parse_use_expression()?)),
+            TokenType::Use => Ok(Statement::Expression(self.parse_use_expr()?)),
             TokenType::Pub | TokenType::Priv => {
                 let visibility = self.parse_visibility()?;
                 match self.peek().ttype {
@@ -88,6 +143,18 @@ impl Parser {
             }
             _ => Ok(Statement::Expression(self.parse_expression()?)),
         }
+    }
+
+    fn is_legacy_add_statement(&self) -> bool {
+        let current = self.peek();
+        if current.ttype != TokenType::Ident || current.value.as_deref() != Some("add") {
+            return false;
+        }
+
+        matches!(
+            self.peek_n(1).ttype,
+            TokenType::Ident | TokenType::Dot | TokenType::StrLit
+        )
     }
 
     fn parse_import_statement(&mut self) -> Result<Statement> {
@@ -264,7 +331,7 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(TokenType::Colon)?;
         self.expect(TokenType::Lparen)?;
-        let mut params = self.parse_param_list()?;
+        let params = self.parse_param_list()?;
         self.expect(TokenType::Rparen)?;
 
         let return_type = if self.check(TokenType::Colon) {
@@ -273,10 +340,6 @@ impl Parser {
         } else {
             DataType::None
         };
-
-        if self.method_context > 0 && !params.iter().any(|(name, _)| name == "self") {
-            params.insert(0, ("self".to_string(), DataType::Unknown));
-        }
 
         self.expect_block_open()?;
         self.push_scope();
@@ -450,11 +513,8 @@ impl Parser {
             let method_name = self.expect_ident()?;
             self.expect(TokenType::Colon)?;
             self.expect(TokenType::Lparen)?;
-            let mut params = self.parse_param_list()?;
+            let params = self.parse_param_list()?;
             self.expect(TokenType::Rparen)?;
-            if !params.iter().any(|(name, _)| name == "self") {
-                params.insert(0, ("self".to_string(), DataType::Unknown));
-            }
             let return_type = if self.check(TokenType::Colon) {
                 self.advance();
                 self.parse_type()?
@@ -510,7 +570,7 @@ impl Parser {
             self.advance();
         }
         self.expect(TokenType::Enum)?;
-        let name = self.expect_ident()?;
+        let enum_name = self.expect_ident()?;
         self.expect_block_open()?;
         let mut variants = Vec::new();
 
@@ -524,22 +584,36 @@ impl Parser {
                 self.advance();
                 let mut types = Vec::new();
                 while !self.check(TokenType::Rparen) && !self.is_at_end() {
+                    if self.check(TokenType::Comma) {
+                        self.advance();
+                        continue;
+                    }
                     let _binding = self.expect_ident()?;
                     self.expect(TokenType::Colon)?;
                     types.push(self.parse_type()?);
+                    if self.check(TokenType::Comma) {
+                        self.advance();
+                    }
                 }
                 self.expect(TokenType::Rparen)?;
                 types
             } else {
                 Vec::new()
             };
-            variants.push((variant_name, payload_types));
+            variants.push(EnumVariantDef {
+                enum_name: enum_name.clone(),
+                name: variant_name,
+                data_types: payload_types,
+            });
             self.skip_newlines();
         }
 
         self.expect_block_close()?;
-        self.declare(&name);
-        Ok(Statement::Enum { name, variants })
+        self.declare(&enum_name);
+        Ok(Statement::Enum {
+            name: enum_name,
+            variants,
+        })
     }
 
     fn parse_if_statement(&mut self) -> Result<Statement> {
@@ -729,7 +803,10 @@ impl Parser {
 
             self.expect(TokenType::Lbrace)?;
             self.skip_newlines();
+            self.push_scope();
+            self.declare_match_pattern_bindings(&pattern);
             let body = self.parse_statements_until_block_close()?;
+            self.pop_scope();
             self.expect(TokenType::Rbrace)?;
 
             let is_default = matches!(
@@ -1077,6 +1154,11 @@ impl Parser {
                         };
                         module.map(|m| format!("{}.{}", m, member))
                     }
+                    Expression::EnumVariantPath {
+                        enum_name,
+                        variant_name,
+                        ..
+                    } => Some(format!("{}.{}", enum_name, variant_name)),
                     _ => None,
                 };
                 if let Some(name) = call_target {
@@ -1111,7 +1193,7 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expression> {
         match self.peek().ttype {
-            TokenType::Use => self.parse_use_expression(),
+            TokenType::Use => self.parse_use_expr(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Match => {
                 self.advance();
@@ -1157,54 +1239,125 @@ impl Parser {
                         data_type: DataType::Str,
                     });
                 }
+                if self.check_double_colon() && self.peek_n(2).ttype == TokenType::Ident {
+                    self.advance();
+                    self.advance();
+                    let member = self.expect_member_name()?;
+                    return Ok(Expression::MemberAccess {
+                        target: Box::new(identifier_expr_with_pos(&name, token.line, token.column)),
+                        member,
+                        data_type: DataType::Unknown,
+                    });
+                }
+
+                // Parse qualified path if identifier names a declared enum.
+                if self.check(TokenType::Dot) && self.peek_n(1).ttype == TokenType::Ident {
+                    if self.enum_names.contains(&name) {
+                        self.advance();
+                        let variant_name = self.advance().value.unwrap_or_default();
+                        // Check if this is Result.Ok(42) - variant with payload
+                        if self.check(TokenType::Lparen) {
+                            self.advance();
+                            let payloads = self.parse_expression_list_until(TokenType::Rparen)?;
+                            self.expect(TokenType::Rparen)?;
+                            let enum_name = name;
+                            return Ok(Expression::EnumVariant {
+                                enum_name: enum_name.clone(),
+                                variant_name,
+                                payloads,
+                                data_type: DataType::EnumNamed(enum_name),
+                            });
+                        }
+                        // Just Result.Ok without parens
+                        let enum_name = name;
+                        return Ok(Expression::EnumVariantPath {
+                            enum_name: enum_name.clone(),
+                            variant_name,
+                            data_type: DataType::EnumNamed(enum_name),
+                        });
+                    }
+                    // Otherwise treat as member access
+                    self.advance();
+                    let member = self.expect_member_name()?;
+                    return Ok(Expression::MemberAccess {
+                        target: Box::new(identifier_expr_with_pos(&name, token.line, token.column)),
+                        member,
+                        data_type: DataType::Unknown,
+                    });
+                }
                 Ok(identifier_expr_with_pos(&name, token.line, token.column))
             }
             TokenType::Lparen => {
                 self.advance();
+                // Check for method call pattern: (Type.method(args))
+                // Pattern: (Ident . Ident ...)
+                if self.check(TokenType::Ident) && self.peek_n(1).ttype == TokenType::Dot {
+                    let type_name = self.peek().value.clone().unwrap_or_default();
+                    if !type_name.is_empty() {
+                        self.advance(); // consume type name
+                        self.advance(); // consume dot
+                        let method_name = self.expect_member_name()?;
+                        let full_name = format!("{}.{}", type_name, method_name);
+
+                        // Parse arguments
+                        let args = self.parse_call_arguments()?;
+                        self.expect(TokenType::Rparen)?;
+                        return Ok(Expression::Call {
+                            name: full_name,
+                            args,
+                            data_type: DataType::Unknown,
+                        });
+                    }
+                }
 
                 // Check if this is a struct construction: (TypeName field:value ...)
                 // Pattern: (Ident Ident: value ...)
+                // But NOT if first token contains '.' (qualified path like std.input)
                 if self.check(TokenType::Ident) {
                     let first_token = self.peek();
                     let type_name = first_token.value.clone().unwrap_or_default();
 
-                    // Look ahead: we need Ident followed by Colon
-                    if self.peek_n(1).ttype == TokenType::Ident
-                        && self.peek_n(2).ttype == TokenType::Colon
-                    {
-                        self.advance(); // consume type name
+                    // Skip if first token is a qualified path (contains '.')
+                    if !type_name.contains('.') {
+                        // Look ahead: we need Ident followed by Colon
+                        if self.peek_n(1).ttype == TokenType::Ident
+                            && self.peek_n(2).ttype == TokenType::Colon
+                        {
+                            self.advance(); // consume type name
 
-                        let mut args = Vec::new();
+                            let mut args = Vec::new();
 
-                        // Parse field:value pairs
-                        while !self.check(TokenType::Rparen) && !self.is_at_end() {
-                            if self.check(TokenType::Ident)
-                                && self.peek_n(1).ttype == TokenType::Colon
-                            {
-                                let field_name = self.advance().value.clone().unwrap_or_default();
-                                self.advance(); // consume colon
-                                let value_expr = self.parse_expression()?;
-                                args.push(Expression::NamedArg {
-                                    name: field_name,
-                                    value: Box::new(value_expr),
-                                    data_type: DataType::Unknown,
-                                });
+                            // Parse field:value pairs
+                            while !self.check(TokenType::Rparen) && !self.is_at_end() {
+                                if self.check(TokenType::Ident)
+                                    && self.peek_n(1).ttype == TokenType::Colon
+                                {
+                                    let field_name =
+                                        self.advance().value.clone().unwrap_or_default();
+                                    self.advance(); // consume colon
+                                    let value_expr = self.parse_expression()?;
+                                    args.push(Expression::NamedArg {
+                                        name: field_name,
+                                        value: Box::new(value_expr),
+                                        data_type: DataType::Unknown,
+                                    });
 
-                                // Skip comma if present
-                                if self.check(TokenType::Comma) {
-                                    self.advance();
+                                    // Skip comma if present
+                                    if self.check(TokenType::Comma) {
+                                        self.advance();
+                                    }
+                                } else {
+                                    break;
                                 }
-                            } else {
-                                break;
                             }
-                        }
 
-                        self.expect(TokenType::Rparen)?;
-                        return Ok(Expression::Call {
-                            name: type_name,
-                            args,
-                            data_type: DataType::Unknown,
-                        });
+                            self.expect(TokenType::Rparen)?;
+                            return Ok(Expression::Call {
+                                name: type_name,
+                                args,
+                                data_type: DataType::Unknown,
+                            });
+                        }
                     }
                 }
 
@@ -1217,44 +1370,6 @@ impl Parser {
             TokenType::Lbrace => self.parse_brace_literal(),
             _ => Err(self.error("Unexpected token in expression")),
         }
-    }
-
-    fn parse_use_expression(&mut self) -> Result<Expression> {
-        self.expect(TokenType::Use)?;
-        let expr = self.parse_pipeline_free_expression()?;
-
-        // If expr is just an identifier (function name), convert to call with empty args
-        let result = if let Expression::Identifier(ident) = expr {
-            Expression::Call {
-                name: ident.name.clone(),
-                args: Vec::new(),
-                data_type: DataType::Unknown,
-            }
-        } else if let Expression::Call { name: _, args, .. } = &expr {
-            // If it's already a Call but has no args, ensure it's treated as function call
-            // Check if this was parsed as identifier-only call, fix args
-            if args.is_empty() {
-                // Check what the next token is - if Lparen, args were already parsed
-                expr
-            } else {
-                expr
-            }
-        } else {
-            expr
-        };
-
-        let mut final_expr = result;
-        while self.check(TokenType::Pipeline) || self.check(TokenType::PipelineSafe) {
-            let is_safe = self.check(TokenType::PipelineSafe);
-            if self.check(TokenType::PipelineSafe) {
-                self.advance();
-            } else {
-                self.advance();
-            }
-            let stage = self.parse_pipeline_free_expression()?;
-            final_expr = self.apply_pipeline(final_expr, stage, is_safe)?;
-        }
-        Ok(final_expr)
     }
 
     fn parse_if_expression(&mut self) -> Result<Expression> {
@@ -1291,6 +1406,37 @@ impl Parser {
         })
     }
 
+    fn parse_use_expr(&mut self) -> Result<Expression> {
+        self.expect(TokenType::Use)?;
+        let expr = self.parse_pipeline_free_expression()?;
+
+        // If expr is just an identifier (function name), convert to call with empty args
+        let result = if let Expression::Identifier(ident) = expr {
+            Expression::Call {
+                name: ident.name.clone(),
+                args: Vec::new(),
+                data_type: DataType::Unknown,
+            }
+        } else if let Expression::Call { name: _, args, .. } = &expr {
+            if args.is_empty() { expr } else { expr }
+        } else {
+            expr
+        };
+
+        let mut final_expr = result;
+        while self.check(TokenType::Pipeline) || self.check(TokenType::PipelineSafe) {
+            let is_safe = self.check(TokenType::PipelineSafe);
+            if self.check(TokenType::PipelineSafe) {
+                self.advance();
+            } else {
+                self.advance();
+            }
+            let stage = self.parse_pipeline_free_expression()?;
+            final_expr = self.apply_pipeline(final_expr, stage, is_safe)?;
+        }
+        Ok(final_expr)
+    }
+
     fn parse_match_expression(&mut self) -> Result<Expression> {
         // Parse the match value
         let value = self.parse_match_value()?;
@@ -1325,8 +1471,10 @@ impl Parser {
 
             self.expect(TokenType::Lbrace)?;
             self.skip_newlines();
-
+            self.push_scope();
+            self.declare_match_pattern_bindings(&pattern_expr);
             let body_expr = self.parse_expression_until_block_close()?;
+            self.pop_scope();
             self.expect(TokenType::Rbrace)?;
 
             let is_default = matches!(
@@ -1359,6 +1507,52 @@ impl Parser {
         match token.ttype {
             TokenType::Ident => {
                 let name = self.advance().value.unwrap_or_default();
+
+                // Check for qualified path like Result.Ok
+                if self.check(TokenType::Dot) && self.peek_n(1).ttype == TokenType::Ident {
+                    self.advance(); // consume dot
+
+                    let variant_name = self.advance().value.unwrap_or_default();
+
+                    // Check for (v) pattern - enum variant with binding
+                    if self.check(TokenType::Lparen) {
+                        self.advance();
+                        let payloads = self.parse_expression_list_until(TokenType::Rparen)?;
+                        self.expect(TokenType::Rparen)?;
+                        let enum_name = name;
+                        return Ok(Expression::EnumVariant {
+                            enum_name: enum_name.clone(),
+                            variant_name,
+                            payloads,
+                            data_type: DataType::EnumNamed(enum_name),
+                        });
+                    }
+
+                    // Just Result.Ok without parens
+                    let enum_name = name;
+                    return Ok(Expression::EnumVariantPath {
+                        enum_name: enum_name.clone(),
+                        variant_name,
+                        data_type: DataType::EnumNamed(enum_name),
+                    });
+                }
+
+                // Check for shorthand like Ok(v) - just identifier followed by (identifier)
+                if self.check(TokenType::Lparen)
+                    && name.chars().next().is_some_and(|c| c.is_uppercase())
+                {
+                    self.advance();
+                    let payloads = self.parse_expression_list_until(TokenType::Rparen)?;
+                    self.expect(TokenType::Rparen)?;
+                    return Ok(Expression::EnumVariant {
+                        enum_name: name.clone(),
+                        variant_name: name.clone(),
+                        payloads,
+                        data_type: DataType::EnumNamed(name.clone()),
+                    });
+                }
+
+                // Plain identifier pattern
                 Ok(identifier_expr_with_pos(&name, token.line, token.column))
             }
             TokenType::IntLit => {
@@ -1453,6 +1647,7 @@ impl Parser {
         let start = self.pos;
         let mut depth_paren = 0usize;
         let mut depth_bracket = 0usize;
+        let mut depth_brace = 0usize;
 
         while !self.is_at_end() {
             match self.peek().ttype {
@@ -1460,8 +1655,12 @@ impl Parser {
                 TokenType::Rparen => depth_paren = depth_paren.saturating_sub(1),
                 TokenType::Lbracket => depth_bracket += 1,
                 TokenType::Rbracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenType::Lbrace if depth_paren == 0 && depth_bracket == 0 => depth_brace += 1,
                 TokenType::Rbrace if depth_paren == 0 && depth_bracket == 0 => {
-                    break;
+                    if depth_brace == 0 {
+                        break;
+                    }
+                    depth_brace = depth_brace.saturating_sub(1);
                 }
                 _ => {}
             }
@@ -1485,6 +1684,7 @@ impl Parser {
         let start = self.pos;
         let mut depth_paren = 0usize;
         let mut depth_bracket = 0usize;
+        let mut depth_brace = 0usize;
 
         while !self.is_at_end() {
             match self.peek().ttype {
@@ -1492,8 +1692,12 @@ impl Parser {
                 TokenType::Rparen => depth_paren = depth_paren.saturating_sub(1),
                 TokenType::Lbracket => depth_bracket += 1,
                 TokenType::Rbracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenType::Lbrace if depth_paren == 0 && depth_bracket == 0 => depth_brace += 1,
                 TokenType::Rbrace if depth_paren == 0 && depth_bracket == 0 => {
-                    break;
+                    if depth_brace == 0 {
+                        break;
+                    }
+                    depth_brace = depth_brace.saturating_sub(1);
                 }
                 _ => {}
             }
@@ -1516,8 +1720,14 @@ impl Parser {
 
     fn parse_call_arguments(&mut self) -> Result<Vec<Expression>> {
         self.expect(TokenType::Lparen)?;
+        let args = self.parse_expression_list_until(TokenType::Rparen)?;
+        self.expect(TokenType::Rparen)?;
+        Ok(args)
+    }
+
+    fn parse_expression_list_until(&mut self, terminator: TokenType) -> Result<Vec<Expression>> {
         let mut args = Vec::new();
-        while !self.check(TokenType::Rparen) && !self.is_at_end() {
+        while !self.check(terminator) && !self.is_at_end() {
             if self.check(TokenType::Comma) {
                 self.advance();
                 continue;
@@ -1544,7 +1754,6 @@ impl Parser {
                 self.advance();
             }
         }
-        self.expect(TokenType::Rparen)?;
         Ok(args)
     }
 
@@ -1571,6 +1780,7 @@ impl Parser {
     fn parse_template_expression(&mut self) -> Result<Expression> {
         let mut current_text = String::new();
         let mut parts: Vec<Expression> = Vec::new();
+        let mut last_part_was_expr = false;
 
         while !self.check(TokenType::Rparen) && !self.is_at_end() {
             if self.check(TokenType::Lbrace) {
@@ -1589,10 +1799,59 @@ impl Parser {
                 let interpolation = self.parse_interpolation_expression()?;
                 parts.push(interpolation);
                 self.expect(TokenType::Rbrace)?;
+                last_part_was_expr = true;
                 continue;
             }
 
+            if self.check(TokenType::Ident) {
+                let token = self.peek();
+                let name = token.value.clone().unwrap_or_default();
+                if self.is_declared(&name) {
+                    if self.template_should_parse_declared_expression() {
+                        if !current_text.is_empty() {
+                            parts.push(string_expr(&current_text));
+                            current_text.clear();
+                        }
+                        let expr = self.parse_expression()?;
+                        parts.push(Expression::Call {
+                            name: "str".to_string(),
+                            args: vec![expr],
+                            data_type: DataType::Str,
+                        });
+                        last_part_was_expr = true;
+                        continue;
+                    }
+                    if current_text.is_empty() && last_part_was_expr {
+                        current_text.push(' ');
+                    } else if template_needs_space(&current_text, TokenType::Ident) {
+                        current_text.push(' ');
+                    }
+                    if !current_text.is_empty() {
+                        parts.push(string_expr(&current_text));
+                        current_text.clear();
+                    }
+                    let token = self.advance();
+                    parts.push(Expression::Call {
+                        name: "str".to_string(),
+                        args: vec![identifier_expr_with_pos(
+                            token.value.as_deref().unwrap_or_default(),
+                            token.line,
+                            token.column,
+                        )],
+                        data_type: DataType::Str,
+                    });
+                    last_part_was_expr = true;
+                    continue;
+                }
+            }
+
             let token = self.advance();
+            if current_text.is_empty()
+                && last_part_was_expr
+                && template_needs_space_after_expr(token.ttype)
+            {
+                current_text.push(' ');
+            }
             if token.ttype == TokenType::StrLit {
                 let value = token.value.clone().unwrap_or_default();
                 if value.contains('{') {
@@ -1601,10 +1860,13 @@ impl Parser {
                         current_text.clear();
                     }
                     parts.extend(self.parse_string_template_parts(&value)?);
+                    last_part_was_expr = false;
                     continue;
                 }
             }
+
             push_template_text(&mut current_text, &token);
+            last_part_was_expr = false;
         }
 
         if !current_text.is_empty() {
@@ -1612,6 +1874,28 @@ impl Parser {
         }
 
         Ok(concat_expressions(parts))
+    }
+
+    fn template_should_parse_declared_expression(&self) -> bool {
+        matches!(
+            self.peek_n(1).ttype,
+            TokenType::Dot
+                | TokenType::Lparen
+                | TokenType::At
+                | TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Star
+                | TokenType::Slash
+                | TokenType::Percent
+                | TokenType::Eq
+                | TokenType::Neq
+                | TokenType::Lt
+                | TokenType::Lte
+                | TokenType::Gt
+                | TokenType::Gte
+                | TokenType::And
+                | TokenType::Or
+        )
     }
 
     fn parse_interpolation_expression(&mut self) -> Result<Expression> {
@@ -1696,6 +1980,8 @@ impl Parser {
     fn parse_interpolation_source(&self, source: &str) -> Result<Expression> {
         let mut parser = Parser::new(tokenize(source)?);
         parser.scopes = self.scopes.clone();
+        parser.enum_names = self.enum_names.clone();
+        parser.nominal_type_names = self.nominal_type_names.clone();
 
         let expr = parser.parse_expression()?;
         if parser.check(TokenType::Colon) {
@@ -1819,6 +2105,10 @@ impl Parser {
                             element_type,
                             dynamic: true,
                         })
+                    } else if self.nominal_type_names.contains(other) {
+                        Ok(DataType::StructNamed(other.to_string()))
+                    } else if self.enum_names.contains(other) {
+                        Ok(DataType::EnumNamed(other.to_string()))
                     } else {
                         Ok(DataType::from_str(other))
                     }
@@ -2094,6 +2384,11 @@ impl Parser {
                 TokenType::Rbrace if depth_paren == 0 && depth_bracket == 0 => {
                     return false;
                 }
+                // Dot after identifier indicates qualified path like Result.Ok - not a valid case terminator
+                TokenType::Dot if depth_paren == 0 && depth_bracket == 0 => {
+                    index += 1;
+                    continue;
+                }
                 // These are match-ending tokens for expressions
                 TokenType::Colon | TokenType::Eof if depth_paren == 0 && depth_bracket == 0 => {
                     return false;
@@ -2172,8 +2467,22 @@ impl Parser {
         token
     }
 
+    fn check_double_colon(&self) -> bool {
+        self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon
+    }
+
     fn is_at_end(&self) -> bool {
         self.pos >= self.tokens.len() || self.peek().ttype == TokenType::Eof
+    }
+
+    fn declare_match_pattern_bindings(&mut self, pattern: &Expression) {
+        if let Expression::EnumVariant { payloads, .. } = pattern {
+            for payload in payloads {
+                if let Expression::Identifier(Identifier { name, .. }) = payload {
+                    self.declare(name);
+                }
+            }
+        }
     }
 
     fn push_scope(&mut self) {
@@ -2350,6 +2659,10 @@ fn template_needs_space(buf: &str, token_type: TokenType) -> bool {
     }
 }
 
+fn template_needs_space_after_expr(token_type: TokenType) -> bool {
+    template_needs_space("x", token_type)
+}
+
 fn is_word_surface(surface: &str) -> bool {
     surface
         .chars()
@@ -2395,6 +2708,8 @@ fn contains_self_placeholder(expr: &Expression) -> bool {
                     .any(|(p, r)| contains_self_placeholder(p) || contains_self_placeholder(r))
                 || contains_self_placeholder(default)
         }
+        Expression::EnumVariantPath { .. } => false,
+        Expression::EnumVariant { payloads, .. } => payloads.iter().any(contains_self_placeholder),
     }
 }
 
@@ -2610,6 +2925,20 @@ fn replace_self_placeholder(expr: Expression, replacement: &Expression) -> Expre
             default: Box::new(replace_self_placeholder(*default, replacement)),
             data_type,
         },
+        Expression::EnumVariant {
+            enum_name,
+            variant_name,
+            payloads,
+            data_type,
+        } => Expression::EnumVariant {
+            enum_name,
+            variant_name,
+            payloads: payloads
+                .into_iter()
+                .map(|payload| replace_self_placeholder(payload, replacement))
+                .collect(),
+            data_type,
+        },
         other => other,
     }
 }
@@ -2659,6 +2988,25 @@ mod tests {
         let source = "import ./utils/helpers\n";
         let program = parse(source);
         assert!(program.is_ok(), "{program:?}");
+    }
+
+    #[test]
+    fn parses_static_impl_call_with_double_colon() {
+        let source = "pub fn main: () {\nset p = Point::new(1, 2)\n}\n";
+        let program = parse(source).expect("parse should succeed");
+
+        let Statement::Function { body, .. } = &program.statements[0] else {
+            panic!("expected function");
+        };
+        let Statement::Let {
+            value: Some(Expression::Call { name, .. }),
+            ..
+        } = &body[0]
+        else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(name, "Point.new");
     }
 
     #[test]
@@ -2732,6 +3080,62 @@ mod tests {
         };
 
         assert!(matches!(cases[0].1[0], Statement::Let { .. }));
+    }
+
+    #[test]
+    fn match_pattern_bindings_are_visible_inside_dasu_templates() {
+        let source = "enum Result {\n    Ok(value :i64)\n}\n\npub fn main: () {\n    set result = Result.Ok(42)\n    match result {\n        Result.Ok(v) {\n            use dasu(v)\n        }\n    }\n}\n";
+        let program = parse(source).expect("parse should succeed");
+
+        let Statement::Function { body, .. } = &program.statements[1] else {
+            panic!("expected function");
+        };
+        let Statement::Match { cases, .. } = &body[1] else {
+            panic!("expected match statement");
+        };
+        let Statement::Expression(Expression::Call { args, .. }) = &cases[0].1[0] else {
+            panic!("expected dasu call");
+        };
+        let Some(Expression::Call {
+            name,
+            args: inner_args,
+            ..
+        }) = args.first()
+        else {
+            panic!("expected template binding to become str(...)");
+        };
+
+        assert_eq!(name, "str");
+        assert!(matches!(
+            inner_args.first(),
+            Some(Expression::Identifier(_))
+        ));
+    }
+
+    #[test]
+    fn parses_enum_variants_with_multiple_payloads() {
+        let source = "enum Pair {\n    Pair(left :i64 right :i64)\n}\n\npub fn main: () {\n    set pair = Pair.Pair(10 20)\n    match pair {\n        Pair.Pair(a b) {\n            use dasu(a {b})\n        }\n    }\n}\n";
+        let program = parse(source).expect("parse should succeed");
+
+        let Statement::Function { body, .. } = &program.statements[1] else {
+            panic!("expected function");
+        };
+        let Statement::Let {
+            value: Some(Expression::EnumVariant { payloads, .. }),
+            ..
+        } = &body[0]
+        else {
+            panic!("expected enum variant construction");
+        };
+        assert_eq!(payloads.len(), 2);
+
+        let Statement::Match { cases, .. } = &body[1] else {
+            panic!("expected match statement");
+        };
+        let Expression::EnumVariant { payloads, .. } = &cases[0].0 else {
+            panic!("expected enum variant pattern");
+        };
+        assert_eq!(payloads.len(), 2);
     }
 
     #[test]

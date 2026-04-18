@@ -1,6 +1,6 @@
-use crate::compiler::analyze_program;
+use crate::compiler::analyze_program_with_origins;
 use crate::error::{ErrorKind, MireError, Result};
-use crate::incremental::{build_fingerprint, BuildCacheEntry, IncrementalCache};
+use crate::incremental::{BuildCacheEntry, IncrementalCache, build_fingerprint};
 use crate::loader::load_program_with_metadata;
 use crate::parser::ast::{DataType, Expression, Identifier, Literal, Program, Statement};
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,7 @@ pub fn write_lock_file(cwd: &Path, manifest: &MireManifest, mode: BuildMode) -> 
 
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
     let source = fs::read_to_string(source_path)?;
+    let source_filename = source_path.display().to_string();
     let output_dir = default_output_dir(source_path, options.mode);
     fs::create_dir_all(&output_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
@@ -200,9 +201,37 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     }
 
     let mut program = loaded.program;
-    analyze_program(&mut program, &source)?;
+    analyze_program_with_origins(
+        &mut program,
+        &source,
+        &loaded.statement_origins,
+        &loaded.sources,
+    )
+    .map_err(|err| {
+        let err = if err.source.is_none() {
+            err.with_source(source.clone())
+        } else {
+            err
+        };
+        if err.filename.is_none() {
+            err.with_filename(source_filename.clone())
+        } else {
+            err
+        }
+    })?;
 
-    let ir = LlvmIrGen::new().compile_program(&program)?;
+    let ir = LlvmIrGen::new().compile_program(&program).map_err(|err| {
+        let err = if err.source.is_none() {
+            err.with_source(source.clone())
+        } else {
+            err
+        };
+        if err.filename.is_none() {
+            err.with_filename(source_filename.clone())
+        } else {
+            err
+        }
+    })?;
     if let Some(path) = &ir_path {
         fs::write(path, &ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
@@ -440,6 +469,18 @@ struct StructInfo {
     field_indices: HashMap<String, usize>,
 }
 
+#[derive(Debug, Clone)]
+struct EnumInfo {
+    llvm_type: String,
+    variants: HashMap<String, VariantInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct VariantInfo {
+    tag: u32,
+    payload_types: Vec<LlType>,
+}
+
 struct LlvmIrGen {
     strings: Vec<String>,
     functions: Vec<String>,
@@ -448,6 +489,7 @@ struct LlvmIrGen {
     vars: HashMap<String, VarInfo>,
     user_functions: HashMap<String, FnInfo>,
     user_structs: HashMap<String, StructInfo>,
+    user_enums: HashMap<String, EnumInfo>,
     loop_stack: Vec<LoopLabels>,
     current_return: LlType,
     next_tmp: usize,
@@ -464,6 +506,7 @@ impl LlvmIrGen {
             vars: HashMap::new(),
             user_functions: HashMap::new(),
             user_structs: HashMap::new(),
+            user_enums: HashMap::new(),
             loop_stack: Vec::new(),
             current_return: LlType::I64,
             next_tmp: 0,
@@ -499,13 +542,37 @@ impl LlvmIrGen {
                 );
             }
             // First pass: collect enum definitions
-            if let Statement::Enum { name, .. } = stmt {
+            if let Statement::Enum { name, variants } = stmt {
+                let mut max_payload_size = 1usize;
+                let mut variant_infos = HashMap::new();
+                for (idx, variant) in variants.iter().enumerate() {
+                    let payload_types: Vec<LlType> = variant
+                        .data_types
+                        .iter()
+                        .filter_map(|dt| self.map_type(dt).ok())
+                        .collect();
+                    max_payload_size = max_payload_size.max(payload_types.len().max(1));
+                    variant_infos.insert(
+                        variant.name.clone(),
+                        VariantInfo {
+                            tag: idx as u32,
+                            payload_types,
+                        },
+                    );
+                }
+                self.user_enums.insert(
+                    name.clone(),
+                    EnumInfo {
+                        llvm_type: format!("{{ i32, [{} x i64] }}", max_payload_size),
+                        variants: variant_infos,
+                    },
+                );
                 self.vars.insert(
                     name.clone(),
                     VarInfo {
                         ptr: format!("@enum_{}", sanitize_symbol(&name)),
                         ty: LlType::Ptr,
-                        data_type: DataType::Enum,
+                        data_type: DataType::EnumNamed(name.clone()),
                         owns_heap_string: false,
                         struct_name: None,
                     },
@@ -545,6 +612,39 @@ impl LlvmIrGen {
                     },
                 );
             }
+            if let Statement::Impl {
+                type_name, methods, ..
+            } = stmt
+            {
+                for method in methods {
+                    if let Statement::Function {
+                        name,
+                        params,
+                        return_type,
+                        ..
+                    } = method
+                    {
+                        let full_name = format!("{}.{}", type_name, name);
+                        self.user_functions.insert(
+                            full_name.clone(),
+                            FnInfo {
+                                llvm_name: format!("@fn_{}", sanitize_symbol(&full_name)),
+                                params: params
+                                    .iter()
+                                    .map(|(param_name, ty)| {
+                                        if param_name == "self" {
+                                            Ok(LlType::Ptr)
+                                        } else {
+                                            self.map_type(ty)
+                                        }
+                                    })
+                                    .collect::<Result<Vec<_>>>()?,
+                                ret: self.map_type(return_type)?,
+                            },
+                        );
+                    }
+                }
+            }
         }
 
         for stmt in &program.statements {
@@ -563,6 +663,30 @@ impl LlvmIrGen {
                 };
                 let fn_ir = self.compile_function_ir(name, params, body, ret)?;
                 self.functions.push(fn_ir);
+            }
+            if let Statement::Impl {
+                type_name, methods, ..
+            } = stmt
+            {
+                for method in methods {
+                    if let Statement::Function {
+                        name,
+                        params,
+                        body,
+                        return_type,
+                        ..
+                    } = method
+                    {
+                        let full_name = format!("{}.{}", type_name, name);
+                        let fn_ir = self.compile_function_ir(
+                            &full_name,
+                            params,
+                            body,
+                            self.map_type(return_type)?,
+                        )?;
+                        self.functions.push(fn_ir);
+                    }
+                }
             }
         }
 
@@ -627,6 +751,7 @@ impl LlvmIrGen {
         out.push("declare ptr @mire_dict_keys(ptr)".to_string());
         out.push("declare ptr @mire_dict_values(ptr)".to_string());
         out.push("declare ptr @mire_list_slice(ptr, i64, i64)".to_string());
+        out.push("declare void @mire_runtime_panic(ptr)".to_string());
         out.push("declare ptr @fgets(ptr, i64, ptr)".to_string());
         out.push("@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"".to_string());
         out.push("@.fmt_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"".to_string());
@@ -821,7 +946,7 @@ impl LlvmIrGen {
                     .push(format!("  ret {} {}", self.ty(ret_ty), ret.repr));
                 Ok(())
             }
-            other => Err(MireError::new(ErrorKind::Runtime {
+            other => Err(MireError::new(ErrorKind::Backend {
                 message: format!("Avenys does not yet lower statement {:?}", other),
             })),
         }
@@ -999,9 +1124,11 @@ impl LlvmIrGen {
                 args,
                 data_type,
             } if name == "ireru" || name == "std.input" => self.compile_input_expr(args, data_type),
-            Expression::Call { name, args, .. } if name == "__if_expr" => {
-                self.compile_if_expr(args)
-            }
+            Expression::Call {
+                name,
+                args,
+                data_type,
+            } if name == "__if_expr" => self.compile_if_expr(args, data_type),
             Expression::Match {
                 value,
                 cases,
@@ -1027,6 +1154,17 @@ impl LlvmIrGen {
             Expression::MemberAccess { target, member, .. } => {
                 self.compile_member_access(target, member)
             }
+            Expression::EnumVariantPath {
+                enum_name,
+                variant_name,
+                ..
+            } => self.compile_enum_variant_path(enum_name, variant_name),
+            Expression::EnumVariant {
+                enum_name,
+                variant_name,
+                payloads,
+                ..
+            } => self.compile_enum_variant(enum_name, variant_name, payloads),
             Expression::Call { name, args, .. } if name == "lists.push" => {
                 self.compile_lists_push(args)
             }
@@ -1130,27 +1268,63 @@ impl LlvmIrGen {
                 data_type,
             } => {
                 // Check if this is a struct constructor call
-                if let DataType::Struct = data_type {
+                if data_type.is_struct_like() && self.user_structs.contains_key(name) {
                     return self.compile_struct_constructor(name, args);
                 }
 
-                let fn_info = self.user_functions.get(name).cloned().ok_or_else(|| {
-                    MireError::new(ErrorKind::Runtime {
-                        message: format!("Avenys does not yet lower call '{}'", name),
-                    })
-                })?;
-                if fn_info.params.len() != args.len() {
+                let mut resolved_name = name.clone();
+                let mut prepend_receiver = None;
+
+                if let Some((receiver_name, method_name)) = name.split_once('.') {
+                    if let Some(struct_name) = self
+                        .vars
+                        .get(receiver_name)
+                        .and_then(|info| info.struct_name.clone())
+                    {
+                        let candidate_name = format!("{}.{}", struct_name, method_name);
+                        if let Some(candidate_info) = self.user_functions.get(&candidate_name) {
+                            if candidate_info.params.len() == args.len() + 1 {
+                                resolved_name = candidate_name;
+                                prepend_receiver = Some(Expression::Identifier(Identifier {
+                                    name: receiver_name.to_string(),
+                                    data_type: DataType::StructNamed(struct_name.clone()),
+                                    line: 0,
+                                    column: 0,
+                                }));
+                            }
+                        }
+                    }
+                }
+
+                let fn_info = self
+                    .user_functions
+                    .get(&resolved_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        MireError::new(ErrorKind::Backend {
+                            message: format!("Avenys does not yet lower call '{}'", name),
+                        })
+                    })?;
+
+                let mut resolved_args =
+                    Vec::with_capacity(args.len() + usize::from(prepend_receiver.is_some()));
+                if let Some(receiver_expr) = prepend_receiver {
+                    resolved_args.push(receiver_expr);
+                }
+                resolved_args.extend(args.iter().cloned());
+
+                if fn_info.params.len() != resolved_args.len() {
                     return Err(MireError::new(ErrorKind::Runtime {
                         message: format!(
                             "Avenys function '{}' expects {} args, got {}",
-                            name,
+                            resolved_name,
                             fn_info.params.len(),
-                            args.len()
+                            resolved_args.len()
                         ),
                     }));
                 }
-                let mut rendered_args = Vec::with_capacity(args.len());
-                for (arg_expr, expected_ty) in args.iter().zip(fn_info.params.iter()) {
+                let mut rendered_args = Vec::with_capacity(resolved_args.len());
+                for (arg_expr, expected_ty) in resolved_args.iter().zip(fn_info.params.iter()) {
                     let value = self.compile_expr(arg_expr)?;
                     let casted = match expected_ty {
                         LlType::I64 => self.cast_to_i64(value)?,
@@ -1160,7 +1334,7 @@ impl LlvmIrGen {
                             return Err(MireError::new(ErrorKind::Runtime {
                                 message: format!(
                                     "Avenys cannot cast argument for function '{}'",
-                                    name
+                                    resolved_name
                                 ),
                             }));
                         }
@@ -1217,7 +1391,7 @@ impl LlvmIrGen {
                         }
 
                         let fn_info = self.user_functions.get(name).cloned().ok_or_else(|| {
-                            MireError::new(ErrorKind::Runtime {
+                            MireError::new(ErrorKind::Backend {
                                 message: format!("Avenys does not yet lower call '{}'", name),
                             })
                         })?;
@@ -1271,7 +1445,7 @@ impl LlvmIrGen {
                         }
 
                         let fn_info = self.user_functions.get(name).cloned().ok_or_else(|| {
-                            MireError::new(ErrorKind::Runtime {
+                            MireError::new(ErrorKind::Backend {
                                 message: format!("Avenys does not yet lower call '{}'", name),
                             })
                         })?;
@@ -1309,7 +1483,7 @@ impl LlvmIrGen {
                     })),
                 }
             }
-            other => Err(MireError::new(ErrorKind::Runtime {
+            other => Err(MireError::new(ErrorKind::Backend {
                 message: format!("Avenys does not yet lower expression {:?}", other),
             })),
         }
@@ -1485,6 +1659,70 @@ impl LlvmIrGen {
         }
     }
 
+    fn compile_enum_variant_path(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+    ) -> Result<LlValue> {
+        let (enum_ty, tag) = {
+            let (enum_info, variant) = self.lookup_enum_variant(enum_name, variant_name)?;
+            (enum_info.llvm_type.clone(), variant.tag)
+        };
+        let ptr = self.tmp();
+        self.body.push(format!("  {ptr} = alloca {enum_ty}"));
+        let tag_ptr = self.tmp();
+        self.body.push(format!(
+            "  {tag_ptr} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 0",
+            enum_ty
+        ));
+        self.body
+            .push(format!("  store i32 {}, ptr {tag_ptr}", tag));
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: ptr,
+            owned: false,
+        })
+    }
+
+    fn compile_enum_variant(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        payloads: &[Expression],
+    ) -> Result<LlValue> {
+        let (enum_ty, tag) = {
+            let (enum_info, variant) = self.lookup_enum_variant(enum_name, variant_name)?;
+            (enum_info.llvm_type.clone(), variant.tag)
+        };
+        let ptr = self.tmp();
+        self.body.push(format!("  {ptr} = alloca {enum_ty}"));
+        let tag_ptr = self.tmp();
+        self.body.push(format!(
+            "  {tag_ptr} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 0",
+            enum_ty
+        ));
+        self.body
+            .push(format!("  store i32 {}, ptr {tag_ptr}", tag));
+        for (index, payload_expr) in payloads.iter().enumerate() {
+            let payload_val = self.compile_expr(payload_expr)?;
+            let payload_i64 = self.cast_to_i64(payload_val)?;
+            let payload_ptr = self.tmp();
+            self.body.push(format!(
+                "  {payload_ptr} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 1, i32 {}",
+                enum_ty, index
+            ));
+            self.body.push(format!(
+                "  store i64 {}, ptr {payload_ptr}",
+                payload_i64.repr
+            ));
+        }
+        Ok(LlValue {
+            ty: LlType::Ptr,
+            repr: ptr,
+            owned: false,
+        })
+    }
+
     fn compile_index(
         &mut self,
         target: LlValue,
@@ -1504,6 +1742,9 @@ impl LlvmIrGen {
             | DataType::Array { .. }
             | DataType::Slice { .. }
             | DataType::Tuple => {
+                let index = self.cast_to_i64(index)?;
+                let len = self.compile_list_len_value(target.clone())?;
+                self.emit_bounds_check(index.clone(), len, "index out of bounds");
                 let elem_size = self.element_size(result_data_type);
                 let data_ptr = self.tmp();
                 self.body
@@ -1586,6 +1827,19 @@ impl LlvmIrGen {
                 }
             }
             DataType::Str => {
+                let index = self.cast_to_i64(index)?;
+                let len = self.tmp();
+                self.body
+                    .push(format!("  {len} = call i64 @strlen(ptr {})", target.repr));
+                self.emit_bounds_check(
+                    index.clone(),
+                    LlValue {
+                        ty: LlType::I64,
+                        repr: len,
+                        owned: false,
+                    },
+                    "index out of bounds",
+                );
                 let elem_ptr = self.tmp();
                 self.body.push(format!(
                     "  {elem_ptr} = getelementptr inbounds i8, ptr {}, i64 {}",
@@ -2476,7 +2730,9 @@ impl LlvmIrGen {
             | Expression::Dereference { data_type, .. }
             | Expression::Box { data_type, .. }
             | Expression::Pipeline { data_type, .. }
-            | Expression::Match { data_type, .. } => data_type,
+            | Expression::Match { data_type, .. }
+            | Expression::EnumVariantPath { data_type, .. }
+            | Expression::EnumVariant { data_type, .. } => data_type,
             Expression::Literal(Literal::Str(_)) => &DataType::Str,
             Expression::Literal(Literal::List(_)) => &DataType::List,
             Expression::Literal(_) => &DataType::Unknown,
@@ -2637,7 +2893,7 @@ impl LlvmIrGen {
         })
     }
 
-    fn compile_if_expr(&mut self, args: &[Expression]) -> Result<LlValue> {
+    fn compile_if_expr(&mut self, args: &[Expression], data_type: &DataType) -> Result<LlValue> {
         if args.len() != 3 {
             return Err(MireError::new(ErrorKind::Runtime {
                 message: "Avenys __if_expr expects 3 arguments".to_string(),
@@ -2645,8 +2901,7 @@ impl LlvmIrGen {
         }
         let then_expr = self.closure_return_expr(&args[1], "__if_expr then")?;
         let else_expr = self.closure_return_expr(&args[2], "__if_expr else")?;
-        let then_value = self.compile_expr(then_expr)?;
-        let result_ty = then_value.ty.clone();
+        let result_ty = self.map_type(data_type)?;
         let result_ptr = self.tmp();
         let result_ty_clone = result_ty.clone();
         self.entry_allocas.push(format!(
@@ -2665,6 +2920,7 @@ impl LlvmIrGen {
         ));
 
         self.body.push(format!("{then_label}:"));
+        let then_value = self.compile_expr(then_expr)?;
         self.store_casted(&result_ptr, result_ty.clone(), then_value)?;
         self.body.push(format!("  br label %{end_label}"));
 
@@ -2720,9 +2976,11 @@ impl LlvmIrGen {
             ));
 
             self.body.push(format!("{body_label}:"));
+            let previous_binding = self.bind_match_pattern_payloads(&match_value, pattern)?;
             for stmt in body {
                 self.compile_statement(stmt)?;
             }
+            self.restore_match_pattern_payloads(previous_binding);
             self.body.push(format!("  br label %{end_label}"));
             next_label = Some(fallthrough_label);
         }
@@ -2778,7 +3036,9 @@ impl LlvmIrGen {
             ));
 
             self.body.push(format!("{body_label}:"));
+            let previous_binding = self.bind_match_pattern_payloads(&match_value, pattern)?;
             let body_value = self.compile_expr(result_expr)?;
+            self.restore_match_pattern_payloads(previous_binding);
             self.store_casted(&result_ptr, result_ty.clone(), body_value)?;
             self.body.push(format!("  br label %{end_label}"));
             next_label = Some(fallthrough_label);
@@ -2827,6 +3087,70 @@ impl LlvmIrGen {
             if ident.name == "_" {
                 let result = self.tmp();
                 self.body.push(format!("  {result} = add i1 0, 1"));
+                return Ok(LlValue {
+                    ty: LlType::I1,
+                    repr: result,
+                    owned: false,
+                });
+            }
+        }
+
+        // Handle enum variant patterns (Status.Ok or Result.Ok(value))
+        if let Expression::EnumVariantPath {
+            enum_name,
+            variant_name,
+            ..
+        } = pattern
+        {
+            if value.ty == LlType::Ptr {
+                let (enum_ty, tag) = {
+                    let (enum_info, variant) = self.lookup_enum_variant(enum_name, variant_name)?;
+                    (enum_info.llvm_type.clone(), variant.tag)
+                };
+                let tag_ptr = self.tmp();
+                self.body.push(format!(
+                    "  {tag_ptr} = getelementptr inbounds {}, ptr {}, i32 0, i32 0",
+                    enum_ty, value.repr
+                ));
+                let loaded_tag = self.tmp();
+                self.body
+                    .push(format!("  {loaded_tag} = load i32, ptr {tag_ptr}"));
+                let result = self.tmp();
+                self.body
+                    .push(format!("  {result} = icmp eq i32 {loaded_tag}, {}", tag));
+                return Ok(LlValue {
+                    ty: LlType::I1,
+                    repr: result,
+                    owned: false,
+                });
+            }
+        }
+
+        // Handle enum variant with payloads: Ok(value) / Pair(a b) in match pattern
+        if let Expression::EnumVariant {
+            enum_name,
+            variant_name,
+            payloads: _,
+            ..
+        } = pattern
+        {
+            if value.ty == LlType::Ptr {
+                let (enum_ty, tag) = {
+                    let (enum_info, variant) = self.lookup_enum_variant(enum_name, variant_name)?;
+                    (enum_info.llvm_type.clone(), variant.tag)
+                };
+                let tag_ptr = self.tmp();
+                self.body.push(format!(
+                    "  {tag_ptr} = getelementptr inbounds {}, ptr {}, i32 0, i32 0",
+                    enum_ty, value.repr
+                ));
+                let loaded_tag = self.tmp();
+                self.body
+                    .push(format!("  {loaded_tag} = load i32, ptr {tag_ptr}"));
+                let result = self.tmp();
+                self.body
+                    .push(format!("  {result} = icmp eq i32 {loaded_tag}, {}", tag));
+
                 return Ok(LlValue {
                     ty: LlType::I1,
                     repr: result,
@@ -2886,6 +3210,176 @@ impl LlvmIrGen {
             repr: result,
             owned: false,
         })
+    }
+
+    fn bind_match_pattern_payloads(
+        &mut self,
+        value: &LlValue,
+        pattern: &Expression,
+    ) -> Result<Vec<(String, Option<VarInfo>)>> {
+        let Expression::EnumVariant {
+            enum_name,
+            variant_name,
+            payloads,
+            ..
+        } = pattern
+        else {
+            return Ok(Vec::new());
+        };
+
+        if value.ty != LlType::Ptr {
+            return Ok(Vec::new());
+        }
+
+        let (enum_ty, variant_payload_types) = {
+            let (enum_info, variant) = self.lookup_enum_variant(enum_name, variant_name)?;
+            (enum_info.llvm_type.clone(), variant.payload_types.clone())
+        };
+
+        if variant_payload_types.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut previous = Vec::new();
+        for (index, payload) in payloads.iter().enumerate() {
+            let Expression::Identifier(id) = payload else {
+                continue;
+            };
+
+            let payload_ty = variant_payload_types
+                .get(index)
+                .cloned()
+                .unwrap_or(LlType::I64);
+            let payload_data_type = self.expression_data_type(payload);
+            let payload_ptr = self.tmp();
+            self.entry_allocas.push(format!(
+                "  {payload_ptr} = alloca {}",
+                self.ty(payload_ty.clone())
+            ));
+            let payload_gep = self.tmp();
+            self.body.push(format!(
+                "  {payload_gep} = getelementptr inbounds {}, ptr {}, i32 0, i32 1, i32 {}",
+                enum_ty, value.repr, index
+            ));
+            let payload_raw = self.tmp();
+            self.body
+                .push(format!("  {payload_raw} = load i64, ptr {payload_gep}"));
+            let payload_value = self.cast_enum_payload_value(payload_raw, payload_ty.clone())?;
+            self.store_casted(&payload_ptr, payload_ty.clone(), payload_value)?;
+
+            previous.push((
+                id.name.clone(),
+                self.vars.insert(
+                    id.name.clone(),
+                    VarInfo {
+                        ptr: payload_ptr,
+                        ty: payload_ty,
+                        data_type: payload_data_type,
+                        owns_heap_string: false,
+                        struct_name: None,
+                    },
+                ),
+            ));
+        }
+
+        Ok(previous)
+    }
+
+    fn restore_match_pattern_payloads(&mut self, previous: Vec<(String, Option<VarInfo>)>) {
+        for (name, prior) in previous {
+            if let Some(prior) = prior {
+                self.vars.insert(name, prior);
+            } else {
+                self.vars.remove(&name);
+            }
+        }
+    }
+
+    fn lookup_enum_variant<'a>(
+        &'a self,
+        enum_name: &str,
+        variant_name: &str,
+    ) -> Result<(&'a EnumInfo, &'a VariantInfo)> {
+        let enum_info = self.user_enums.get(enum_name).ok_or_else(|| {
+            MireError::new(ErrorKind::Runtime {
+                message: format!("Unknown enum '{}'", enum_name),
+            })
+        })?;
+        let variant = enum_info.variants.get(variant_name).ok_or_else(|| {
+            MireError::new(ErrorKind::Runtime {
+                message: format!("Enum '{}' has no variant '{}'", enum_name, variant_name),
+            })
+        })?;
+        Ok((enum_info, variant))
+    }
+
+    fn cast_enum_payload_value(&mut self, raw_value: String, target_ty: LlType) -> Result<LlValue> {
+        match target_ty {
+            LlType::I64 => Ok(LlValue {
+                ty: LlType::I64,
+                repr: raw_value,
+                owned: false,
+            }),
+            LlType::I1 => {
+                let bool_value = self.tmp();
+                self.body
+                    .push(format!("  {bool_value} = icmp ne i64 {raw_value}, 0"));
+                Ok(LlValue {
+                    ty: LlType::I1,
+                    repr: bool_value,
+                    owned: false,
+                })
+            }
+            LlType::Ptr => {
+                let ptr_value = self.tmp();
+                self.body
+                    .push(format!("  {ptr_value} = inttoptr i64 {raw_value} to ptr"));
+                Ok(LlValue {
+                    ty: LlType::Ptr,
+                    repr: ptr_value,
+                    owned: false,
+                })
+            }
+        }
+    }
+
+    fn emit_nonzero_check(&mut self, value_repr: &str, message: &str) {
+        let cond = self.tmp();
+        self.body
+            .push(format!("  {cond} = icmp ne i64 {value_repr}, 0"));
+        self.emit_runtime_guard(cond, message);
+    }
+
+    fn emit_bounds_check(&mut self, index: LlValue, len: LlValue, message: &str) {
+        let non_negative = self.tmp();
+        self.body
+            .push(format!("  {non_negative} = icmp sge i64 {}, 0", index.repr));
+        let within_len = self.tmp();
+        self.body.push(format!(
+            "  {within_len} = icmp slt i64 {}, {}",
+            index.repr, len.repr
+        ));
+        let in_bounds = self.tmp();
+        self.body.push(format!(
+            "  {in_bounds} = and i1 {non_negative}, {within_len}"
+        ));
+        self.emit_runtime_guard(in_bounds, message);
+    }
+
+    fn emit_runtime_guard(&mut self, condition_repr: String, message: &str) {
+        let ok_label = self.label("rt_ok");
+        let fail_label = self.label("rt_fail");
+        self.body.push(format!(
+            "  br i1 {condition_repr}, label %{ok_label}, label %{fail_label}"
+        ));
+        self.body.push(format!("{fail_label}:"));
+        let message_value = self.string_value(message);
+        self.body.push(format!(
+            "  call void @mire_runtime_panic(ptr {})",
+            message_value.repr
+        ));
+        self.body.push("  unreachable".to_string());
+        self.body.push(format!("{ok_label}:"));
     }
 
     fn compile_do_while(&mut self, args: &[Expression]) -> Result<()> {
@@ -3136,8 +3630,21 @@ impl LlvmIrGen {
         match expr {
             Expression::Call {
                 name, data_type, ..
-            } if *data_type == DataType::Struct && self.user_structs.contains_key(name) => {
-                Some(name.clone())
+            } if data_type.is_struct_like() => {
+                data_type
+                    .struct_name()
+                    .map(ToOwned::to_owned)
+                    .or_else(|| {
+                        if self.user_structs.contains_key(name) {
+                            Some(name.clone())
+                        } else if let Some((owner, _method)) = name.split_once('.') {
+                            self.vars.get(owner).and_then(|info| info.struct_name.clone()).or_else(
+                                || self.user_structs.contains_key(owner).then(|| owner.to_string()),
+                            )
+                        } else {
+                            None
+                        }
+                    })
             }
             Expression::Identifier(Identifier { name, .. }) => self
                 .vars
@@ -3224,7 +3731,9 @@ impl LlvmIrGen {
             | Expression::Dereference { data_type, .. }
             | Expression::Box { data_type, .. }
             | Expression::Pipeline { data_type, .. }
-            | Expression::Match { data_type, .. } => data_type.clone(),
+            | Expression::Match { data_type, .. }
+            | Expression::EnumVariantPath { data_type, .. }
+            | Expression::EnumVariant { data_type, .. } => data_type.clone(),
             Expression::Closure { return_type, .. } => return_type.clone(),
         }
     }
@@ -3247,9 +3756,11 @@ impl LlvmIrGen {
             | DataType::Array { .. }
             | DataType::Slice { .. }
             | DataType::Struct
-            | DataType::Enum => Ok(LlType::Ptr),
+            | DataType::StructNamed(_)
+            | DataType::Enum
+            | DataType::EnumNamed(_) => Ok(LlType::Ptr),
             DataType::None => Ok(LlType::I64),
-            other => Err(MireError::new(ErrorKind::Runtime {
+            other => Err(MireError::new(ErrorKind::Backend {
                 message: format!("Avenys does not yet lower type {:?}", other),
             })),
         }
@@ -3387,9 +3898,16 @@ impl LlvmIrGen {
                     owned: false,
                 })
             }
-            LlType::Ptr => Err(MireError::new(ErrorKind::Runtime {
-                message: "Avenys cannot cast pointer/struct to i64".to_string(),
-            })),
+            LlType::Ptr => {
+                let tmp = self.tmp();
+                self.body
+                    .push(format!("  {tmp} = ptrtoint ptr {} to i64", value.repr));
+                Ok(LlValue {
+                    ty: LlType::I64,
+                    repr: tmp,
+                    owned: false,
+                })
+            }
         }
     }
 
@@ -3488,6 +4006,7 @@ impl LlvmIrGen {
                 })
             }
             "/" => {
+                self.emit_nonzero_check(&right_repr, "division by zero");
                 self.body
                     .push(format!("  {result} = udiv i64 {left_repr}, {right_repr}"));
                 Ok(LlValue {
@@ -3497,6 +4016,7 @@ impl LlvmIrGen {
                 })
             }
             "%" => {
+                self.emit_nonzero_check(&right_repr, "division by zero");
                 self.body
                     .push(format!("  {result} = urem i64 {left_repr}, {right_repr}"));
                 Ok(LlValue {
@@ -3875,6 +4395,7 @@ impl LlvmIrGen {
                 message: format!("Avenys missing function metadata for '{}'", name),
             })
         })?;
+        let method_owner = name.split_once('.').map(|(owner, _)| owner.to_string());
 
         for ((param_name, _), param_ty) in params.iter().zip(fn_info.params.iter()) {
             let ptr = self.tmp();
@@ -3897,9 +4418,21 @@ impl LlvmIrGen {
                         .iter()
                         .find(|(name, _)| name == param_name)
                         .map(|(_, ty)| ty.clone())
+                        .map(|ty| {
+                            if param_name == "self" {
+                                method_owner
+                                    .clone()
+                                    .map(DataType::StructNamed)
+                                    .unwrap_or(DataType::Struct)
+                            } else {
+                                ty
+                            }
+                        })
                         .unwrap_or(DataType::Unknown),
                     owns_heap_string: false,
-                    struct_name: None,
+                    struct_name: (param_name == "self")
+                        .then(|| method_owner.clone())
+                        .flatten(),
                 },
             );
         }
