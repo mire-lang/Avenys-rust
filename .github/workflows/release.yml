@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "B*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build mire binary
+        run: cargo build --release
+
+      - name: Prepare tarball
+        run: |
+          mkdir -p dist/mire
+          cp target/release/mire dist/mire/
+          cp -r src/runtime dist/mire/runtime
+          cp -r src/pal dist/mire/pal
+          # Bundle kioto — locate relative to source tree
+          if [ -d ../kioto ]; then
+            cp -r ../kioto dist/mire/kioto
+          elif [ -d kioto ]; then
+            cp -r kioto dist/mire/kioto
+          fi
+          cd dist
+          tar czf ../mire-linux-x86_64.tar.gz mire/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Build ${{ github.ref_name }}"
+          body_path: CHANGELOG.md
+          files: mire-linux-x86_64.tar.gz

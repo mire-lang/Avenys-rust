@@ -42,10 +42,33 @@ pub fn load_program_with_metadata_with_settings(
         })
     })?;
 
-    let Some(project_root) =
+    let project_root = if let Some(root) =
         find_project_root(canonical.parent().unwrap_or_else(|| Path::new(".")))
-    else {
-        return load_shallow_program(&canonical);
+    {
+        root
+    } else {
+        let fallback = canonical.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let manifest_dependencies = HashMap::new();
+        let mut resolver = ImportResolver::new(
+            fallback.clone(),
+            IncrementalCache::load_with_settings(&canonical, settings)?,
+            import_mode,
+            manifest_dependencies,
+        );
+        let statements = resolver.load_file(&canonical)?;
+        resolver.cache.save()?;
+        let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
+        let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
+        return Ok(LoadedProgram {
+            program: Program {
+                statements: program_statements,
+            },
+            files: resolver.files,
+            statement_origins,
+            sources: resolver.sources,
+        });
     };
 
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
@@ -66,32 +89,6 @@ pub fn load_program_with_metadata_with_settings(
         files: resolver.files,
         statement_origins,
         sources: resolver.sources,
-    })
-}
-
-fn load_shallow_program(path: &Path) -> Result<LoadedProgram> {
-    let source = read_source_file(path)?;
-    let hash = source_hash(&source);
-    let program = parse(&source).map_err(|err| {
-        err.with_source(source.clone())
-            .with_filename(path.display().to_string())
-    })?;
-    let mut files = HashMap::new();
-    files.insert(
-        path.to_path_buf(),
-        LoadedFile {
-            hash,
-            direct_dependencies: Vec::new(),
-        },
-    );
-    let statement_origins = vec![path.to_path_buf(); program.statements.len()];
-    let mut sources = HashMap::new();
-    sources.insert(path.to_path_buf(), source);
-    Ok(LoadedProgram {
-        program,
-        files,
-        statement_origins,
-        sources,
     })
 }
 

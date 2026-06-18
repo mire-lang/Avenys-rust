@@ -2,6 +2,18 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.11.28] - 2026-06-18
+
+### Fixed
+- Trivial dereference: `&T → T` where both map to `ptr` at LLVM level (e.g. `str`,
+  `list`, `map`) no longer emits a spurious `load ptr, ptr`. This fixes SIGSEGV
+  in kioto wrapper functions like `env.get`, `env.cwd`, `env.args` that use
+  `*key` to unwrap `&str → str`.
+- Standalone file loading: `mire check/build file.mire` without an `owl.toml`
+  project now resolves imports (e.g. `load kioto`) instead of only parsing the
+  source file. The `load_shallow_program` fast-path was replaced with a full
+  `ImportResolver` rooted at the source file's parent directory.
+
 ## [3.11.27] - 2026-06-16
 
 ### Infrastructure

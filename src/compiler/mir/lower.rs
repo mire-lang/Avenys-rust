@@ -110,6 +110,31 @@ fn is_map_or_dict_type(dt: &DataType) -> bool {
     matches!(dt, DataType::Map { .. } | DataType::Dict)
 }
 
+fn is_trivial_deref(source: &DataType, target: &DataType) -> bool {
+    if !matches!(source, DataType::Ref { .. } | DataType::RefMut { .. }) {
+        return false;
+    }
+    // If the target type maps to "ptr" at LLVM level (same as any Ref type),
+    // then the dereference is a no-op: &T and T have the same representation.
+    matches!(target,
+        DataType::Str
+        | DataType::List
+        | DataType::Vector { .. }
+        | DataType::Dict
+        | DataType::Map { .. }
+        | DataType::Box
+        | DataType::Struct
+        | DataType::StructNamed(_)
+        | DataType::Function
+        | DataType::Tuple
+        | DataType::Set
+        | DataType::Datetime
+        | DataType::Slice { .. }
+        | DataType::DynTrait { .. }
+        | DataType::Result { .. }
+    )
+}
+
 fn data_type_to_kind(dt: &DataType) -> i64 {
     match dt {
         DataType::Bool => 2,
@@ -1327,17 +1352,22 @@ impl MirLower {
             }
             Expression::Dereference { expr, data_type } => {
                 let ptr_val = self.lower_expression(expr);
-                let loaded = self.new_temp();
-                let last = self.current_block;
-                self.func.blocks[last].push(
-                    Some(loaded),
-                    MirOp::Load(
-                        ptr_val,
-                        MirType { data_type: data_type.clone() },
-                    ),
-                    loc,
-                );
-                MirValue::temp(loaded)
+                let source_type = extract_data_type(expr);
+                if is_trivial_deref(&source_type, data_type) {
+                    ptr_val
+                } else {
+                    let loaded = self.new_temp();
+                    let last = self.current_block;
+                    self.func.blocks[last].push(
+                        Some(loaded),
+                        MirOp::Load(
+                            ptr_val,
+                            MirType { data_type: data_type.clone() },
+                        ),
+                        loc,
+                    );
+                    MirValue::temp(loaded)
+                }
             }
             Expression::UnaryOp { operator, operand, .. } => {
                 let op_val = self.lower_expression(operand);
