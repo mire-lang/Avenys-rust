@@ -105,16 +105,17 @@ pub fn inlining(program: &mut MirProgram) -> usize {
         }
 
         let callee = program.functions[callee_idx].clone();
-        let mut any_inlined = false;
+        let mut all_inlined = true;
 
         for &cidx in &caller_idxs {
             if inline_into(&mut program.functions[cidx], &callee) {
                 total += 1;
-                any_inlined = true;
+            } else {
+                all_inlined = false;
             }
         }
 
-        if any_inlined {
+        if all_inlined {
             program.functions.remove(callee_idx);
         }
     }

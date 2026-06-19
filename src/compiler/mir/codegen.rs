@@ -78,6 +78,42 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
     out.push(String::new());
     out.extend(extern_decls);
     out.push("declare ptr @rt_get_args(i32, ptr)".to_string());
+    out.push("declare ptr @rt_bool_to_string(i64)".to_string());
+    out.push("declare ptr @rt_f64_to_string(double)".to_string());
+    out.push("declare ptr @rt_i64_to_string(i64)".to_string());
+    out.push("declare i64 @abs(i64)".to_string());
+    out.push("declare double @rt_math_sqrt(double)".to_string());
+    out.push("declare double @rt_math_pow(double, double)".to_string());
+    out.push("declare i64 @rt_math_round(double)".to_string());
+    out.push("declare i64 @rt_math_floor(double)".to_string());
+    out.push("declare i64 @rt_math_ceil(double)".to_string());
+    out.push("declare i64 @pal_fs_delete(ptr)".to_string());
+    out.push("declare i64 @pal_fs_write(ptr, ptr)".to_string());
+    out.push("declare i64 @pal_fs_append(ptr, ptr)".to_string());
+    out.push("declare ptr @pal_fs_read(ptr)".to_string());
+    out.push("declare i64 @pal_fs_copy(ptr, ptr)".to_string());
+    out.push("declare i64 @pal_fs_move(ptr, ptr)".to_string());
+    out.push("declare i64 @pal_fs_mkdir(ptr)".to_string());
+    out.push("declare i64 @pal_fs_rmdir(ptr)".to_string());
+    out.push("declare i64 @pal_fs_exists(ptr)".to_string());
+    out.push("declare i64 @pal_fs_is_dir(ptr)".to_string());
+    out.push("declare i64 @pal_fs_size(ptr)".to_string());
+    out.push("declare ptr @pal_fs_list(ptr)".to_string());
+    out.push("declare ptr @pal_fs_join(ptr, ptr)".to_string());
+    out.push("declare ptr @pal_fs_dirname(ptr)".to_string());
+    out.push("declare ptr @pal_fs_filename(ptr)".to_string());
+    out.push("declare ptr @pal_fs_filext(ptr)".to_string());
+    out.push("declare ptr @pal_proc_run(ptr)".to_string());
+    out.push("declare ptr @pal_proc_exec(ptr)".to_string());
+    out.push("declare i64 @pal_proc_spawn(ptr)".to_string());
+    out.push("declare i64 @pal_proc_waitpid(i64)".to_string());
+    out.push("declare i64 @pal_proc_kill(i64)".to_string());
+    out.push("declare void @pal_proc_exit(i64)".to_string());
+    out.push("declare i64 @pal_proc_exists(i64)".to_string());
+    out.push("declare ptr @pal_env_get(ptr)".to_string());
+    out.push("declare i32 @pal_env_set(ptr, ptr)".to_string());
+    out.push("declare ptr @pal_env_cwd()".to_string());
+    out.push("declare ptr @pal_env_all()".to_string());
     out.push(String::new());
     out.extend(strings);
     out.push(String::new());
@@ -484,6 +520,93 @@ fn render_struct_llvm_type(fields: &[(String, DataType)]) -> String {
     format!("{{ {} }}", tys.join(", "))
 }
 
+/// Maps a builtin function name to its PAL/LLVM callee name.
+fn builtin_to_pal(name: &str) -> Option<&'static str> {
+    match name {
+        // Math
+        "abs" => Some("abs"),
+        "sqrt" => Some("rt_math_sqrt"),
+        "pow" => Some("rt_math_pow"),
+        "round" => Some("rt_math_round"),
+        "floor" => Some("rt_math_floor"),
+        "ceil" => Some("rt_math_ceil"),
+        // Filesystem
+        "fs_write" => Some("pal_fs_write"),
+        "fs_append" => Some("pal_fs_append"),
+        "fs_read" => Some("pal_fs_read"),
+        "fs_copy" => Some("pal_fs_copy"),
+        "fs_move" => Some("pal_fs_move"),
+        "fs_drop" => Some("pal_fs_delete"),
+        "fs_mkdir" => Some("pal_fs_mkdir"),
+        "fs_rmdir" => Some("pal_fs_rmdir"),
+        "fs_exists" => Some("pal_fs_exists"),
+        "fs_is_dir" => Some("pal_fs_is_dir"),
+        "fs_size" => Some("pal_fs_size"),
+        "fs_list" => Some("pal_fs_list"),
+        "fs_join" => Some("pal_fs_join"),
+        "fs_dir" => Some("pal_fs_dirname"),
+        "fs_name" => Some("pal_fs_filename"),
+        "fs_ext" => Some("pal_fs_filext"),
+        // Process
+        "proc_run" => Some("pal_proc_run"),
+        "proc_exec" => Some("pal_proc_exec"),
+        "proc_spawn" => Some("pal_proc_spawn"),
+        "proc_wait" => Some("pal_proc_waitpid"),
+        "proc_kill" => Some("pal_proc_kill"),
+        "proc_exit" => Some("pal_proc_exit"),
+        "proc_exists" => Some("pal_proc_exists"),
+        // Environment
+        "env_get" => Some("pal_env_get"),
+        "env_set" => Some("pal_env_set"),
+        "env_cwd" => Some("pal_env_cwd"),
+        "env_all" => Some("pal_env_all"),
+        _ => None,
+    }
+}
+
+fn compile_pal_builtin(
+    inst: &MirInst,
+    args: &[MirValue],
+    pal_name: &str,
+    ctx: &mut LlvmCtx,
+    extra: &mut Vec<String>,
+) -> String {
+    let result_ty = match &inst.op {
+        MirOp::Call(_, _, ty) => llvm_type_str(&ty.data_type),
+        _ => "void".to_string(),
+    };
+    let expect_bool = result_ty == "i1";
+    let pal_ret = if result_ty == "void" { "void" } else { "i64" };
+    let result = if pal_ret == "void" {
+        None
+    } else {
+        Some(tmp_result(ctx, pal_ret, inst.result))
+    };
+    let arg_strs: Vec<String> = args.iter().map(|a| {
+        let (v, t) = resolve_typed(a, ctx);
+        format!("{} {}", t, v)
+    }).collect();
+    let call_line = match result {
+        Some(r) => format!("%t{} = call {} @{}({})", r, pal_ret, pal_name, arg_strs.join(", ")),
+        None => format!("call {} @{}({})", pal_ret, pal_name, arg_strs.join(", ")),
+    };
+    if expect_bool {
+        // PAL returns i64 but mire expects i1; insert icmp ne
+        let r = result.unwrap();
+        let conv = tmp_extra(ctx, "i1");
+        extra.push(call_line);
+        extra.push(format!("{} = icmp ne i64 %t{}, 0", conv, r));
+        // Re-register the original result id with i1 type for upstream consumers
+        if let Some(mir_id) = inst.result {
+            ctx.vars.insert(mir_id, conv.clone());
+            ctx.temp_types.insert(mir_id, "i1".to_string());
+        }
+        String::new()
+    } else {
+        call_line
+    }
+}
+
 fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
     let mut extra = Vec::new();
     let line = match &inst.op {
@@ -628,18 +751,25 @@ fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     MirCmp::Ne => "ne",
                     _ => "eq",
                 };
-                // Pointer comparison — ensure both sides are ptr
-                if lt != "ptr" {
+                // Ensure both sides are ptr
+                let l_ptr = if lt != "ptr" {
                     let conv = tmp_extra(ctx, "ptr");
                     extra.push(format!("{} = inttoptr i64 {} to ptr", conv, l_str));
-                    format!("%t{} = icmp {} ptr {}, {}", result, cond, conv, r_str)
-                } else if rt != "ptr" {
+                    conv
+                } else {
+                    l_str.clone()
+                };
+                let r_ptr = if rt != "ptr" {
                     let conv = tmp_extra(ctx, "ptr");
                     extra.push(format!("{} = inttoptr i64 {} to ptr", conv, r_str));
-                    format!("%t{} = icmp {} ptr {}, {}", result, cond, l_str, conv)
+                    conv
                 } else {
-                    format!("%t{} = icmp {} ptr {}, {}", result, cond, l_str, r_str)
-                }
+                    r_str.clone()
+                };
+                // Use strcmp for Eq/Ne on pointer types (strings)
+                let scmp = tmp_extra(ctx, "i32");
+                extra.push(format!("{} = call i32 @strcmp(ptr {}, ptr {})", scmp, l_ptr, r_ptr));
+                format!("%t{} = icmp {} i32 {}, 0", result, cond, scmp)
             } else {
                 let cond = match cmp {
                     MirCmp::Eq => "eq",
@@ -736,6 +866,8 @@ fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 extra.push(format!("{} = load i32, ptr @.argc", argc));
                 extra.push(format!("{} = load ptr, ptr @.argv", argv));
                 format!("%t{} = call ptr @rt_get_args(i32 {}, ptr {})", result, argc, argv)
+            } else if let Some(llvm_name) = builtin_to_pal(name_opt.unwrap_or("")) {
+                compile_pal_builtin(inst, args, llvm_name, ctx, &mut extra)
             } else if name_opt == Some("call") {
                 // Indirect call via function pointer
                 if args.len() < 1 {
