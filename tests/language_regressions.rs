@@ -1674,15 +1674,46 @@ fn string_literals_accept_braces_without_escape_hacks() {
 }
 
 #[test]
-fn backend_rejects_unimplemented_contains_instead_of_returning_silent_false() {
-    let err = expect_compile_error_from_source(
-        "mire_backend_contains_stub",
-        "contains_stub.mire",
-        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3]\n    use dasu(contains(nums 2))\n}\n",
-    );
+fn contains_on_list_returns_correct_result() {
+    let root = make_temp_project_root("mire_contains_list");
+    let source_path = root.join("contains_list.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"contains-list\"\nversion = \"0.1.0\"\nentry = \"contains_list.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3]\n    use dasu(contains(nums 2))\n    use dasu(contains(nums 5))\n}\n",
+    )
+    .expect("write source");
 
-    assert!(matches!(err.kind, ErrorKind::Backend { .. }));
-    assert!(err.to_string().contains("contains"), "{err}");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: true,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("contains should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "binary should run successfully");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("true"), "expected contains(2) to be true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains(5) to be false, got: {stdout}");
 }
 
 #[test]
@@ -3746,6 +3777,144 @@ fn kioto_async_spawn_wait_compiles_and_runs() {
     assert!(output.status.success(), "binary should run successfully");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("0"), "{stdout}");
+}
+
+#[test]
+fn runtime_lists_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_lists_abi");
+    let source_path = root.join("runtime_lists_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-lists-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_lists_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(lists.len(xs))\n    use dasu(lists.get(xs, 1))\n    use dasu(lists.first(xs))\n    use dasu(lists.last(xs))\n    use dasu(lists.contains(xs, 20))\n    use dasu(lists.contains(xs, 99))\n    use dasu(lists.index_of(xs, 30))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("lists ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "lists ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
+    assert!(stdout.contains("20"), "expected get(1)=20, got: {stdout}");
+    assert!(stdout.contains("10"), "expected first=10, got: {stdout}");
+    assert!(stdout.contains("30"), "expected last=30, got: {stdout}");
+    assert!(stdout.contains("true"), "expected contains(20)=true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains(99)=false, got: {stdout}");
+    assert!(stdout.contains("2"), "expected index_of(30)=2, got: {stdout}");
+}
+
+#[test]
+fn runtime_strings_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_strings_abi");
+    let source_path = root.join("runtime_strings_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-strings-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_strings_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace(s, \"world\", \"mire\"))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("strings ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "strings ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("11"), "expected len=11, got: {stdout}");
+    assert!(stdout.contains("true"), "expected contains=true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains=false, got: {stdout}");
+    assert!(stdout.contains("HELLO"), "expected upper, got: {stdout}");
+    assert!(stdout.contains("hello world"), "expected lower, got: {stdout}");
+    assert!(stdout.contains("hello mire"), "expected replace, got: {stdout}");
+}
+
+#[test]
+fn runtime_dicts_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_dicts_abi");
+    let source_path = root.join("runtime_dicts_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-dicts-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_dicts_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn test_len: (d) :i64 { return dicts.len(d) }\npub fn test_has: (d, k :str) :bool { return dicts.has(d, k) }\npub fn test_is_empty: (d) :bool { return dicts.is_empty(d) }\npub fn main: () {\n    use dasu(test_len({a: 1, b: 2, c: 3} :map[str i64]))\n    use dasu(test_has({a: 1} :map[str i64], \"a\"))\n    use dasu(test_has({a: 1} :map[str i64], \"z\"))\n    use dasu(test_is_empty({} :map[str i64]))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("dicts ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "dicts ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
+    assert!(stdout.contains("false"), "expected has(z)=false, got: {stdout}");
 }
 
 fn make_temp_project_root(prefix: &str) -> PathBuf {

@@ -108,6 +108,31 @@ pub fn lower_program(program: &Program) -> MirProgram {
         }
     }
 
+    // Predeclare runtime externs for built-in functions (bare contains etc.)
+    let builtin_runtime_externs: Vec<MirExternFunction> = vec![
+        MirExternFunction {
+            name: "rt_strings_contains".to_string(),
+            params: vec![DataType::Str, DataType::Str],
+            return_type: DataType::Bool,
+        },
+        MirExternFunction {
+            name: "rt_lists_contains_i64".to_string(),
+            params: vec![
+                DataType::Vector {
+                    element_type: Box::new(DataType::I64),
+                    dynamic: true,
+                },
+                DataType::I64,
+            ],
+            return_type: DataType::Bool,
+        },
+    ];
+    for ext in builtin_runtime_externs {
+        if !extern_functions.iter().any(|e| e.name == ext.name) {
+            extern_functions.push(ext);
+        }
+    }
+
     for stmt in &program.statements {
         if let Statement::Function { name, .. } = stmt {
             seen_functions.insert(name.clone());

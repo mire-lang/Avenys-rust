@@ -464,7 +464,44 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 format!("%t{} = fptosi {} {} to {}", result, src_t, v, dst_t)
             }
         }
-        _ => return vec![],
+        MirOp::PtrToInt(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = ptrtoint {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::IntToPtr(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = inttoptr {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::BitCast(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = bitcast {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::Select(cond, t, f) => {
+            let (c, _) = resolve_typed(cond, ctx);
+            let (tv, tt) = resolve_typed(t, ctx);
+            let (fv, ft) = resolve_typed(f, ctx);
+            let result = tmp_result(ctx, &tt, inst.result);
+            format!("%t{} = select i1 {}, {} {}, {} {}", result, c, tt, tv, ft, fv)
+        }
+        MirOp::Phi(pairs, ty) => {
+            let ll_ty = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &ll_ty, inst.result);
+            let incoming: Vec<String> = pairs
+                .iter()
+                .map(|(val, block_id)| {
+                    let (v, t) = resolve_typed(val, ctx);
+                    let coerced = coerce_to(&v, &t, &ll_ty, ctx, &mut extra);
+                    format!("[{} %bb_{}]", coerced, block_id)
+                })
+                .collect();
+            format!("%t{} = phi {} {}", result, ll_ty, incoming.join(", "))
+        }
     };
     let mut result = Vec::with_capacity(extra.len() + 1);
     result.extend(extra);

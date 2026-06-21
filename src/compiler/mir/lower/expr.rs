@@ -189,6 +189,39 @@ impl MirLower {
                 );
                 MirValue::temp(result)
             }
+            Expression::Call {
+                name,
+                args,
+                ..
+            } if name == "contains" && args.len() == 2 => {
+                let haystack_val = self.lower_expression(&args[0]);
+                let needle_val = self.lower_expression(&args[1]);
+                let arg_type = extract_data_type(&args[0]);
+                let rt_name = match &arg_type {
+                    DataType::Str
+                    | DataType::Ref { .. }
+                    | DataType::RefMut { .. } => "rt_strings_contains",
+                    DataType::Vector { element_type, .. }
+                        if matches!(&**element_type, DataType::I64 | DataType::Unknown | DataType::Anything) =>
+                    {
+                        "rt_lists_contains_i64"
+                    }
+                    DataType::List => "rt_lists_contains_i64",
+                    _ => "rt_lists_contains_i64",
+                };
+                let result = self.new_temp();
+                let last = self.current_block;
+                self.func.blocks[last].push(
+                    Some(result),
+                    MirOp::Call(
+                        MirValue::Global(rt_name.to_string()),
+                        vec![haystack_val, needle_val],
+                        MirType { data_type: DataType::Bool },
+                    ),
+                    loc,
+                );
+                MirValue::temp(result)
+            }
             Expression::Call { name, args, .. } if name == "lists.map" && args.len() == 2 => {
                 self.lower_lists_map(args)
             }

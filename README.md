@@ -46,7 +46,7 @@ Default profile is `debug` (`-O0`). Use `--release` or `-O2` for optimized build
 - [Changelog](./docs/CHANGELOG.md)
 - [MIR Pipeline](./docs/mir-pipeline.md)
 - [Incremental Design](./docs/incremental-design.md)
-- [Roadmap & Known Issues](./docs/TODO.md)
+- [Roadmap & Known Issues](./TODO.md)
 - [ABI Map](./abi_map.toml)
 
 ## License
