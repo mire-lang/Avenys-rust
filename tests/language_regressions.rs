@@ -75,7 +75,7 @@ fn backend_limitation_errors_render_with_backend_kind() {
     })
     .to_string();
 
-    assert!(rendered.contains("error[backend]"), "{rendered}");
+    assert!(rendered.contains("error[E0014]"), "{rendered}");
     assert!(rendered.contains("Backend Limitation"), "{rendered}");
     assert!(
         rendered.contains("frontend accepted this program")
@@ -89,7 +89,7 @@ fn compile_reports_lexer_error_kind_and_filename() {
     let err = expect_compile_error_from_source(
         "mire_diag_lexer_kind_filename",
         "lexer_error.mire",
-        "pub fn main: () {\n    set x = @#$%\n}\n",
+        "pub fn main: () {\n    set x = \\\n}\n",
     );
 
     assert!(matches!(err.kind, ErrorKind::Lexer { .. }));
@@ -98,7 +98,7 @@ fn compile_reports_lexer_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("lexer_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[lexer]"), "{rendered}");
+    assert!(rendered.contains("error[E0001]"), "{rendered}");
     assert!(rendered.contains("Lexical Error"), "{rendered}");
 }
 
@@ -116,7 +116,7 @@ fn compile_reports_parser_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("parser_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[parser]"), "{rendered}");
+    assert!(rendered.contains("error[E0003]"), "{rendered}");
     assert!(rendered.contains("Syntax Error"), "{rendered}");
 }
 
@@ -134,7 +134,7 @@ fn compile_reports_type_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("type_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[type]"), "{rendered}");
+    assert!(rendered.contains("error[E0005]"), "{rendered}");
     assert!(rendered.contains("Type Error"), "{rendered}");
 }
 
@@ -152,7 +152,7 @@ fn compile_reports_ownership_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("ownership_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[ownership]"), "{rendered}");
+    assert!(rendered.contains("error[E0009]"), "{rendered}");
     assert!(rendered.contains("Ownership Error"), "{rendered}");
 }
 
