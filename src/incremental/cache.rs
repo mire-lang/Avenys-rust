@@ -10,7 +10,7 @@ const VERSION_FILE: &str = "version.txt";
 const INDEX_DIR: &str = "index";
 const BLOBS_DIR: &str = "blobs";
 const WAL_DIR: &str = "wal";
-const NEW_CACHE_FORMAT: &str = "MIREINC3";
+const NEW_CACHE_FORMAT: &str = "MIREINC4";
 const NEW_FORMAT_VERSION: u32 = 1;
 const FILES_INDEX: &str = "files";
 const ANALYSES_INDEX: &str = "analyses";
@@ -565,7 +565,7 @@ impl IncrementalCache {
         }
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredParsedFile = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredParsedFile = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::File);
         if let Some(meta) = self.files.get_mut(&normalize_path_key(path)) {
@@ -589,7 +589,7 @@ impl IncrementalCache {
             exports: entry.exports,
             local_imports: entry.local_imports,
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize cached parsed file: {e}"),
             })
@@ -636,7 +636,7 @@ impl IncrementalCache {
         };
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::Analysis);
         self.metrics.analysis_hits += 1;
@@ -659,7 +659,7 @@ impl IncrementalCache {
             }),
             units: units.clone(),
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize analysis cache entry: {e}"),
             })
@@ -710,7 +710,7 @@ impl IncrementalCache {
             outcome: StoredAnalysisOutcome::Error(error.into()),
             units: units.clone(),
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize analysis error cache entry: {e}"),
             })
@@ -763,7 +763,7 @@ impl IncrementalCache {
         let key = analysis_cache_key(source_path, source_hash);
         let meta = self.analyses.get(&key)?;
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         let StoredAnalysisOutcome::Success(s) = stored.outcome else {
             return None;
         };
@@ -850,7 +850,7 @@ impl IncrementalCache {
         }
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let ir: String = serde_json::from_slice(&blob).ok()?;
+        let ir: String = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::MirFn);
         if let Some(meta) = self.mir_fns.get_mut(&mir_cache_key(source_path, fn_name, body_hash, opt_level)) {
@@ -870,7 +870,7 @@ impl IncrementalCache {
     ) -> Result<()> {
         let key = mir_cache_key(source_path, fn_name, body_hash, opt_level);
 
-        let blob = serde_json::to_vec(llvm_ir).map_err(|e| {
+        let blob = bincode::serialize(llvm_ir).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize MIR fn IR: {e}"),
             })
@@ -945,7 +945,7 @@ impl IncrementalCache {
         let key = analysis_cache_key(source_path, source_hash);
         let meta = self.analyses.get(&key)?;
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         Some(stored.units)
     }
 }
