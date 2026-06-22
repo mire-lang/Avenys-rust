@@ -456,8 +456,8 @@ impl MirLower {
                         .split_once('[')
                         .map(|(base, _)| base.to_string())
                         .unwrap_or_else(|| struct_name.clone());
-                    if let Some(fields) = self.struct_types.get(&norm_name) {
-                        if let Some(field_index) =
+                    if let Some(fields) = self.struct_types.get(&norm_name)
+                        && let Some(field_index) =
                             fields.iter().position(|(name, _)| name == member)
                         {
                             let actual_field_type = fields[field_index].1.clone();
@@ -493,7 +493,6 @@ impl MirLower {
                             }
                             return MirValue::temp(load_result);
                         }
-                    }
                 }
                 MirValue::Const(MirConst::None)
             }
@@ -862,11 +861,10 @@ impl MirLower {
     }
 
     pub(crate) fn extract_closure_expr(expr: &Expression) -> &Expression {
-        if let Expression::Closure { body, .. } = expr {
-            if let Some(Statement::Return(Some(inner))) = body.first() {
+        if let Expression::Closure { body, .. } = expr
+            && let Some(Statement::Return(Some(inner))) = body.first() {
                 return inner;
             }
-        }
         expr
     }
 
@@ -1328,8 +1326,8 @@ impl MirLower {
     }
 
     pub(crate) fn get_target_elem_type(&self, target: &Expression) -> String {
-        if let Expression::Identifier(id) = target {
-            if let Some(ty) = self.var_types.get(&id.name) {
+        if let Expression::Identifier(id) = target
+            && let Some(ty) = self.var_types.get(&id.name) {
                 match ty {
                     DataType::Array { element_type, .. }
                     | DataType::Vector { element_type, .. }
@@ -1339,7 +1337,6 @@ impl MirLower {
                     _ => {}
                 }
             }
-        }
         "i64".to_string()
     }
 

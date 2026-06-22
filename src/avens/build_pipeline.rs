@@ -39,7 +39,7 @@ fn struct_field_size(dt: &DataType) -> usize {
         DataType::F64 => 8,
         DataType::Bool => 1,
         DataType::None => 8,
-        DataType::Array { element_type, size } => *size as usize * struct_field_size(element_type),
+        DataType::Array { element_type, size } => *size * struct_field_size(element_type),
         _ => 8,
     }
 }
@@ -546,11 +546,10 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                 mir_hash,
                 options.opt_level,
                 &ir,
-            ) {
-                if options.debug_dump {
+            )
+                && options.debug_dump {
                     eprintln!("[MIR] cache store error: {}", e);
                 }
-            }
             (ir, Vec::new())
         }
     };
@@ -580,8 +579,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             }
         }
         // Add @main entry point wrapper if the program defines @fn_main
-        if ir.contains("define") && ir.contains("@fn_main") {
-            if !ir.contains("define i32 @main(") {
+        if ir.contains("define") && ir.contains("@fn_main")
+            && !ir.contains("define i32 @main(") {
                 ir.push_str("\n\ndefine i32 @main(i32 %argc, ptr %argv) {\n");
                 ir.push_str("  store i32 %argc, ptr @.argc\n");
                 ir.push_str("  store ptr %argv, ptr @.argv\n");
@@ -589,7 +588,6 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                 ir.push_str("  ret i32 0\n");
                 ir.push_str("}\n");
             }
-        }
         ir = dedup_llvm_declarations(&ir);
     }
     if let Some(path) = &ir_path {

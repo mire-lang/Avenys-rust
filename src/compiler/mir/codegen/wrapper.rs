@@ -10,11 +10,10 @@ pub(crate) fn collect_used_extern_wrappers(
     let mut used = HashSet::new();
     let mut visit_value = |v: &MirValue| {
         match v {
-            MirValue::Global(name) | MirValue::FunctionRef { name, .. } => {
-                if extern_fn_names.contains(name) {
+            MirValue::Global(name) | MirValue::FunctionRef { name, .. }
+                if extern_fn_names.contains(name) => {
                     used.insert(name.clone());
                 }
-            }
             _ => {}
         }
     };

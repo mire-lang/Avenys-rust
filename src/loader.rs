@@ -401,11 +401,9 @@ impl<'a> ImportResolver<'a> {
             }
             if let Some(export_path) =
                 resolve_export_path(&current_exports, &current_root, &segments[0])
-            {
-                if export_path.exists() {
+                && export_path.exists() {
                     return Ok(export_path);
                 }
-            }
             return Ok(direct);
         }
 
@@ -1737,4 +1735,5 @@ struct ExpandedStatement {
     origin: PathBuf,
 }
 
-impl ResolvedFile {}
+
+

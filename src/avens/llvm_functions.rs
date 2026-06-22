@@ -364,7 +364,7 @@ impl LlvmIrGen {
                 out.iter().filter_map(|s| extract_fn_name(s)).collect();
             self.extern_decls
                 .iter()
-                .filter(|decl| extract_fn_name(decl).map_or(true, |name| seen.insert(name)))
+                .filter(|decl| extract_fn_name(decl).is_none_or(|name| seen.insert(name)))
                 .cloned()
                 .collect()
         };

@@ -151,7 +151,7 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
             })
         })?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "wal"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "wal"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -170,10 +170,8 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
 fn clear_wal(base_dir: &Path) -> Result<()> {
     let wal_dir = base_dir.join(WAL_DIR);
     if wal_dir.exists() {
-        for entry in fs::read_dir(&wal_dir).ok().into_iter().flatten() {
-            if let Ok(e) = entry {
-                let _ = fs::remove_file(e.path());
-            }
+        for e in fs::read_dir(&wal_dir).ok().into_iter().flatten().flatten() {
+            let _ = fs::remove_file(e.path());
         }
     }
     Ok(())
@@ -218,13 +216,11 @@ fn gc_blobs(base_dir: &Path, referenced: &HashSet<String>) -> Result<()> {
         return Ok(());
     }
     for entry in fs::read_dir(&blob_dir).ok().into_iter().flatten() {
-        if let Ok(e) = entry {
-            if let Some(name) = e.file_name().to_str() {
-                if !referenced.contains(name) {
+        if let Ok(e) = entry
+            && let Some(name) = e.file_name().to_str()
+                && !referenced.contains(name) {
                     let _ = fs::remove_file(e.path());
                 }
-            }
-        }
     }
     Ok(())
 }
@@ -365,11 +361,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let files_dir = base_dir.join(INDEX_DIR).join(FILES_INDEX);
     if let Ok(entries) = fs::read_dir(&files_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -377,11 +372,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let analyses_dir = base_dir.join(INDEX_DIR).join(ANALYSES_INDEX);
     if let Ok(entries) = fs::read_dir(&analyses_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -391,11 +385,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let mir_dir = base_dir.join(INDEX_DIR).join(MIR_INDEX);
     if let Ok(entries) = fs::read_dir(&mir_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -969,16 +962,14 @@ impl IncrementalCache {
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
                 // Derive key from filename (hash)
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+                if let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         files.insert(stem.to_string(), meta);
                     }
-                }
             }
-        }
     }
 }
 
@@ -992,15 +983,12 @@ fn load_analysis_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         analyses.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 
@@ -1014,15 +1002,12 @@ fn load_build_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<BuildMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<BuildMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         builds.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 
@@ -1036,15 +1021,12 @@ fn load_mir_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<MirMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         mir_fns.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 

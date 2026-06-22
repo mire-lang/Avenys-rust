@@ -364,11 +364,11 @@ impl TypeChecker {
             Expression::Identifier(Identifier { name, .. }) => self
                 .lookup_ref_type(name)
                 .or_else(|| {
-                    self.lookup_var(name).and_then(|(data_type, _)| match &data_type {
+                    self.lookup_var(name).map(|(data_type, _)| match &data_type {
                         DataType::Ref { inner } | DataType::RefMut { inner } => {
-                            Some(*inner.clone())
+                            *inner.clone()
                         }
-                        _ => Some(data_type),
+                        _ => data_type,
                     })
                 }),
             Expression::Reference { expr, .. } => self.referenced_type_for_expr(expr),
@@ -481,11 +481,10 @@ fn collect_used_identifiers_in_statement(
         Statement::Assignment { target, value, .. } => {
             collect_used_identifiers_in_assignment_target(target, declared, used);
             collect_used_identifiers_in_expr(value, declared, used);
-            if let AssignmentTarget::Variable(n) = target {
-                if !declared.contains(n) {
+            if let AssignmentTarget::Variable(n) = target
+                && !declared.contains(n) {
                     used.insert(n.clone());
                 }
-            }
         }
         Statement::Return(Some(expr))
         | Statement::Expression(expr)
@@ -646,11 +645,10 @@ fn collect_used_identifiers_in_expr(
             if !name.contains('.') && !declared.contains(name) {
                 used.insert(name.clone());
             }
-            if let Some((prefix, _)) = name.split_once('.') {
-                if prefix != "self" && !declared.contains(prefix) {
+            if let Some((prefix, _)) = name.split_once('.')
+                && prefix != "self" && !declared.contains(prefix) {
                     used.insert(prefix.to_string());
                 }
-            }
             for arg in args {
                 collect_used_identifiers_in_expr(arg, declared, used);
             }

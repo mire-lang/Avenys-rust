@@ -29,8 +29,8 @@ impl MirLower {
                 self.var_types.insert(name.clone(), data_type.clone());
 
                 if let Some(val) = value {
-                    if let DataType::Array { element_type, .. } = data_type {
-                        if let Expression::List { elements, .. } = val {
+                    if let DataType::Array { element_type, .. } = data_type
+                        && let Expression::List { elements, .. } = val {
                             let elem_llvm = llvm_elem_type_str(element_type);
                             for (i, elem) in elements.iter().enumerate() {
                                 let elem_val = self.lower_expression(elem);
@@ -53,7 +53,6 @@ impl MirLower {
                             }
                             return;
                         }
-                    }
                     let v = self.lower_expression(val);
                     let last = self.current_block;
                     self.func.blocks[last].push(None, MirOp::Store(MirValue::temp(ptr), v), loc);
@@ -131,8 +130,8 @@ impl MirLower {
                             let field_name = parts[1].to_string();
                             let ptr = self.vars.get(&var_name).copied();
                             let var_type = self.var_types.get(&var_name).cloned();
-                            if let (Some(ptr), Some(var_type)) = (ptr, var_type) {
-                                if let DataType::StructNamed(ref struct_name) = var_type {
+                            if let (Some(ptr), Some(var_type)) = (ptr, var_type)
+                                && let DataType::StructNamed(ref struct_name) = var_type {
                                     let norm_name = struct_name.split_once('[')
                                         .map(|(base, _)| base.to_string())
                                         .unwrap_or_else(|| struct_name.clone());
@@ -165,7 +164,6 @@ impl MirLower {
                                             .push(None, MirOp::Store(MirValue::temp(gep), v), loc);
                                     }
                                 }
-                            }
                         }
                     }
                 }

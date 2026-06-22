@@ -100,16 +100,8 @@ fn bench_compile(
         .expect("run binary");
     let run_time = run_start.elapsed();
 
-    let rss_delta = if post_rss > pre_rss {
-        post_rss - pre_rss
-    } else {
-        0
-    };
-    let peak_delta = if post_peak > pre_peak {
-        post_peak - pre_peak
-    } else {
-        0
-    };
+    let rss_delta = post_rss.saturating_sub(pre_rss);
+    let peak_delta = post_peak.saturating_sub(pre_peak);
 
     println!(
         "[BENCH] {name:<35} | opt={opt:?} | compile={ct:.3}s | rss={rss}KB | peak={peak}KB | bin={bin}B | run={rt:.3}s | {status}",

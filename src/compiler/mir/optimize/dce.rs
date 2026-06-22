@@ -34,7 +34,7 @@ pub(super) fn dce_function(func: &mut MirFunction) -> usize {
     for block in &mut func.blocks {
         block.insts.retain(|inst| {
             let has_side_effect = has_side_effect(&inst.op);
-            let is_used = inst.result.map_or(true, |r| used.contains(&r));
+            let is_used = inst.result.is_none_or(|r| used.contains(&r));
             if !has_side_effect && !is_used && inst.result.is_some() {
                 count += 1;
                 return false;
