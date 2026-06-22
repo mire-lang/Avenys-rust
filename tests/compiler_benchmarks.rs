@@ -250,9 +250,100 @@ fn benchmark_smoke() {
         OptLevel::O3,
     );
 
-    println!();
-    println!("══════════════════════════════════════════════════════════════");
-    println!("  Done.");
-    println!("══════════════════════════════════════════════════════════════");
-    println!();
+    // 11) Kioto.fs benchmark (file read/write)
+    bench_compile(
+        "kioto_fs_ops",
+        "load kioto\npub fn main: () {\n  fs.write(\"/tmp/b.txt\" \"x\")\n  use dasu(fs.read(\"/tmp/b.txt\"))\n}\n",
+        OptLevel::O0,
+    );
+
+    // 12) Kioto.term progress bar benchmark
+    bench_compile(
+        "kioto_term_bar",
+        "load kioto\npub fn main: () {\n  set bar = term.bar(\"load\" 12 12 100)\n  use dasu(bar)\n}\n",
+        OptLevel::O0,
+    );
+
+    // 13) Kioto.time benchmark
+    bench_compile(
+        "kioto_time",
+        "load kioto\npub fn main: () {\n  set t = time.unix_ms()\n  use dasu(str(t))\n}\n",
+        OptLevel::O0,
+    );
+
+    // 15) Owl self-compile benchmark
+    {
+        let root = make_project_dir("bench_owl_self");
+        let owl_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../mire-owl/code/main.mire");
+        if owl_path.exists() {
+            let start = Instant::now();
+            let build = compile_file_with_avenys(
+                &owl_path,
+                &BuildOptions {
+                    mode: BuildMode::Debug,
+                    opt_level: OptLevel::O0,
+                    debug_dump: false, output: None,
+                    emit_binary: true, persist_ir: false,
+                    import_mode: mire::ImportMode::Reachable,
+                    cache: Default::default(),
+                    warning_filter: mire::error::diagnostic::WarningFilter::Default,
+                    deny_warnings: std::collections::HashSet::new(),
+                    module_paths: vec![],
+                },
+            ).expect("owl compile");
+            let compile_time = start.elapsed();
+            let bin = fs::metadata(&build.binary_path).map(|m| m.len()).unwrap_or(0);
+            println!(
+                "[BENCH] owl_self_compile                     | opt=O0 | compile={ct:.3}s | bin={bin}B | OK",
+                ct = compile_time.as_secs_f64(),
+                bin = bin,
+            );
+            // Test owl -V
+            let start = Instant::now();
+            let out = Command::new(&build.binary_path)
+                .args(["-V"])
+                .output().expect("owl -V");
+            let run_time = start.elapsed();
+            let out_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            println!(
+                "[BENCH] owl_version                          |             | run={rt:.3}s | out=\"{out}\"",
+                rt = run_time.as_secs_f64(),
+                out = out_str,
+            );
+            // Test owl -Q (info)
+            let start = Instant::now();
+            let out = Command::new(&build.binary_path)
+                .args(["-Q"])
+                .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mire-owl"))
+                .output().expect("owl -Q");
+            let run_time = start.elapsed();
+            println!(
+                "[BENCH] owl_info                             |             | run={rt:.3}s | status={ok}",
+                rt = run_time.as_secs_f64(),
+                ok = if out.status.success() { "OK" } else { "FAIL" },
+            );
+        }
+    }
+
+    // 16) Compiler latency (minimal program, cold start)
+    bench_compile(
+        "latency_minimal",
+        "pub fn main: () {\n  use dasu(\".\")\n}\n",
+        OptLevel::O0,
+    );
+
+    // 17) Enums + match heavy
+    bench_compile(
+        "enums_match",
+        "enum Color { Red Green Blue }\npub fn main: () {\n  set c = Color.Red\n  set v = 0 :i64 mut\n  set i = 0 :i64 mut\n  while i < 100 {\n    match c {\n      Color.Red { set v = v + 1 }\n      Color.Green { set v = v + 2 }\n      Color.Blue { set v = v + 3 }\n    }\n    set i = i + 1\n  }\n  use dasu(str(v))\n}\n",
+        OptLevel::O3,
+    );
+
+    // 18) Nested functions + recursion stress
+    bench_compile(
+        "nested_recursion",
+        "fn inner: (x: i64, n: i64) :i64 {\n  if n <= 0 { return x }\n  return inner(x + 1, n - 1) + inner(x + 2, n - 1)\n}\npub fn main: () {\n  set r = inner(0 5)\n  use dasu(str(r))\n}\n",
+        OptLevel::O3,
+    );
 }
