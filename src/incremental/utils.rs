@@ -12,8 +12,6 @@ pub fn cache_file_path(source_path: &Path) -> PathBuf {
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf()
     };
-
-    // Returns the cache directory (not a single file anymore)
     base.join(CACHE_DIR_NAME)
 }
 

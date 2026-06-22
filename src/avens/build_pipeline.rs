@@ -1,5 +1,7 @@
 use super::*;
+use crate::compiler::check_warnings_with_origins;
 use crate::compiler::mir::{codegen::mir_to_llvm, lower::lower_program, optimize::optimize};
+use crate::loader::load_program_with_cache;
 use crate::parser::ast::{DataType, Statement};
 use std::hash::{Hash, Hasher};
 
@@ -217,14 +219,15 @@ fn c_object_hash(content: &str) -> u64 {
     hasher.finish()
 }
 
-fn precompile_c_object(c_path: &str, cache_dir: &Path, manifest_dir: &Path) -> Result<String> {
+fn precompile_c_object(c_path: &str, manifest_dir: &Path) -> Result<String> {
     let content = fs::read_to_string(c_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             message: format!("Could not read C source '{}': {}", c_path, err),
         })
     })?;
     let hash = c_object_hash(&content);
-    let obj_dir = cache_dir.join("cobjects");
+    // Use a global cache directory shared across all projects
+    let obj_dir = manifest_dir.join(".cobject_cache");
     fs::create_dir_all(&obj_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             message: format!("Could not create cobjects dir: {}", err),
@@ -288,7 +291,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let pal_backend = std::env::var("MIRE_PAL").unwrap_or_else(|_| "linux".to_string());
-    let c_source_files: Vec<String> = {
+    let (c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files = Vec::new();
         for entry in std::fs::read_dir(manifest_dir.join("src/runtime")).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
@@ -324,21 +327,25 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         }
         files.sort();
         files.dedup();
-        files
-    };
-    let c_sources_hash: u64 = {
-        let mut hasher = crate::incremental::FxHasher::new();
-        for src in &c_source_files {
-            if let Ok(content) = fs::read_to_string(src) {
-                content.hash(&mut hasher);
+        let hash = {
+            let mut hasher = crate::incremental::FxHasher::new();
+            for src in &files {
+                if let Ok(meta) = fs::metadata(src) {
+                    meta.len().hash(&mut hasher);
+                    if let Ok(mtime) = meta.modified() {
+                        mtime.hash(&mut hasher);
+                    }
+                }
             }
-        }
-        hasher.finish()
+            hasher.finish()
+        };
+        (files, hash)
+    } else {
+        (Vec::new(), 0)
     };
     let cache_settings = CacheSettings::resolve_for(source_path, options.cache)?;
     let mut cache = IncrementalCache::load_with_settings(source_path, cache_settings)?;
-    let loaded =
-        load_program_with_metadata_with_settings(source_path, cache_settings, options.import_mode)?;
+    let loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
     let source_file_hash = source_hash(&source);
     if options.debug_dump
         && let Some(report) = cache.analysis_invalidation_report(source_path, source_file_hash, &loaded.program)
@@ -455,23 +462,19 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         program
     };
 
-    let mut warning_program = program.clone();
-    let warning_report = analyze_program_with_warnings_and_origins(
-        &mut warning_program,
+    let warnings = check_warnings_with_origins(
+        &program,
         &source,
         Some(&source_filename),
-        WarningConfig {
-            filter: options.warning_filter.clone(),
-            deny: options.deny_warnings.clone(),
-        },
+        options.warning_filter.clone(),
+        options.deny_warnings.clone(),
         &loaded.statement_origins,
         source_path,
-    )?;
-    for diagnostic in &warning_report.diagnostics {
+    );
+    for diagnostic in &warnings {
         eprintln!("{}", format_diagnostic(diagnostic, true));
     }
-    if warning_report
-        .diagnostics
+    if warnings
         .iter()
         .any(|diag| matches!(diag.severity, Severity::Error))
     {
@@ -617,7 +620,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     if options.emit_binary {
         let c_objects: Vec<String> = c_source_files
             .iter()
-            .map(|src| precompile_c_object(src, cache.cache_dir(), &manifest_dir))
+            .map(|src| precompile_c_object(src, &manifest_dir))
             .collect::<Result<_>>()?;
         compile_binary_from_ir(
             &final_ir,

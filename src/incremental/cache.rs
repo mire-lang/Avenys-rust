@@ -448,19 +448,7 @@ impl IncrementalCache {
     }
 
     pub fn load_with_settings(source_path: &Path, settings: CacheSettings) -> Result<Self> {
-        let cache_dir = {
-            let base = if let Some(project_root) =
-                find_project_root(source_path.parent().unwrap_or_else(|| Path::new(".")))
-            {
-                project_root.join("bin")
-            } else {
-                source_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .to_path_buf()
-            };
-            base.join(CACHE_DIR_NAME)
-        };
+        let cache_dir = cache_file_path(source_path);
 
         // Create directory structure
         fs::create_dir_all(&cache_dir).ok();

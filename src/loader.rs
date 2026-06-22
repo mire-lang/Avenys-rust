@@ -51,14 +51,84 @@ pub fn load_program_with_metadata_with_settings(
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         let manifest_dependencies = HashMap::new();
+        let mut cache = IncrementalCache::load_with_settings(&canonical, settings)?;
         let mut resolver = ImportResolver::new(
             fallback.clone(),
-            IncrementalCache::load_with_settings(&canonical, settings)?,
+            &mut cache,
             import_mode,
             manifest_dependencies,
         );
         let statements = resolver.load_file(&canonical)?;
-        resolver.cache.save()?;
+        let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
+        let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
+        let files = std::mem::take(&mut resolver.files);
+        let sources = std::mem::take(&mut resolver.sources);
+        drop(resolver);
+        cache.save()?;
+        return Ok(LoadedProgram {
+            program: Program {
+                statements: program_statements,
+            },
+            files,
+            statement_origins,
+            sources,
+        });
+    };
+
+    let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
+    let mut cache = IncrementalCache::load_with_settings(&canonical, settings)?;
+    let mut resolver = ImportResolver::new(
+        project_root,
+        &mut cache,
+        import_mode,
+        manifest_dependencies,
+    );
+    let statements = resolver.load_file(&canonical)?;
+    let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
+    let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
+    let files = std::mem::take(&mut resolver.files);
+    let sources = std::mem::take(&mut resolver.sources);
+    drop(resolver);
+    cache.save()?;
+    Ok(LoadedProgram {
+        program: Program {
+            statements: program_statements,
+        },
+        files,
+        statement_origins,
+        sources,
+    })
+}
+
+/// Load program using an already-loaded cache instance.
+/// This avoids loading the cache twice when the caller already has one.
+pub fn load_program_with_cache(
+    path: &Path,
+    cache: &mut IncrementalCache,
+    import_mode: ImportMode,
+) -> Result<LoadedProgram> {
+    let canonical = path.canonicalize().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            message: format!("Could not resolve '{}': {}", path.display(), err),
+        })
+    })?;
+
+    let project_root = if let Some(root) =
+        find_project_root(canonical.parent().unwrap_or_else(|| Path::new(".")))
+    {
+        root
+    } else {
+        let fallback = canonical.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let manifest_dependencies = HashMap::new();
+        let mut resolver = ImportResolver::new(
+            fallback.clone(),
+            cache,
+            import_mode,
+            manifest_dependencies,
+        );
+        let statements = resolver.load_file(&canonical)?;
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
         return Ok(LoadedProgram {
@@ -74,12 +144,11 @@ pub fn load_program_with_metadata_with_settings(
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
     let mut resolver = ImportResolver::new(
         project_root,
-        IncrementalCache::load_with_settings(&canonical, settings)?,
+        cache,
         import_mode,
         manifest_dependencies,
     );
     let statements = resolver.load_file(&canonical)?;
-    resolver.cache.save()?;
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     Ok(LoadedProgram {
@@ -100,9 +169,9 @@ fn owl_home_modules() -> PathBuf {
     PathBuf::from(home).join(".owl").join("modules")
 }
 
-struct ImportResolver {
+struct ImportResolver<'a> {
     project_root: PathBuf,
-    cache: IncrementalCache,
+    cache: &'a mut IncrementalCache,
     expanded_cache: HashMap<PathBuf, Vec<ExpandedStatement>>,
     active_stack: HashSet<PathBuf>,
     files: HashMap<PathBuf, LoadedFile>,
@@ -112,10 +181,10 @@ struct ImportResolver {
     package_registry: HashMap<String, PackageEntry>,
 }
 
-impl ImportResolver {
+impl<'a> ImportResolver<'a> {
     fn new(
         project_root: PathBuf,
-        cache: IncrementalCache,
+        cache: &'a mut IncrementalCache,
         import_mode: ImportMode,
         manifest_dependencies: HashMap<String, MireDependency>,
     ) -> Self {
@@ -447,7 +516,11 @@ impl ImportResolver {
         let hash = source_hash(&source);
         let hash2 = source_hash2(&source);
         if let Some(cached) = self.cache.cached_file(path, hash, hash2) {
-            return Ok(ResolvedFile::from_cached(cached, source));
+            return Ok(ResolvedFile {
+                hash,
+                program: cached.program,
+                exports: cached.exports,
+            });
         }
 
         let program = parse(&source).map_err(|err| {
@@ -1664,13 +1737,4 @@ struct ExpandedStatement {
     origin: PathBuf,
 }
 
-impl ResolvedFile {
-    fn from_cached(cached: CachedParsedFile, source: String) -> Self {
-        drop(source);
-        Self {
-            hash: cached.hash,
-            program: cached.program,
-            exports: cached.exports,
-        }
-    }
-}
+impl ResolvedFile {}

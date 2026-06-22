@@ -2,6 +2,26 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.11.29] - 2026-06-22
+
+### Added
+- PAL integration tests: `pal_env_get_returns_home`, `pal_env_cwd_returns_non_empty`,
+  `pal_fs_write_read_roundtrip`, `pal_fs_path_ops_join_dir_name_ext`,
+  `pal_fs_mkdir_rmdir`, `pal_proc_shell_echo`, `pal_proc_spawn_wait_exit_code`.
+- OWL integration test: `owl_build_run_info_cycle` verifies `owl build`,
+  `owl run`, and `owl info` against a known project.
+- `proc.pipe`: joins commands with ` | ` and runs via `pal_proc_shell`.
+- `proc.on`: basic signal handler registration via new PAL function `pal_proc_on`.
+- `proc.err`: returns captured stderr from last process via `pal_proc_err`.
+- `proc.run`/`proc.spawn`/`proc.exec`/`proc.exec_bg`: now join args with the
+  command string instead of ignoring arguments.
+- New `task` module (renamed from `async`): `kioto/core/task/` provides the
+  same API; `async` module now delegates to `task` and is deprecated.
+
+### Fixed
+- `pal_proc_run` now captures stderr via temp file in addition to stdout.
+- `pal_proc_shell`/`pal_proc_exec` both use the stderr-capturing path.
+
 ## [3.11.28] - 2026-06-18
 
 ### Fixed

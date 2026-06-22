@@ -42,6 +42,8 @@ int64_t pal_proc_wait(int64_t pid);
 int     pal_proc_kill(int64_t pid);
 void    pal_proc_exit(int64_t status);
 int64_t pal_proc_exists(int64_t pid);
+char   *pal_proc_err(void);
+void    pal_proc_on(const char *signal_name);
 
 // ── Time ─────────────────────────────────────────────────────────────
 int64_t pal_time_unix_ms(void);
