@@ -30,12 +30,19 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
         });
 
     let mut out = String::new();
+    let code_label = match diag.severity {
+        Severity::Warning | Severity::Note | Severity::Help => {
+            format!("{}::{}", diag.code.as_str(), diag.code.name())
+        }
+        Severity::Error => diag.code.as_str().to_string(),
+    };
+
     out.push_str(&format!(
-        "{sev_color}{sev_word}[{}]{} ── {}{}\n",
-        diag.code.as_str(),
+        "{sev_color}{sev_word}[{code}]{} ── {}{}\n",
         c(use_color, "\x1b[0m"),
         diag.title,
-        c(use_color, "\x1b[0m")
+        c(use_color, "\x1b[0m"),
+        code = code_label,
     ));
     out.push_str(&format!(
         "{}╭─[ {}:{}:{} ]{}\n",

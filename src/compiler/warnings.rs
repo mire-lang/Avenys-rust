@@ -134,7 +134,7 @@ impl WarningAnalyzer {
                     format!("Function '{}' is never used", name),
                     line,
                     column,
-                    None,
+                    Some("prefix with '_' to suppress this warning".to_string()),
                 );
             }
         }
@@ -153,7 +153,7 @@ impl WarningAnalyzer {
                     format!("Load '{}' is never used", load.name),
                     line,
                     column,
-                    None,
+                    Some("remove this import".to_string()),
                 );
             }
         }
@@ -187,7 +187,7 @@ impl WarningAnalyzer {
                         ),
                         1,
                         1,
-                        None,
+                        Some("rename to snake_case, e.g. `my_variable`".to_string()),
                     );
                 }
                 if *data_type == DataType::Unknown {
@@ -197,7 +197,7 @@ impl WarningAnalyzer {
                         format!("Variable '{}' relies on implicit typing", name),
                         1,
                         1,
-                        None,
+                        Some("consider adding an explicit type annotation: `:type`".to_string()),
                     );
                 }
             }
@@ -220,7 +220,7 @@ impl WarningAnalyzer {
                         ),
                         1,
                         1,
-                        None,
+                        Some("rename to snake_case, e.g. `my_function`".to_string()),
                     );
                 }
                 if *return_type == DataType::Unknown {
@@ -230,7 +230,7 @@ impl WarningAnalyzer {
                         format!("Function '{}' has implicit return type", name),
                         1,
                         1,
-                        None,
+                        Some("consider declaring an explicit return type: `:type`".to_string()),
                     );
                 }
                 if body.is_empty() {
@@ -254,7 +254,7 @@ impl WarningAnalyzer {
                         ),
                         1,
                         1,
-                        None,
+                        Some("consider splitting this function into smaller ones".to_string()),
                     );
                 }
                 if params.len() > 5 {
@@ -264,7 +264,7 @@ impl WarningAnalyzer {
                         format!("Function '{}' has many parameters ({})", name, params.len()),
                         1,
                         1,
-                        None,
+                        Some("consider grouping related parameters into a struct".to_string()),
                     );
                 }
                 if params.len() > 12 {
@@ -278,7 +278,7 @@ impl WarningAnalyzer {
                         ),
                         1,
                         1,
-                        None,
+                        Some("use a struct to group related parameters".to_string()),
                     );
                 }
                 if *return_type != DataType::None && !contains_explicit_return(body) {
@@ -291,7 +291,7 @@ impl WarningAnalyzer {
                         ),
                         1,
                         1,
-                        None,
+                        Some("add an explicit `return` statement for clarity".to_string()),
                     );
                 }
                 for b in body {
@@ -352,14 +352,6 @@ impl WarningAnalyzer {
             Statement::Expression(expr) => self.scan_expr(expr),
             Statement::Assignment { value, .. } => {
                 self.scan_expr(value);
-                self.push_warn(
-                    DiagnosticCode::W0029,
-                    "Implicit Copy",
-                    "implicit copy detected".to_string(),
-                    1,
-                    1,
-                    None,
-                );
             }
             Statement::Return(Some(expr)) => self.scan_expr(expr),
             Statement::Return(None) => {}
@@ -376,7 +368,7 @@ impl WarningAnalyzer {
                         "if statement has empty branches".to_string(),
                         1,
                         1,
-                        None,
+                        Some("add statements or remove the empty if".to_string()),
                     );
                 }
                 for s in then_branch {
@@ -398,7 +390,7 @@ impl WarningAnalyzer {
                         "while true can loop forever".to_string(),
                         1,
                         1,
-                        None,
+                        Some("ensure this loop has a break condition".to_string()),
                     );
                 }
                 if let Expression::Literal(Literal::Bool(false)) = condition {
@@ -408,7 +400,7 @@ impl WarningAnalyzer {
                         "while false body is unreachable".to_string(),
                         1,
                         1,
-                        None,
+                        Some("remove this loop or fix the condition".to_string()),
                     );
                 }
                 if self.loop_depth > 4 {
@@ -418,7 +410,7 @@ impl WarningAnalyzer {
                         format!("loop nesting depth is {}", self.loop_depth),
                         1,
                         1,
-                        None,
+                        Some("consider extracting inner loops into a function".to_string()),
                     );
                 }
                 if body.is_empty() {
@@ -428,7 +420,7 @@ impl WarningAnalyzer {
                         "loop has an empty body".to_string(),
                         1,
                         1,
-                        None,
+                        Some("add statements to the loop body or remove it".to_string()),
                     );
                 }
                 for s in body {
@@ -451,7 +443,7 @@ impl WarningAnalyzer {
                         format!("Loop variable '{}' shadows an existing binding", variable),
                         1,
                         1,
-                        None,
+                        Some("rename the loop variable to avoid confusion".to_string()),
                     );
                 }
                 if body.is_empty() {
@@ -471,52 +463,23 @@ impl WarningAnalyzer {
             }
             Statement::Move { value, .. } => {
                 self.scan_expr(value);
-                if !matches!(value, Expression::Call { name, .. } if name == "move::") {
-                    self.push_warn(
-                        DiagnosticCode::W0028,
-                        "Implicit Move",
-                        "implicit move; consider move::(x)".to_string(),
-                        1,
-                        1,
-                        None,
-                    );
-                }
             }
             Statement::Drop { value } => {
                 self.scan_expr(value);
-                if !matches!(value, Expression::Call { name, .. } if name == "drop::") {
-                    self.push_warn(
-                        DiagnosticCode::W0030,
-                        "Implicit Drop",
-                        "implicit drop; consider drop::(x)".to_string(),
-                        1,
-                        1,
-                        None,
-                    );
-                }
             }
             Statement::New { value, .. } | Statement::Own { value, .. } => {
                 if let Some(value) = value {
                     self.scan_expr(value);
-                } else {
-                    self.push_warn(
-                        DiagnosticCode::W0031,
-                        "Unclear Ownership",
-                        "explicit initialization can make ownership intent clearer".to_string(),
-                        1,
-                        1,
-                        None,
-                    );
                 }
             }
             Statement::Break | Statement::Continue if self.loop_depth == 0 => {
                 self.push_warn(
                     DiagnosticCode::W0019,
                     "Control Flow",
-                    "break/continue outside loop".to_string(),
+                    "break or continue used outside a loop".to_string(),
                     1,
                     1,
-                    None,
+                    Some("these statements are only valid inside loops".to_string()),
                 );
             }
             Statement::Break | Statement::Continue => {}
@@ -559,26 +522,6 @@ impl WarningAnalyzer {
             }
             Expression::Call { name, args, .. } => {
                 self.used_functions.insert(name.clone());
-                if name == "clone" {
-                    self.push_warn(
-                        DiagnosticCode::W0027,
-                        "Unnecessary Clone",
-                        "unnecessary clone call".to_string(),
-                        1,
-                        1,
-                        None,
-                    );
-                }
-                if args.is_empty() && !self.defined_functions.contains(name) {
-                    self.push_warn(
-                        DiagnosticCode::W0020,
-                        "Unknown Function Call",
-                        format!("call to undefined function '{}'", name),
-                        1,
-                        1,
-                        None,
-                    );
-                }
                 if args.len() > 16 {
                     self.push_warn(
                         DiagnosticCode::W0037,
@@ -586,7 +529,7 @@ impl WarningAnalyzer {
                         format!("Call to '{}' has {} arguments", name, args.len()),
                         1,
                         1,
-                        None,
+                        Some("consider grouping arguments into a struct".to_string()),
                     );
                 }
                 for arg in args {
@@ -610,7 +553,7 @@ impl WarningAnalyzer {
                         format!("Expression compares a value to itself with '{}'", operator),
                         1,
                         1,
-                        None,
+                        Some("this comparison is always true or always false".to_string()),
                     );
                 }
                 if let Expression::Literal(Literal::Int(n)) = right.as_ref() {
@@ -618,26 +561,26 @@ impl WarningAnalyzer {
                         "*" if *n == 0 => self.push_warn(
                             DiagnosticCode::W0007,
                             "Multiplication by Zero",
-                            "multiplication by zero".to_string(),
+                            "multiplication by zero always yields zero".to_string(),
                             1,
                             1,
-                            None,
+                            Some("this expression always evaluates to 0".to_string()),
                         ),
                         "/" if *n == 0 => self.push_warn(
                             DiagnosticCode::W0008,
                             "Division by Zero",
-                            "division by zero".to_string(),
+                            "division by zero is undefined".to_string(),
                             1,
                             1,
-                            None,
+                            Some("replace with a non-zero divisor".to_string()),
                         ),
                         "%" if *n == 0 => self.push_warn(
                             DiagnosticCode::W0009,
                             "Modulo by Zero",
-                            "modulo by zero".to_string(),
+                            "modulo by zero is undefined".to_string(),
                             1,
                             1,
-                            None,
+                            Some("replace with a non-zero divisor".to_string()),
                         ),
                         _ => {}
                     }
@@ -655,10 +598,10 @@ impl WarningAnalyzer {
                     self.push_warn(
                         DiagnosticCode::W0025,
                         "Large List Literal",
-                        "large list literal may impact memory".to_string(),
+                        "large list literal may impact compile-time memory".to_string(),
                         1,
                         1,
-                        None,
+                        Some("consider building the list at runtime instead".to_string()),
                     );
                 }
             }
@@ -671,10 +614,10 @@ impl WarningAnalyzer {
                     self.push_warn(
                         DiagnosticCode::W0025,
                         "Large Dict Literal",
-                        "large dict literal may impact memory".to_string(),
+                        "large dict literal may impact compile-time memory".to_string(),
                         1,
                         1,
-                        None,
+                        Some("consider building the dict at runtime instead".to_string()),
                     );
                 }
             }
@@ -687,46 +630,24 @@ impl WarningAnalyzer {
                     self.push_warn(
                         DiagnosticCode::W0021,
                         "Negative Index",
-                        "negative index access".to_string(),
+                        "negative index may produce unexpected results".to_string(),
                         1,
                         1,
-                        None,
+                        Some("ensure the index is non-negative".to_string()),
                     );
                 }
             }
             Expression::Literal(lit) => {
-                if let Literal::Int(n) = lit {
-                    if *n == 0 || *n == 1 {
-                        self.push_warn(
-                            DiagnosticCode::W0026,
-                            "Magic Number",
-                            "using literal 0/1 directly".to_string(),
-                            1,
-                            1,
-                            None,
-                        );
-                    }
-                    if *n < 0 {
-                        self.push_warn(
-                            DiagnosticCode::W0022,
-                            "Negative Literal",
-                            "negative literal used directly".to_string(),
-                            1,
-                            1,
-                            None,
-                        );
-                    }
-                }
                 if let Literal::Str(s) = lit
                     && s.len() > 120
                 {
                     self.push_warn(
                         DiagnosticCode::W0024,
                         "Long String Literal",
-                        "very long string literal".to_string(),
+                        format!("string literal is {} characters long", s.len()),
                         1,
                         1,
-                        None,
+                        Some("consider storing the string in a file or constant".to_string()),
                     );
                 }
             }
@@ -818,7 +739,7 @@ impl WarningAnalyzer {
                     format!("Duplicate literal pattern '{}' in match", key),
                     1,
                     1,
-                    None,
+                    Some("remove the duplicate pattern or merge with the first one".to_string()),
                 );
             }
         }

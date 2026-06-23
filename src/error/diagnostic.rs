@@ -194,6 +194,52 @@ impl DiagnosticCode {
     pub fn is_warning(self) -> bool {
         self.as_str().starts_with('W')
     }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            DiagnosticCode::W0001 => "unused_variables",
+            DiagnosticCode::W0002 => "dead_code",
+            DiagnosticCode::W0003 => "unused_imports",
+            DiagnosticCode::W0004 => "implicit_type",
+            DiagnosticCode::W0005 => "implicit_return_type",
+            DiagnosticCode::W0006 => "empty_body",
+            DiagnosticCode::W0007 => "multiply_by_zero",
+            DiagnosticCode::W0008 => "divide_by_zero",
+            DiagnosticCode::W0009 => "modulo_by_zero",
+            DiagnosticCode::W0010 => "deprecated_syntax",
+            DiagnosticCode::W0011 => "long_function",
+            DiagnosticCode::W0012 => "many_parameters",
+            DiagnosticCode::W0013 => "empty_loop_body",
+            DiagnosticCode::W0014 => "empty_if_branches",
+            DiagnosticCode::W0015 => "W0015",
+            DiagnosticCode::W0016 => "infinite_loop",
+            DiagnosticCode::W0017 => "unreachable_loop",
+            DiagnosticCode::W0018 => "deep_loop_nesting",
+            DiagnosticCode::W0019 => "break_outside_loop",
+            DiagnosticCode::W0020 => "unknown_function",
+            DiagnosticCode::W0021 => "negative_index",
+            DiagnosticCode::W0022 => "negative_literal",
+            DiagnosticCode::W0023 => "W0023",
+            DiagnosticCode::W0024 => "long_string_literal",
+            DiagnosticCode::W0025 => "large_literal",
+            DiagnosticCode::W0026 => "magic_number",
+            DiagnosticCode::W0027 => "unnecessary_clone",
+            DiagnosticCode::W0028 => "implicit_move",
+            DiagnosticCode::W0029 => "implicit_copy",
+            DiagnosticCode::W0030 => "implicit_drop",
+            DiagnosticCode::W0031 => "unclear_ownership",
+            DiagnosticCode::W0032 => "W0032",
+            DiagnosticCode::W0033 => "W0033",
+            DiagnosticCode::W0034 => "non_snake_case_variable",
+            DiagnosticCode::W0035 => "non_snake_case_function",
+            DiagnosticCode::W0036 => "self_comparison",
+            DiagnosticCode::W0037 => "excessive_arguments",
+            DiagnosticCode::W0038 => "duplicate_match_pattern",
+            DiagnosticCode::W0039 => "variable_shadowing",
+            DiagnosticCode::W0040 => "missing_explicit_return",
+            _ => self.as_str(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

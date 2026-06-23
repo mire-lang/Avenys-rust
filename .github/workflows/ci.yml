@@ -52,6 +52,11 @@ jobs:
     needs: build-and-test
     runs-on: ubuntu-latest
     steps:
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq llvm-dev clang
+
       - name: Download mire artifact
         uses: actions/download-artifact@v4
         with:
