@@ -64,6 +64,9 @@ jobs:
           sudo cp dist/mire/mire /usr/local/bin/mire
           mire --version || echo "mire installed"
 
+      - name: Checkout mire source (provides src/runtime + src/pal for the binary)
+        uses: actions/checkout@v4
+
       - name: Checkout kioto
         uses: actions/checkout@v4
         with:
@@ -80,6 +83,7 @@ jobs:
         run: |
           mkdir -p ~/.owl/modules
           cp -r libs/kioto ~/.owl/modules/kioto
+          cp -r libs/kioto ./kioto
           ls ~/.owl/modules/kioto/
 
       - name: Build owl
