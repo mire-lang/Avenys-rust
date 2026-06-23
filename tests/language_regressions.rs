@@ -170,21 +170,20 @@ fn parse_module_declaration_statement() {
 }
 
 #[test]
-fn parse_use_module_statement() {
+fn parse_use_expression_at_top_level() {
     let source = "use strings\npub fn main: () {\n    use dasu(\"ok\")\n}\n";
-    let program = parse(source).expect("use-module should parse");
-    let Statement::UseModule { name } = &program.statements[0] else {
-        panic!("expected use-module statement");
-    };
-    assert_eq!(name, "strings");
+    let program = parse(source).expect("use-expression should parse at top level");
+    assert!(matches!(&program.statements[0], Statement::Expression(_)));
 }
 
 #[test]
-fn parse_use_module_vs_use_expression() {
+fn parse_use_vs_expression() {
+    // use at top-level → expression (no longer an import)
     let source = "use strings\npub fn main: () {\n    use dasu(\"ok\")\n}\n";
     let program = parse(source).expect("source should parse");
-    assert!(matches!(&program.statements[0], Statement::UseModule { name } if name == "strings"));
+    assert!(matches!(&program.statements[0], Statement::Expression(_)));
     assert!(matches!(&program.statements[1], Statement::Function { name, .. } if name == "main"));
+    // use inside function body → expression
     let source2 = "pub fn main: () {\n    use helper()\n}\n";
     let program2 = parse(source2).expect("source should parse");
     let Statement::Function { body, .. } = &program2.statements[0] else {

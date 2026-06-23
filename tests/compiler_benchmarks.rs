@@ -273,7 +273,7 @@ fn benchmark_smoke() {
 
     // 15) Owl self-compile benchmark
     {
-        let root = make_project_dir("bench_owl_self");
+        let _root = make_project_dir("bench_owl_self");
         let owl_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../mire-owl/code/main.mire");
         if owl_path.exists() {
