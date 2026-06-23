@@ -48,6 +48,7 @@ pub(crate) fn resolve_named_call(
     result_id: Option<usize>,
     ctx: &mut LlvmCtx,
     extra: &mut Vec<String>,
+    is_str_return: bool,
 ) -> String {
     let mut arg_strs = Vec::new();
     for a in args {
@@ -98,8 +99,26 @@ pub(crate) fn resolve_named_call(
         };
         arg_strs.insert(0, env_str);
     }
+    // Only wrap PAL functions (pal_*) that return str — they return raw malloc'd char*.
+    let is_pal_str = is_str_return
+        && (name.starts_with("pal_")
+            || name.split_once('.').map_or(false, |(_, rest)| rest.starts_with("pal_")));
     if is_void {
         format!("call void {}({})", fn_name, arg_strs.join(", "))
+    } else if is_pal_str {
+        // PAL returns raw malloc'd char* — wrap with managed copy and free the raw.
+        let raw_tmp = tmp_extra(ctx, "ptr");
+        let result = tmp_result(ctx, "ptr", result_id);
+        extra.push(format!(
+            "{} = call ptr {}({})",
+            raw_tmp, fn_name, arg_strs.join(", ")
+        ));
+        extra.push(format!(
+            "%t{} = call ptr @rt_managed_from_cstr(ptr {})",
+            result, raw_tmp
+        ));
+        extra.push(format!("call void @free(ptr {})", raw_tmp));
+        String::new() // The result id was already registered by tmp_result
     } else {
         let result = tmp_result(ctx, ll_ret, result_id);
         format!(

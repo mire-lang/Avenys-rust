@@ -46,11 +46,10 @@ impl<K: Clone + Eq + Hash, V> LruMap<K, V> {
             return;
         }
 
-        if self.map.len() >= self.max {
-            if let Some(oldest) = self.order.pop_front() {
+        if self.map.len() >= self.max
+            && let Some(oldest) = self.order.pop_front() {
                 self.map.remove(&oldest);
             }
-        }
 
         self.map.insert(key.clone(), value);
         self.order.push_back(key);

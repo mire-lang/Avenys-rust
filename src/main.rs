@@ -652,6 +652,9 @@ fn parse_common_with_file(
                 deny_codes.insert(parse_warning_code(code)?);
             }
             "--verbose" | "-v" => verbose = true,
+            "--progress" => {
+                unsafe { std::env::set_var("OWL_PROGRESS", "1") };
+            }
             value if value.starts_with('-') => {
                 return Err(runtime_msg(&format!("Unknown option: {value}")));
             }

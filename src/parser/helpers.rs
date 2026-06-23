@@ -186,28 +186,6 @@ impl Parser {
         self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon
     }
 
-    pub(super) fn peek_after_double_colon_chain(&self, start: usize) -> Option<TokenType> {
-        let mut i = start;
-        if !matches!(self.peek_n(i).ttype, TokenType::Ident) {
-            return None;
-        }
-        let mut has_chain = false;
-        loop {
-            i += 1;
-            if self.peek_n(i).ttype == TokenType::Colon
-                && self.peek_n(i + 1).ttype == TokenType::Colon
-            {
-                has_chain = true;
-                i += 2;
-                if !matches!(self.peek_n(i).ttype, TokenType::Ident) {
-                    return None;
-                }
-            } else {
-                return if has_chain { Some(self.peek_n(i).ttype) } else { None };
-            }
-        }
-    }
-
     pub(super) fn is_member_name_token(ttype: TokenType) -> bool {
         matches!(
             ttype,

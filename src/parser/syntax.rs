@@ -111,8 +111,7 @@ fn statement_contains_self_placeholder(statement: &Statement) -> bool {
         | Statement::Load { .. }
         | Statement::Enum { .. }
         | Statement::Module { .. }
-        | Statement::Use { .. }
-        | Statement::UseModule { .. } => false,
+        => false,
     }
 }
 

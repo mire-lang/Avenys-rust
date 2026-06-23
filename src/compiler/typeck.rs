@@ -381,8 +381,7 @@ impl TypeChecker {
             | Statement::ExternFunction { .. }
             | Statement::Enum { .. }
             | Statement::Module { .. }
-            | Statement::Use { .. }
-            | Statement::UseModule { .. } => {}
+            => {}
             Statement::Load { .. } => {}
         }
 

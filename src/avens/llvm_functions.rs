@@ -267,6 +267,7 @@ impl LlvmIrGen {
             "declare ptr @rt_bool_to_string(i64)".to_string(),
             "declare ptr @rt_f64_to_string(double)".to_string(),
             "declare ptr @rt_string_copy(ptr)".to_string(),
+            "declare ptr @rt_managed_from_cstr(ptr)".to_string(),
             "declare ptr @rt_string_concat(ptr, ptr)".to_string(),
             "declare ptr @rt_string_append_owned(ptr, ptr)".to_string(),
             "declare void @rt_managed_free(ptr)".to_string(),
@@ -324,12 +325,36 @@ impl LlvmIrGen {
             "declare i32 @pal_fs_rmdir(ptr)".to_string(),
             "declare i64 @pal_fs_exists(ptr)".to_string(),
             "declare i64 @pal_fs_is_dir(ptr)".to_string(),
+            "declare i64 @pal_fs_is_file(ptr)".to_string(),
             "declare i64 @pal_fs_size(ptr)".to_string(),
             "declare ptr @pal_fs_list(ptr)".to_string(),
             "declare ptr @pal_fs_join(ptr, ptr)".to_string(),
             "declare ptr @pal_fs_dir(ptr)".to_string(),
             "declare ptr @pal_fs_name(ptr)".to_string(),
             "declare ptr @pal_fs_ext(ptr)".to_string(),
+            // TLS functions
+            "declare i64 @pal_tls_connect(ptr, i64)".to_string(),
+            "declare i32 @pal_tls_send(i64, ptr)".to_string(),
+            "declare ptr @pal_tls_recv(i64, i64)".to_string(),
+            "declare i32 @pal_tls_close(i64)".to_string(),
+            // WS functions
+            "declare i64 @pal_ws_connect(ptr, i64, ptr)".to_string(),
+            "declare i32 @pal_ws_send_text(i64, ptr)".to_string(),
+            "declare ptr @pal_ws_recv(i64, i64)".to_string(),
+            "declare i32 @pal_ws_close(i64)".to_string(),
+            "declare i64 @pal_wss_connect(ptr, i64, ptr)".to_string(),
+            "declare i32 @pal_wss_send_text(i64, ptr)".to_string(),
+            "declare ptr @pal_wss_recv(i64, i64)".to_string(),
+            "declare i32 @pal_wss_close(i64)".to_string(),
+            // NET functions
+            "declare i64 @pal_net_connect(ptr, i64)".to_string(),
+            "declare i64 @pal_net_connect_timeout(ptr, i64, i64)".to_string(),
+            "declare ptr @pal_net_recv(i64, i64)".to_string(),
+            "declare i32 @pal_net_send(i64, ptr)".to_string(),
+            "declare i32 @pal_net_close(i64)".to_string(),
+            "declare i64 @pal_net_poll(i64, i64)".to_string(),
+            "declare i32 @pal_net_set_nonblock(i64, i32)".to_string(),
+            "declare ptr @pal_net_resolve(ptr)".to_string(),
             // PROC functions
             "declare ptr @pal_proc_run(ptr)".to_string(),
             "declare ptr @pal_proc_exec(ptr)".to_string(),
@@ -364,7 +389,7 @@ impl LlvmIrGen {
                 out.iter().filter_map(|s| extract_fn_name(s)).collect();
             self.extern_decls
                 .iter()
-                .filter(|decl| extract_fn_name(decl).map_or(true, |name| seen.insert(name)))
+                .filter(|decl| extract_fn_name(decl).is_none_or(|name| seen.insert(name)))
                 .cloned()
                 .collect()
         };
@@ -656,7 +681,7 @@ impl LlvmIrGen {
                 self.store_variable(target, &var.ptr, var.ty, var.data_type, compiled)?;
                 Ok(())
             }
-            Statement::Use { .. } | Statement::UseModule { .. } | Statement::Module { .. } => Ok(()),
+            Statement::Module { .. } => Ok(()),
         };
         result.map_err(|err| self.attach_context(err))
     }
@@ -1513,6 +1538,9 @@ impl LlvmIrGen {
             }
             Expression::Call { name, args, .. } if name == "fs_is_dir" => {
                 self.compile_fs_is_dir(args)
+            }
+            Expression::Call { name, args, .. } if name == "fs_is_file" => {
+                self.compile_fs_is_file(args)
             }
             Expression::Call { name, args, .. } if name == "fs_size" => self.compile_fs_size(args),
             Expression::Call { name, args, .. } if name == "fs_list" => self.compile_fs_list(args),

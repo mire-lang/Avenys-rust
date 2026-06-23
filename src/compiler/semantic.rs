@@ -436,8 +436,7 @@ impl SemanticModelBuilder {
             | Statement::Load { .. }
             | Statement::Enum { .. }
             | Statement::Module { .. }
-            | Statement::Use { .. }
-            | Statement::UseModule { .. } => {}
+            => {}
         }
     }
 

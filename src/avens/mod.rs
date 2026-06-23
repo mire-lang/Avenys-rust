@@ -1,6 +1,6 @@
 use crate::compiler::{
-    AnalysisSelection, WarningConfig, analyze_program_with_origins,
-    analyze_program_with_origins_partial, analyze_program_with_warnings_and_origins,
+    AnalysisSelection, analyze_program_with_origins,
+    analyze_program_with_origins_partial,
 };
 use crate::error::diagnostic::Severity;
 use crate::error::format::format_diagnostic;
@@ -9,7 +9,7 @@ use crate::incremental::{
     BuildCacheEntry, CacheSettings, CachedAnalysis, IncrementalCache, build_fingerprint,
     source_hash,
 };
-use crate::loader::load_program_with_metadata_with_settings;
+
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement,
 };

@@ -72,26 +72,22 @@ impl WarningAnalyzer {
         for (index, stmt) in program.statements.iter().enumerate() {
             if self.suppress_library_warnings {
                 let origin = self.statement_origins.get(index);
-                if let Some(entry) = &self.entry_path {
-                    if let Some(origin) = origin {
-                        if origin != entry {
+                if let Some(entry) = &self.entry_path
+                    && let Some(origin) = origin
+                        && origin != entry {
                             continue;
                         }
-                    }
-                }
             }
             self.scan_defs(stmt);
         }
         for (index, stmt) in program.statements.iter().enumerate() {
             if self.suppress_library_warnings {
                 let origin = self.statement_origins.get(index);
-                if let Some(entry) = &self.entry_path {
-                    if let Some(origin) = origin {
-                        if origin != entry {
+                if let Some(entry) = &self.entry_path
+                    && let Some(origin) = origin
+                        && origin != entry {
                             continue;
                         }
-                    }
-                }
             }
             self.scan_usage(stmt);
         }
@@ -920,8 +916,8 @@ fn find_position_for_var(source: &str, name: &str) -> Option<(usize, usize)> {
             let abs_col = search_start + col;
             let before = abs_col.checked_sub(1).and_then(|i| line.as_bytes().get(i));
             let after = line.as_bytes().get(abs_col + name.len());
-            let is_boundary = before.map_or(true, |&c| !c.is_ascii_alphanumeric() && c != b'_')
-                && after.map_or(true, |&c| !c.is_ascii_alphanumeric() && c != b'_');
+            let is_boundary = before.is_none_or(|&c| !c.is_ascii_alphanumeric() && c != b'_')
+                && after.is_none_or(|&c| !c.is_ascii_alphanumeric() && c != b'_');
             if is_boundary {
                 return Some((idx + 1, abs_col + 1));
             }

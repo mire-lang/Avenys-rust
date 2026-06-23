@@ -36,7 +36,7 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
             continue;
         }
         let ret = llvm_type_str(&ext.return_type);
-        let params: Vec<String> = ext.params.iter().map(|t| llvm_type_str(t)).collect();
+        let params: Vec<String> = ext.params.iter().map(llvm_type_str).collect();
         let sig = params.join(", ");
         extern_decls.push(format!("declare {} @{}({})", ret, ext.name, sig));
     }

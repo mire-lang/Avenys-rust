@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq llvm-dev clang libpolly-dev
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist/mire
+          cp target/release/mire dist/mire/
+          cp -r src/runtime dist/mire/runtime
+          cp -r src/pal dist/mire/pal
+
+      - name: Upload mire artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mire-linux-x86_64
+          path: dist/mire/
+          retention-days: 7
+
+  build-owl:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download mire artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mire-linux-x86_64
+          path: dist/mire
+
+      - name: Install mire binary
+        run: |
+          chmod +x dist/mire/mire
+          sudo cp dist/mire/mire /usr/local/bin/mire
+          mire --version || echo "mire installed"
+
+      - name: Checkout kioto
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/libs
+          path: libs
+
+      - name: Checkout owl source
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/owl
+          path: owl-src
+
+      - name: Setup owl dependencies
+        run: |
+          mkdir -p ~/.owl/modules
+          cp -r libs/kioto ~/.owl/modules/kioto
+          ls ~/.owl/modules/kioto/
+
+      - name: Build owl
+        working-directory: owl-src
+        run: |
+          mire build code/main.mire --release -O3 --no-analysis-cache
+
+      - name: Test owl
+        working-directory: owl-src
+        run: |
+          chmod +x bin/release/main
+          ./bin/release/main -V
+          echo "owl build successful"
+
+      - name: Upload owl artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: owl-linux-x86_64
+          path: owl-src/bin/release/main
+          retention-days: 7

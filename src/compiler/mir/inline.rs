@@ -137,11 +137,10 @@ fn inline_into(caller: &mut MirFunction, callee: &MirFunction) -> bool {
         let mut sites = Vec::new();
         for (bi, block) in caller.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
-                if let MirOp::Call(MirValue::FunctionRef { name, .. }, _, _) = &inst.op {
-                    if name == &callee.name && ii + 1 == block.insts.len() {
+                if let MirOp::Call(MirValue::FunctionRef { name, .. }, _, _) = &inst.op
+                    && name == &callee.name && ii + 1 == block.insts.len() {
                         sites.push((bi, ii));
                     }
-                }
             }
         }
         sites
@@ -217,7 +216,7 @@ fn remap_op(op: &MirOp, temp_offset: usize, callee: &MirFunction, args: &[MirVal
         MirOp::Or(l, r) => MirOp::Or(map(l), map(r)),
         MirOp::ICmp(c, l, r) => MirOp::ICmp(c.clone(), map(l), map(r)),
         MirOp::FCmp(c, l, r) => MirOp::FCmp(c.clone(), map(l), map(r)),
-        MirOp::Gep(v, i, n) => MirOp::Gep(map(v), i.iter().map(|x| map(x)).collect(), n.clone()),
+        MirOp::Gep(v, i, n) => MirOp::Gep(map(v), i.iter().map(&map).collect(), n.clone()),
         MirOp::PtrToInt(v, t) => MirOp::PtrToInt(map(v), t.clone()),
         MirOp::IntToPtr(v, t) => MirOp::IntToPtr(map(v), t.clone()),
         MirOp::BitCast(v, t) => MirOp::BitCast(map(v), t.clone()),

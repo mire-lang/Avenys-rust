@@ -19,6 +19,7 @@ int     pal_fs_mkdir(const char *path);
 int     pal_fs_rmdir(const char *path);
 int64_t pal_fs_exists(const char *path);
 int64_t pal_fs_is_dir(const char *path);
+int64_t pal_fs_is_file(const char *path);
 int64_t pal_fs_size(const char *path);
 void   *pal_fs_list(const char *path);
 char   *pal_fs_join(const char *a, const char *b);
@@ -42,6 +43,8 @@ int64_t pal_proc_wait(int64_t pid);
 int     pal_proc_kill(int64_t pid);
 void    pal_proc_exit(int64_t status);
 int64_t pal_proc_exists(int64_t pid);
+char   *pal_proc_err(void);
+void    pal_proc_on(const char *signal_name);
 
 // ── Time ─────────────────────────────────────────────────────────────
 int64_t pal_time_unix_ms(void);
@@ -83,6 +86,32 @@ char   *pal_gpu_snapshot(void);
 char   *pal_term_style(const char *text, const char *style);
 char   *pal_term_hr(const char *ch, int64_t len);
 char   *pal_term_clear(void);
+
+// ── WebSocket ────────────────────────────────────────────────────────
+int64_t pal_ws_connect(const char *host, int64_t port, const char *path);
+int     pal_ws_send_text(int64_t fd, const char *data);
+char   *pal_ws_recv(int64_t fd, int64_t max_bytes);
+int     pal_ws_close(int64_t fd);
+int64_t pal_wss_connect(const char *host, int64_t port, const char *path);
+int     pal_wss_send_text(int64_t fd, const char *data);
+char   *pal_wss_recv(int64_t fd, int64_t max_bytes);
+int     pal_wss_close(int64_t fd);
+
+// ── Networking ───────────────────────────────────────────────────────
+int64_t pal_net_connect(const char *host, int64_t port);
+int64_t pal_net_connect_timeout(const char *host, int64_t port, int64_t timeout_ms);
+char   *pal_net_recv(int64_t fd, int64_t max_bytes);
+int     pal_net_send(int64_t fd, const char *data);
+int     pal_net_close(int64_t fd);
+int64_t pal_net_poll(int64_t fd, int64_t timeout_ms);
+int     pal_net_set_nonblock(int64_t fd, int nonblock);
+char   *pal_net_resolve(const char *host);
+
+// ── TLS / SSL (OpenSSL) ──────────────────────────────────────────────
+int64_t pal_tls_connect(const char *host, int64_t port);
+int     pal_tls_send(int64_t fd, const char *data);
+char   *pal_tls_recv(int64_t fd, int64_t max_bytes);
+int     pal_tls_close(int64_t fd);
 
 // ── I/O helpers ──────────────────────────────────────────────────────
 void    pal_io_print(const char *msg);

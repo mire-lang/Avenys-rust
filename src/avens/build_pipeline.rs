@@ -1,5 +1,7 @@
 use super::*;
+use crate::compiler::check_warnings_with_origins;
 use crate::compiler::mir::{codegen::mir_to_llvm, lower::lower_program, optimize::optimize};
+use crate::loader::load_program_with_cache;
 use crate::parser::ast::{DataType, Statement};
 use std::hash::{Hash, Hasher};
 
@@ -37,7 +39,7 @@ fn struct_field_size(dt: &DataType) -> usize {
         DataType::F64 => 8,
         DataType::Bool => 1,
         DataType::None => 8,
-        DataType::Array { element_type, size } => *size as usize * struct_field_size(element_type),
+        DataType::Array { element_type, size } => *size * struct_field_size(element_type),
         _ => 8,
     }
 }
@@ -217,14 +219,15 @@ fn c_object_hash(content: &str) -> u64 {
     hasher.finish()
 }
 
-fn precompile_c_object(c_path: &str, cache_dir: &Path, manifest_dir: &Path) -> Result<String> {
+fn precompile_c_object(c_path: &str, manifest_dir: &Path) -> Result<String> {
     let content = fs::read_to_string(c_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             message: format!("Could not read C source '{}': {}", c_path, err),
         })
     })?;
     let hash = c_object_hash(&content);
-    let obj_dir = cache_dir.join("cobjects");
+    // Use a global cache directory shared across all projects
+    let obj_dir = manifest_dir.join(".cobject_cache");
     fs::create_dir_all(&obj_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             message: format!("Could not create cobjects dir: {}", err),
@@ -258,7 +261,17 @@ fn precompile_c_object(c_path: &str, cache_dir: &Path, manifest_dir: &Path) -> R
     Ok(obj_path.to_string_lossy().to_string())
 }
 
+fn progress_phase(phase: &str, _file: &str, elapsed_ms: u64, total_ms: u64) {
+    if std::env::var("OWL_PROGRESS").is_ok() {
+        eprintln!(
+            "{{\"phase\":\"{}\",\"elapsed_ms\":{},\"total_ms\":{}}}",
+            phase, elapsed_ms, total_ms
+        );
+    }
+}
+
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
+    let build_start = std::time::Instant::now();
     let source = fs::read_to_string(source_path)?;
     let source_filename = source_path.display().to_string();
     let output_dir = default_output_dir(source_path, options.mode);
@@ -288,7 +301,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let pal_backend = std::env::var("MIRE_PAL").unwrap_or_else(|_| "linux".to_string());
-    let c_source_files: Vec<String> = {
+    let (c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files = Vec::new();
         for entry in std::fs::read_dir(manifest_dir.join("src/runtime")).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
@@ -324,21 +337,27 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         }
         files.sort();
         files.dedup();
-        files
-    };
-    let c_sources_hash: u64 = {
-        let mut hasher = crate::incremental::FxHasher::new();
-        for src in &c_source_files {
-            if let Ok(content) = fs::read_to_string(src) {
-                content.hash(&mut hasher);
+        let hash = {
+            let mut hasher = crate::incremental::FxHasher::new();
+            for src in &files {
+                if let Ok(meta) = fs::metadata(src) {
+                    meta.len().hash(&mut hasher);
+                    if let Ok(mtime) = meta.modified() {
+                        mtime.hash(&mut hasher);
+                    }
+                }
             }
-        }
-        hasher.finish()
+            hasher.finish()
+        };
+        (files, hash)
+    } else {
+        (Vec::new(), 0)
     };
     let cache_settings = CacheSettings::resolve_for(source_path, options.cache)?;
     let mut cache = IncrementalCache::load_with_settings(source_path, cache_settings)?;
-    let loaded =
-        load_program_with_metadata_with_settings(source_path, cache_settings, options.import_mode)?;
+    let loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
+    let phase_load = build_start.elapsed().as_millis() as u64;
+    progress_phase("load", &source_filename, phase_load, phase_load);
     let source_file_hash = source_hash(&source);
     if options.debug_dump
         && let Some(report) = cache.analysis_invalidation_report(source_path, source_file_hash, &loaded.program)
@@ -401,6 +420,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     }
     cache.record_build_miss();
 
+    let mut phase_analyse_time = phase_load;
+    let mut phase_mir_time = phase_load;
     let program = if let Some(cached) = cache.cached_analysis(source_path, source_file_hash) {
         match cached {
             CachedAnalysis::Success(program) => program,
@@ -452,26 +473,24 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             return Err(err);
         }
         cache.store_analysis(source_path, source_file_hash, &program)?;
+        phase_analyse_time = build_start.elapsed().as_millis() as u64;
+        progress_phase("analyse", &source_filename, phase_analyse_time - phase_load, phase_analyse_time);
         program
     };
 
-    let mut warning_program = program.clone();
-    let warning_report = analyze_program_with_warnings_and_origins(
-        &mut warning_program,
+    let warnings = check_warnings_with_origins(
+        &program,
         &source,
         Some(&source_filename),
-        WarningConfig {
-            filter: options.warning_filter.clone(),
-            deny: options.deny_warnings.clone(),
-        },
+        options.warning_filter.clone(),
+        options.deny_warnings.clone(),
         &loaded.statement_origins,
         source_path,
-    )?;
-    for diagnostic in &warning_report.diagnostics {
+    );
+    for diagnostic in &warnings {
         eprintln!("{}", format_diagnostic(diagnostic, true));
     }
-    if warning_report
-        .diagnostics
+    if warnings
         .iter()
         .any(|diag| matches!(diag.severity, Severity::Error))
     {
@@ -537,17 +556,18 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                 }
             }
             let ir = mir_to_llvm(&mir).0;
+            phase_mir_time = build_start.elapsed().as_millis() as u64;
+            progress_phase("mir", &source_filename, phase_mir_time - phase_analyse_time, phase_mir_time);
             if let Err(e) = cache.store_cached_mir_fn(
                 source_path,
                 "_program",
                 mir_hash,
                 options.opt_level,
                 &ir,
-            ) {
-                if options.debug_dump {
+            )
+                && options.debug_dump {
                     eprintln!("[MIR] cache store error: {}", e);
                 }
-            }
             (ir, Vec::new())
         }
     };
@@ -577,8 +597,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             }
         }
         // Add @main entry point wrapper if the program defines @fn_main
-        if ir.contains("define") && ir.contains("@fn_main") {
-            if !ir.contains("define i32 @main(") {
+        if ir.contains("define") && ir.contains("@fn_main")
+            && !ir.contains("define i32 @main(") {
                 ir.push_str("\n\ndefine i32 @main(i32 %argc, ptr %argv) {\n");
                 ir.push_str("  store i32 %argc, ptr @.argc\n");
                 ir.push_str("  store ptr %argv, ptr @.argv\n");
@@ -586,7 +606,6 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                 ir.push_str("  ret i32 0\n");
                 ir.push_str("}\n");
             }
-        }
         ir = dedup_llvm_declarations(&ir);
     }
     if let Some(path) = &ir_path {
@@ -605,6 +624,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     } else {
         optimize_ir(&ir, options.opt_level)?
     };
+    let phase_llvm = build_start.elapsed().as_millis() as u64;
+    progress_phase("llvm", &source_filename, phase_llvm - phase_mir_time, phase_llvm);
 
     if let Some(path) = &optimized_ir_path {
         fs::write(path, &final_ir).map_err(|err| {
@@ -615,10 +636,27 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     }
 
     if options.emit_binary {
-        let c_objects: Vec<String> = c_source_files
-            .iter()
-            .map(|src| precompile_c_object(src, cache.cache_dir(), &manifest_dir))
-            .collect::<Result<_>>()?;
+        let c_objects: Vec<String> = if c_source_files.len() <= 1 {
+            c_source_files.iter().map(|src| precompile_c_object(src, &manifest_dir)).collect::<Result<_>>()?
+        } else {
+            let results = std::sync::Mutex::new(vec![String::new(); c_source_files.len()]);
+            std::thread::scope(|s| {
+                for (i, src) in c_source_files.iter().enumerate() {
+                    let results = &results;
+                    let manifest_dir = &manifest_dir;
+                    s.spawn(move || {
+                        if let Ok(obj) = precompile_c_object(src, manifest_dir) {
+                            results.lock().unwrap()[i] = obj;
+                        }
+                    });
+                }
+            });
+            let results = results.into_inner().unwrap();
+            if results.iter().any(|s| s.is_empty()) {
+                return Err(MireError::runtime("C object compilation failed".to_string()));
+            }
+            results
+        };
         compile_binary_from_ir(
             &final_ir,
             &c_objects,
@@ -626,7 +664,11 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             &extern_libs,
             &pal_backend,
         )?;
+        let phase_link = build_start.elapsed().as_millis() as u64;
+        progress_phase("link", &source_filename, phase_link - phase_llvm, phase_link);
     }
+    let phase_done = build_start.elapsed().as_millis() as u64;
+    progress_phase("done", &source_filename, 0, phase_done);
 
     cache.store_build(
         source_path,

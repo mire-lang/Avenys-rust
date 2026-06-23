@@ -571,6 +571,7 @@ pub enum Statement {
         lib_name: String,
         params: Vec<(String, DataType)>,
         return_type: DataType,
+        visibility: Visibility,
     },
     Unsafe {
         body: Vec<Statement>,
@@ -582,12 +583,6 @@ pub enum Statement {
         path: Vec<String>,
         alias: Option<String>,
         items: Option<Vec<String>>,
-    },
-    UseModule {
-        name: String,
-    },
-    Use {
-        path: Vec<String>,
     },
     Module {
         name: String,

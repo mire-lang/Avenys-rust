@@ -139,6 +139,7 @@ pub fn default_builtin_returns() -> HashMap<String, DataType> {
     for name in [
         "fs_exists",
         "fs_is_dir",
+        "fs_is_file",
         "proc_exists",
         "gpu_available",
         "strings.starts_with",
@@ -347,9 +348,10 @@ pub fn std_module_members(module: &str) -> &'static [&'static str] {
             "snapshot",
         ],
         "gpu" => &["available", "snapshot"],
+        "net" => &["connect", "send", "recv", "close", "poll", "resolve", "http_get", "http_post", "recv_all", "set_nonblock", "connect_timeout"],
         "fs" => &[
             "read", "write", "append", "exists", "size", "copy", "move", "drop", "list", "mkdir",
-            "rmdir", "join", "dir", "name", "ext",
+            "rmdir", "join", "dir", "name", "ext", "is_file", "walk",
         ],
         "env" => &["get", "set", "all", "args", "cwd", "chdir"],
         "proc" => &[

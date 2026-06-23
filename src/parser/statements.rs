@@ -23,23 +23,9 @@ impl Parser {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Set => self.parse_set_statement(),
             TokenType::Use => {
-                if self.peek_n(1).ttype == TokenType::Ident {
-                    let is_plain = matches!(
-                        self.peek_n(2).ttype,
-                        TokenType::Newline | TokenType::Eof
-                    );
-                    let after_path = self.peek_after_double_colon_chain(1);
-                    let is_path = after_path.is_some() && after_path != Some(TokenType::Lparen);
-                    if is_path {
-                        Ok(Statement::Use { path: self.parse_use_path()? })
-                    } else if is_plain {
-                        Ok(Statement::UseModule { name: self.parse_use_module_name()? })
-                    } else {
-                        Ok(Statement::Expression(self.parse_use_expr()?))
-                    }
-                } else {
-                    Ok(Statement::Expression(self.parse_use_expr()?))
-                }
+                // use always produces an expression statement (side-effect call).
+                // use dasu("hello"), use foo(), use pipeline => ...
+                Ok(Statement::Expression(self.parse_use_expr()?))
             }
             TokenType::Pub | TokenType::Priv => {
                 let visibility = self.parse_visibility()?;
@@ -49,9 +35,10 @@ impl Parser {
                     TokenType::Skill => self.parse_skill_statement(visibility),
                     TokenType::Struct => self.parse_struct_statement(visibility),
                     TokenType::Enum => self.parse_enum_statement(visibility),
+                    TokenType::Extern => self.parse_extern_statement_with_vis(visibility),
                     _ => {
                         Err(self
-                            .error("Expected fn, type, skill, struct, or enum after visibility"))
+                            .error("Expected fn, type, skill, struct, enum, or extern after visibility"))
                     }
                 }
             }
@@ -628,8 +615,16 @@ impl Parser {
         self.expect(TokenType::Extern)?;
         match self.peek().ttype {
             TokenType::Lib => self.parse_extern_lib_statement(),
-            TokenType::Fn => self.parse_extern_fn_statement(),
+            TokenType::Fn => self.parse_extern_fn_statement(Visibility::Private),
             _ => Err(self.error("Expected `lib` or `fn` after `extern`")),
+        }
+    }
+
+    fn parse_extern_statement_with_vis(&mut self, visibility: Visibility) -> Result<Statement> {
+        self.expect(TokenType::Extern)?;
+        match self.peek().ttype {
+            TokenType::Fn => self.parse_extern_fn_statement(visibility),
+            _ => Err(self.error("Expected `fn` after visibility on extern")),
         }
     }
 
@@ -640,7 +635,7 @@ impl Parser {
         Ok(Statement::ExternLib { name, path })
     }
 
-    fn parse_extern_fn_statement(&mut self) -> Result<Statement> {
+    fn parse_extern_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
         self.expect(TokenType::Fn)?;
         let name = self.expect_ident()?;
         self.expect(TokenType::Colon)?;
@@ -660,6 +655,7 @@ impl Parser {
             lib_name,
             params,
             return_type,
+            visibility,
         })
     }
 
@@ -807,11 +803,6 @@ impl Parser {
         self.expect(TokenType::Module)?;
         let name = self.expect_ident()?;
         Ok(Statement::Module { name })
-    }
-
-    fn parse_use_module_name(&mut self) -> Result<String> {
-        self.expect(TokenType::Use)?;
-        self.expect_ident()
     }
 
     fn parse_block(&mut self) -> Result<Vec<Statement>> {

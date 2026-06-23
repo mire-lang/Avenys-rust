@@ -156,6 +156,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             lib_name,
             params,
             return_type,
+            visibility: _,
         } => {
             hasher.write_u8(19);
             name.hash(hasher);
@@ -187,14 +188,6 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
         }
         Statement::Module { name } => {
             hasher.write_u8(24);
-            name.hash(hasher);
-        }
-        Statement::Use { path } => {
-            hasher.write_u8(22);
-            path.hash(hasher);
-        }
-        Statement::UseModule { name } => {
-            hasher.write_u8(33);
             name.hash(hasher);
         }
         Statement::Drop { value } => {

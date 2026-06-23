@@ -316,6 +316,10 @@ impl<'a> Lexer<'a> {
                         result.push('\n');
                         self.advance();
                     }
+                    Some('r') => {
+                        result.push('\r');
+                        self.advance();
+                    }
                     Some('t') => {
                         result.push('\t');
                         self.advance();

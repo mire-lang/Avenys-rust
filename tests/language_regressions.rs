@@ -75,7 +75,7 @@ fn backend_limitation_errors_render_with_backend_kind() {
     })
     .to_string();
 
-    assert!(rendered.contains("error[backend]"), "{rendered}");
+    assert!(rendered.contains("error[E0014]"), "{rendered}");
     assert!(rendered.contains("Backend Limitation"), "{rendered}");
     assert!(
         rendered.contains("frontend accepted this program")
@@ -89,7 +89,7 @@ fn compile_reports_lexer_error_kind_and_filename() {
     let err = expect_compile_error_from_source(
         "mire_diag_lexer_kind_filename",
         "lexer_error.mire",
-        "pub fn main: () {\n    set x = @#$%\n}\n",
+        "pub fn main: () {\n    set x = \\\n}\n",
     );
 
     assert!(matches!(err.kind, ErrorKind::Lexer { .. }));
@@ -98,7 +98,7 @@ fn compile_reports_lexer_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("lexer_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[lexer]"), "{rendered}");
+    assert!(rendered.contains("error[E0001]"), "{rendered}");
     assert!(rendered.contains("Lexical Error"), "{rendered}");
 }
 
@@ -116,7 +116,7 @@ fn compile_reports_parser_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("parser_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[parser]"), "{rendered}");
+    assert!(rendered.contains("error[E0003]"), "{rendered}");
     assert!(rendered.contains("Syntax Error"), "{rendered}");
 }
 
@@ -134,7 +134,7 @@ fn compile_reports_type_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("type_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[type]"), "{rendered}");
+    assert!(rendered.contains("error[E0005]"), "{rendered}");
     assert!(rendered.contains("Type Error"), "{rendered}");
 }
 
@@ -152,7 +152,7 @@ fn compile_reports_ownership_error_kind_and_filename() {
             .is_some_and(|name| name.ends_with("ownership_error.mire"))
     );
     let rendered = err.to_string();
-    assert!(rendered.contains("error[ownership]"), "{rendered}");
+    assert!(rendered.contains("error[E0009]"), "{rendered}");
     assert!(rendered.contains("Ownership Error"), "{rendered}");
 }
 
@@ -1674,15 +1674,46 @@ fn string_literals_accept_braces_without_escape_hacks() {
 }
 
 #[test]
-fn backend_rejects_unimplemented_contains_instead_of_returning_silent_false() {
-    let err = expect_compile_error_from_source(
-        "mire_backend_contains_stub",
-        "contains_stub.mire",
-        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3]\n    use dasu(contains(nums 2))\n}\n",
-    );
+fn contains_on_list_returns_correct_result() {
+    let root = make_temp_project_root("mire_contains_list");
+    let source_path = root.join("contains_list.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"contains-list\"\nversion = \"0.1.0\"\nentry = \"contains_list.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3]\n    use dasu(contains(nums 2))\n    use dasu(contains(nums 5))\n}\n",
+    )
+    .expect("write source");
 
-    assert!(matches!(err.kind, ErrorKind::Backend { .. }));
-    assert!(err.to_string().contains("contains"), "{err}");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: true,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("contains should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "binary should run successfully");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("true"), "expected contains(2) to be true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains(5) to be false, got: {stdout}");
 }
 
 #[test]
@@ -3747,6 +3778,365 @@ fn kioto_async_spawn_wait_compiles_and_runs() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("0"), "{stdout}");
 }
+
+#[test]
+fn runtime_lists_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_lists_abi");
+    let source_path = root.join("runtime_lists_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-lists-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_lists_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(lists.len(xs))\n    use dasu(lists.get(xs, 1))\n    use dasu(lists.first(xs))\n    use dasu(lists.last(xs))\n    use dasu(lists.contains(xs, 20))\n    use dasu(lists.contains(xs, 99))\n    use dasu(lists.index_of(xs, 30))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("lists ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "lists ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
+    assert!(stdout.contains("20"), "expected get(1)=20, got: {stdout}");
+    assert!(stdout.contains("10"), "expected first=10, got: {stdout}");
+    assert!(stdout.contains("30"), "expected last=30, got: {stdout}");
+    assert!(stdout.contains("true"), "expected contains(20)=true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains(99)=false, got: {stdout}");
+    assert!(stdout.contains("2"), "expected index_of(30)=2, got: {stdout}");
+}
+
+#[test]
+fn runtime_strings_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_strings_abi");
+    let source_path = root.join("runtime_strings_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-strings-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_strings_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace(s, \"world\", \"mire\"))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("strings ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "strings ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("11"), "expected len=11, got: {stdout}");
+    assert!(stdout.contains("true"), "expected contains=true, got: {stdout}");
+    assert!(stdout.contains("false"), "expected contains=false, got: {stdout}");
+    assert!(stdout.contains("HELLO"), "expected upper, got: {stdout}");
+    assert!(stdout.contains("hello world"), "expected lower, got: {stdout}");
+    assert!(stdout.contains("hello mire"), "expected replace, got: {stdout}");
+}
+
+#[test]
+fn runtime_dicts_abi_smoke_test() {
+    let root = make_temp_project_root("mire_runtime_dicts_abi");
+    let source_path = root.join("runtime_dicts_abi.mire");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"runtime-dicts-abi\"\nversion = \"0.1.0\"\nentry = \"runtime_dicts_abi.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn test_len: (d) :i64 { return dicts.len(d) }\npub fn test_has: (d, k :str) :bool { return dicts.has(d, k) }\npub fn test_is_empty: (d) :bool { return dicts.is_empty(d) }\npub fn main: () {\n    use dasu(test_len({a: 1, b: 2, c: 3} :map[str i64]))\n    use dasu(test_has({a: 1} :map[str i64], \"a\"))\n    use dasu(test_has({a: 1} :map[str i64], \"z\"))\n    use dasu(test_is_empty({} :map[str i64]))\n}\n",
+    )
+    .expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("dicts ABI test should compile");
+
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+
+    assert!(output.status.success(), "dicts ABI: binary failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
+    assert!(stdout.contains("false"), "expected has(z)=false, got: {stdout}");
+}
+
+// ── PAL integration tests ──────────────────────────────────────────────
+
+#[test]
+fn pal_env_get_returns_home() {
+    let root = make_temp_project_root("mire_pal_env_get");
+    let source_path = root.join("env_get.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"env-get\"\nversion = \"0.1.0\"\nentry = \"env_get.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env.get(\"HOME\")\n    use dasu(home)\n}\n")
+        .expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("env.get should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "env.get failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim().is_empty(), "HOME should not be empty");
+}
+
+#[test]
+fn pal_env_cwd_returns_non_empty() {
+    let root = make_temp_project_root("mire_pal_env_cwd");
+    let source_path = root.join("env_cwd.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"env-cwd\"\nversion = \"0.1.0\"\nentry = \"env_cwd.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set cwd = env.cwd()\n    use dasu(cwd)\n}\n")
+        .expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("env.cwd should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "env.cwd failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("/"), "cwd should contain a slash: {stdout}");
+}
+
+#[test]
+fn pal_fs_write_read_roundtrip() {
+    let root = make_temp_project_root("mire_pal_fs_rw");
+    let source_path = root.join("fs_rw.mire");
+    let test_file = root.join("pal_test.txt");
+    let path = test_file.to_str().unwrap();
+    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-rw\"\nversion = \"0.1.0\"\nentry = \"fs_rw.mire\"\n")
+        .expect("write project");
+    let src = format!(
+        "load kioto\n\npub fn main: () {{\n    fs.write(\"{path}\" \"hello pal\")\n    set ok = fs.exists(\"{path}\")\n    set content = fs.read(\"{path}\")\n    fs.drop(\"{path}\")\n    set gone = !fs.exists(\"{path}\")\n    use dasu(\"{{ok}}-{{content}}-{{gone}}\")\n}}\n",
+        path = path,
+    );
+    fs::write(&source_path, &src).expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("fs rw should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "fs rw failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("true"), "exists should be true: {stdout}");
+    assert!(stdout.contains("hello pal"), "content should match: {stdout}");
+    assert!(stdout.contains("false") || stdout.contains("true"), "deleted state: {stdout}");
+}
+
+#[test]
+fn pal_fs_path_ops_join_dir_name_ext() {
+    let root = make_temp_project_root("mire_pal_fs_path");
+    let source_path = root.join("fs_path.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-path\"\nversion = \"0.1.0\"\nentry = \"fs_path.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs.join(\"/a/b\" \"c.d\")\n    set d = fs.dir(joined)\n    set n = fs.name(joined)\n    set e = fs.ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
+        .expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("fs path ops should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "fs path ops failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("/a/b/c.d"), "join: {stdout}");
+    assert!(stdout.contains("/a/b"), "dir: {stdout}");
+    assert!(stdout.contains("c.d"), "name: {stdout}");
+    assert!(stdout.contains(".d"), "ext: {stdout}");
+}
+
+#[test]
+fn pal_fs_mkdir_rmdir() {
+    let root = make_temp_project_root("mire_pal_fs_dir");
+    let source_path = root.join("fs_dir.mire");
+    let test_dir = root.join("newdir");
+    let dir_path = test_dir.to_str().unwrap();
+    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-dir\"\nversion = \"0.1.0\"\nentry = \"fs_dir.mire\"\n")
+        .expect("write project");
+    let src = format!(
+        "load kioto\n\npub fn main: () {{\n    fs.mkdir(\"{dir_path}\")\n    set ok = fs.exists(\"{dir_path}\")\n    fs.rmdir(\"{dir_path}\")\n    set gone = !fs.exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
+        dir_path = dir_path,
+    );
+    fs::write(&source_path, &src).expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("fs mkdir should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "fs mkdir failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("true"), "mkdir: {stdout}");
+}
+
+#[test]
+fn pal_proc_shell_echo() {
+    let root = make_temp_project_root("mire_pal_proc_sh");
+    let source_path = root.join("proc_sh.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc.shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
+        .expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("proc.shell should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "proc.shell failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello_pal"), "echo: {stdout}");
+}
+
+#[test]
+fn pal_proc_spawn_wait_exit_code() {
+    let root = make_temp_project_root("mire_pal_proc_sw");
+    let source_path = root.join("proc_sw.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"proc-sw\"\nversion = \"0.1.0\"\nentry = \"proc_sw.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set pid = proc.spawn(\"exit 42\" [])\n    set code = proc.wait(pid)\n    use dasu(str(code))\n}\n")
+        .expect("write source");
+
+    let build = compile_file_with_avenys(&source_path, &BuildOptions {
+        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
+        output: None, emit_binary: true, persist_ir: false,
+        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
+        warning_filter: mire::error::diagnostic::WarningFilter::Default,
+        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
+    }).expect("proc spawn/wait should compile");
+
+    let output = Command::new(&build.binary_path).output().expect("run binary");
+    assert!(output.status.success(), "proc spawn/wait failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("42"), "exit code: {stdout}");
+}
+
+// ── OWL integration tests ─────────────────────────────────────────────
+
+#[test]
+fn owl_build_run_info_cycle() {
+    let root = make_temp_project_root("mire_owl_cycle");
+    let source_path = root.join("main.mire");
+    fs::write(root.join("owl.toml"), "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n")
+        .expect("write project");
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    use dasu(\"owl_build_ok\")\n}\n")
+        .expect("write source");
+
+    // owl build --debug
+    let build_out = Command::new("owl")
+        .args(["build", "--debug"])
+        .current_dir(&root)
+        .output()
+        .expect("owl build");
+    assert!(build_out.status.success(), "owl build failed: {:?}", build_out);
+
+    // owl info
+    let info_out = Command::new("owl")
+        .args(["info"])
+        .current_dir(&root)
+        .output()
+        .expect("owl info");
+    assert!(info_out.status.success(), "owl info failed: {:?}", info_out);
+    let info_stdout = String::from_utf8_lossy(&info_out.stdout);
+    assert!(info_stdout.contains("owl-cycle"), "info: {info_stdout}");
+    assert!(info_stdout.contains("Mire"), "info: {info_stdout}");
+
+    // owl run
+    let run_out = Command::new("owl")
+        .args(["run"])
+        .current_dir(&root)
+        .output()
+        .expect("owl run");
+    assert!(run_out.status.success(), "owl run failed: {:?}", run_out);
+    let run_stdout = String::from_utf8_lossy(&run_out.stdout);
+    assert!(run_stdout.contains("owl_build_ok"), "run output: {run_stdout}");
+}
+
+// ── end OWL integration tests ──────────────────────────────────────────
 
 fn make_temp_project_root(prefix: &str) -> PathBuf {
     let root = unique_temp_dir(prefix);

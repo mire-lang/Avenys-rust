@@ -10,6 +10,10 @@
 # Test build artifacts
 tests/*/debug/
 tests/*/.cache/
+tests/loads/bin/
+
+# C object cache (global, shared across projects)
+.cobject_cache/
 
 # Editor/OS
 .DS_Store

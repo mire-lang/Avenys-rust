@@ -12,8 +12,6 @@ pub fn cache_file_path(source_path: &Path) -> PathBuf {
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf()
     };
-
-    // Returns the cache directory (not a single file anymore)
     base.join(CACHE_DIR_NAME)
 }
 
@@ -113,8 +111,14 @@ pub fn statement_export_name(statement: &Statement) -> Option<&str> {
         | Statement::Skill { name, .. }
         | Statement::Module { name, .. }
         | Statement::Enum { name, .. }
-        | Statement::ExternLib { name, .. }
-        | Statement::ExternFunction { name, .. } => Some(name.as_str()),
+        | Statement::ExternLib { name, .. } => Some(name.as_str()),
+        Statement::ExternFunction { name, visibility, .. } => {
+            if *visibility == Visibility::Public {
+                Some(name.as_str())
+            } else {
+                None
+            }
+        }
         Statement::Load { path, alias, .. } => Some(
             alias.as_deref().unwrap_or_else(|| path.last().map(|s| s.as_str()).unwrap_or("")),
         ),

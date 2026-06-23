@@ -136,6 +136,14 @@ int64_t pal_fs_is_dir(const char *path) {
     return result;
 }
 
+int64_t pal_fs_is_file(const char *path) {
+    EXPAND_TILDE(path);
+    struct stat st;
+    int64_t result = (stat(path_real, &st) == 0 && S_ISREG(st.st_mode)) ? 1 : 0;
+    EXPAND_TILDE_END(path);
+    return result;
+}
+
 int64_t pal_fs_size(const char *path) {
     EXPAND_TILDE(path);
     struct stat st;

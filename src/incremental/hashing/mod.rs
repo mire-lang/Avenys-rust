@@ -66,6 +66,16 @@ mod tests {
         root.join("main.mire")
     }
 
+    fn setup_test_root(root: &Path, source_path: &Path) {
+        fs::create_dir_all(root).expect("temp dir");
+        fs::write(source_path, "pub fn main: () {}\n").expect("source");
+        fs::write(
+            root.join("owl.toml"),
+            "[project]\nname = \"test\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n",
+        )
+        .expect("owl.toml");
+    }
+
     #[test]
     fn cache_roundtrips_parsed_and_analysis_entries() {
         let root = std::env::temp_dir().join(format!("mire_cache_test_{}", now_epoch_ms()));
@@ -127,9 +137,8 @@ mod tests {
     #[test]
     fn lru_prunes_when_max_units_is_reached() {
         let root = std::env::temp_dir().join(format!("mire_cache_lru_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let settings = CacheSettings {
             max_units: Some(1),
@@ -164,9 +173,8 @@ mod tests {
     #[test]
     fn overwrite_analysis_does_not_grow_cache_indefinitely() {
         let root = std::env::temp_dir().join(format!("mire_cache_overwrite_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
 
@@ -253,9 +261,8 @@ mod tests {
     #[test]
     fn load_with_settings_recovers_from_empty_cache() {
         let root = std::env::temp_dir().join(format!("mire_cache_empty_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         // First load with no prior cache
         let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
@@ -321,9 +328,8 @@ mod tests {
     fn invalidation_report_uses_latest_created_not_last_access() {
         let root =
             std::env::temp_dir().join(format!("mire_cache_latest_created_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = root.join("main.mire");
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let settings = CacheSettings {
             max_units: Some(32),

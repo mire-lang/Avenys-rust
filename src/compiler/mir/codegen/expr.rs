@@ -48,8 +48,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 let ty = if lt == "double" || rt == "double" { "double" } else { "i64" };
                 let result = tmp_result(ctx, ty, inst.result);
                 let op = if ty == "double" { "fadd" } else { "add" };
-                let l_final = coerce_to(&l_str, &lt, &ty, ctx, &mut extra);
-                let r_final = coerce_to(&r_str, &rt, &ty, ctx, &mut extra);
+                let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
+                let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
                 format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
             }
         }
@@ -59,8 +59,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let ty = if lt == "double" || rt == "double" { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
             let op = if ty == "double" { "fsub" } else { "sub" };
-            let l_final = coerce_to(&l_str, &lt, &ty, ctx, &mut extra);
-            let r_final = coerce_to(&r_str, &rt, &ty, ctx, &mut extra);
+            let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
+            let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
         }
         MirOp::Mul(l, r) => {
@@ -69,8 +69,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let ty = if lt == "double" || rt == "double" { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
             let op = if ty == "double" { "fmul" } else { "mul" };
-            let l_final = coerce_to(&l_str, &lt, &ty, ctx, &mut extra);
-            let r_final = coerce_to(&r_str, &rt, &ty, ctx, &mut extra);
+            let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
+            let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
         }
         MirOp::SDiv(l, r) => {
@@ -79,8 +79,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let is_double = lt == "double" || rt == "double";
             let ty = if is_double { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
-            let l_final = coerce_to(&l_str, &lt, &ty, ctx, &mut extra);
-            let r_final = coerce_to(&r_str, &rt, &ty, ctx, &mut extra);
+            let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
+            let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             if is_double {
                 format!("%t{} = fdiv double {}, {}", result, l_final, r_final)
             } else {
@@ -93,8 +93,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let is_double = lt == "double" || rt == "double";
             let ty = if is_double { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
-            let l_final = coerce_to(&l_str, &lt, &ty, ctx, &mut extra);
-            let r_final = coerce_to(&r_str, &rt, &ty, ctx, &mut extra);
+            let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
+            let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             if is_double {
                 format!("%t{} = frem double {}, {}", result, l_final, r_final)
             } else {
@@ -205,7 +205,8 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 }
                 let (v, t) = resolve_typed(&args[0], ctx);
                 let result = tmp_result(ctx, "ptr", inst.result);
-                let line = match t.as_str() {
+                
+                match t.as_str() {
                     "ptr" => {
                         // Identity — already a string ptr
                         format!("%t{} = select i1 true, ptr {}, ptr {}", result, v, v)
@@ -221,8 +222,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     _ => {
                         format!("%t{} = call ptr @rt_i64_to_string(i64 {})", result, v)
                     }
-                };
-                line
+                }
             } else if name_opt == Some("dasu") || name_opt == Some("print") {
                 // dasu() / print() builtin expansion
                 if args.is_empty() {
@@ -267,7 +267,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 compile_pal_builtin(inst, args, llvm_name, ctx, &mut extra)
             } else if name_opt == Some("call") {
                 // Indirect call via function pointer
-                if args.len() < 1 {
+                if args.is_empty() {
                     return vec![];
                 }
                 let ll_ret = llvm_type_str(&ret_ty.data_type);
@@ -351,10 +351,12 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 }
                 match callee {
                     MirValue::FunctionRef { name, env } => {
-                        resolve_named_call(name, env, args, &ll_ret, is_void, inst.result, ctx, &mut extra)
+                        let is_str = matches!(ret_ty.data_type, DataType::Str);
+                        resolve_named_call(name, env, args, &ll_ret, is_void, inst.result, ctx, &mut extra, is_str)
                     }
                     MirValue::Global(name) => {
-                        resolve_named_call(name, &MirValue::Const(MirConst::None), args, &ll_ret, is_void, inst.result, ctx, &mut extra)
+                        let is_str = matches!(ret_ty.data_type, DataType::Str);
+                        resolve_named_call(name, &MirValue::Const(MirConst::None), args, &ll_ret, is_void, inst.result, ctx, &mut extra, is_str)
                     }
                     MirValue::Temp(callee_id) => {
                         // Indirect call through a function value stored in a temp.
@@ -404,8 +406,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     }
                 })
                 .collect();
-            let struct_ty = if struct_name.starts_with("struct:") {
-                let name = &struct_name[7..];
+            let struct_ty = if let Some(name) = struct_name.strip_prefix("struct:") {
                 ctx.struct_types
                     .get(name)
                     .map(|fields| render_struct_llvm_type(fields))
@@ -464,7 +465,44 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 format!("%t{} = fptosi {} {} to {}", result, src_t, v, dst_t)
             }
         }
-        _ => return vec![],
+        MirOp::PtrToInt(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = ptrtoint {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::IntToPtr(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = inttoptr {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::BitCast(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = bitcast {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::Select(cond, t, f) => {
+            let (c, _) = resolve_typed(cond, ctx);
+            let (tv, tt) = resolve_typed(t, ctx);
+            let (fv, ft) = resolve_typed(f, ctx);
+            let result = tmp_result(ctx, &tt, inst.result);
+            format!("%t{} = select i1 {}, {} {}, {} {}", result, c, tt, tv, ft, fv)
+        }
+        MirOp::Phi(pairs, ty) => {
+            let ll_ty = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &ll_ty, inst.result);
+            let incoming: Vec<String> = pairs
+                .iter()
+                .map(|(val, block_id)| {
+                    let (v, t) = resolve_typed(val, ctx);
+                    let coerced = coerce_to(&v, &t, &ll_ty, ctx, &mut extra);
+                    format!("[{} %bb_{}]", coerced, block_id)
+                })
+                .collect();
+            format!("%t{} = phi {} {}", result, ll_ty, incoming.join(", "))
+        }
     };
     let mut result = Vec::with_capacity(extra.len() + 1);
     result.extend(extra);

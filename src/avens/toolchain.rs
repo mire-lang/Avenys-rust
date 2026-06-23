@@ -67,6 +67,8 @@ pub(super) fn compile_binary_from_ir(
 
     if pal_backend != "wasm" {
         clang.arg("-lm");
+        clang.arg("-lssl");
+        clang.arg("-lcrypto");
     }
 
     for (lib_name, lib_path) in extern_libs {

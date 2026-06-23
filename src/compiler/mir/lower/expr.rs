@@ -189,6 +189,39 @@ impl MirLower {
                 );
                 MirValue::temp(result)
             }
+            Expression::Call {
+                name,
+                args,
+                ..
+            } if name == "contains" && args.len() == 2 => {
+                let haystack_val = self.lower_expression(&args[0]);
+                let needle_val = self.lower_expression(&args[1]);
+                let arg_type = extract_data_type(&args[0]);
+                let rt_name = match &arg_type {
+                    DataType::Str
+                    | DataType::Ref { .. }
+                    | DataType::RefMut { .. } => "rt_strings_contains",
+                    DataType::Vector { element_type, .. }
+                        if matches!(&**element_type, DataType::I64 | DataType::Unknown | DataType::Anything) =>
+                    {
+                        "rt_lists_contains_i64"
+                    }
+                    DataType::List => "rt_lists_contains_i64",
+                    _ => "rt_lists_contains_i64",
+                };
+                let result = self.new_temp();
+                let last = self.current_block;
+                self.func.blocks[last].push(
+                    Some(result),
+                    MirOp::Call(
+                        MirValue::Global(rt_name.to_string()),
+                        vec![haystack_val, needle_val],
+                        MirType { data_type: DataType::Bool },
+                    ),
+                    loc,
+                );
+                MirValue::temp(result)
+            }
             Expression::Call { name, args, .. } if name == "lists.map" && args.len() == 2 => {
                 self.lower_lists_map(args)
             }
@@ -423,8 +456,8 @@ impl MirLower {
                         .split_once('[')
                         .map(|(base, _)| base.to_string())
                         .unwrap_or_else(|| struct_name.clone());
-                    if let Some(fields) = self.struct_types.get(&norm_name) {
-                        if let Some(field_index) =
+                    if let Some(fields) = self.struct_types.get(&norm_name)
+                        && let Some(field_index) =
                             fields.iter().position(|(name, _)| name == member)
                         {
                             let actual_field_type = fields[field_index].1.clone();
@@ -460,7 +493,6 @@ impl MirLower {
                             }
                             return MirValue::temp(load_result);
                         }
-                    }
                 }
                 MirValue::Const(MirConst::None)
             }
@@ -829,11 +861,10 @@ impl MirLower {
     }
 
     pub(crate) fn extract_closure_expr(expr: &Expression) -> &Expression {
-        if let Expression::Closure { body, .. } = expr {
-            if let Some(Statement::Return(Some(inner))) = body.first() {
+        if let Expression::Closure { body, .. } = expr
+            && let Some(Statement::Return(Some(inner))) = body.first() {
                 return inner;
             }
-        }
         expr
     }
 
@@ -1295,8 +1326,8 @@ impl MirLower {
     }
 
     pub(crate) fn get_target_elem_type(&self, target: &Expression) -> String {
-        if let Expression::Identifier(id) = target {
-            if let Some(ty) = self.var_types.get(&id.name) {
+        if let Expression::Identifier(id) = target
+            && let Some(ty) = self.var_types.get(&id.name) {
                 match ty {
                     DataType::Array { element_type, .. }
                     | DataType::Vector { element_type, .. }
@@ -1306,7 +1337,6 @@ impl MirLower {
                     _ => {}
                 }
             }
-        }
         "i64".to_string()
     }
 

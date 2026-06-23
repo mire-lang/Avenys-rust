@@ -513,8 +513,7 @@ impl<'a> BorrowChecker<'a> {
             | Statement::Load { .. }
             | Statement::Enum { .. }
             | Statement::Module { .. }
-            | Statement::Use { .. }
-            | Statement::UseModule { .. } => {}
+            => {}
         }
 
         Ok(())

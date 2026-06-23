@@ -2,6 +2,58 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.11.30] - 2026-06-24
+
+### Added
+- **Kioto modularization**: `net` now exposes `net::http::get`, `net::http::post`,
+  `net::connect::timeout`, `net::recv::all`, `net::socket::nonblock`.
+  `ws` exposes `ws::send::text`, `ws::recv::all`.
+  `async` exposes `async::task::done`, `async::task::error`.
+  All underscore-separated functions replaced with namespace-separated `::`.
+- **Memory safety**: MIR codegen now wraps all `pal_*` extern string returns
+  with `rt_managed_from_cstr() + free()` — strings returned from C no longer
+  leak. Previously PAL strings were raw `malloc` pointers never freed.
+- **`pub extern fn`**: ExternFunction now has a `visibility` field. `extern fn`
+  without `pub` is private to the module (not exported). `pub extern fn`
+  exports the symbol. This prevents FFI leaks — only `pub fn` wrappers are
+  exposed to downstream consumers.
+- **Parser**: `pub`/`priv` now accepted before `extern fn` statements.
+
+### Changed
+- **Removed `Statement::Use`/`UseModule`**: `use` always produces an expression
+  statement (side-effect call). Import is exclusively via `load`. This
+  eliminates the confusing dual semantics of `use`. Removed `resolve_use_path`,
+  `parse_use_path`, `parse_use_module_name`, `peek_after_double_colon_chain`.
+- **WASM removed**: `pal_wasm_*` PAL functions, `src/pal/linux/pal_wasm.c`,
+  `src/pal/wasm/pal_wasm.c`, and `kioto/ext/wasm/` deleted. Server-side
+  HTTP/HTTPS/WS modules planned as replacement.
+- **`peek_after_double_colon_chain`** removed from parser helpers (unused after
+  Use disambiguation removed).
+
+### Fixed
+- Memory leak: all PAL string returns now properly managed through
+  `rt_managed_from_cstr` wrapping.
+
+## [3.11.29] - 2026-06-22
+
+### Added
+- PAL integration tests: `pal_env_get_returns_home`, `pal_env_cwd_returns_non_empty`,
+  `pal_fs_write_read_roundtrip`, `pal_fs_path_ops_join_dir_name_ext`,
+  `pal_fs_mkdir_rmdir`, `pal_proc_shell_echo`, `pal_proc_spawn_wait_exit_code`.
+- OWL integration test: `owl_build_run_info_cycle` verifies `owl build`,
+  `owl run`, and `owl info` against a known project.
+- `proc.pipe`: joins commands with ` | ` and runs via `pal_proc_shell`.
+- `proc.on`: basic signal handler registration via new PAL function `pal_proc_on`.
+- `proc.err`: returns captured stderr from last process via `pal_proc_err`.
+- `proc.run`/`proc.spawn`/`proc.exec`/`proc.exec_bg`: now join args with the
+  command string instead of ignoring arguments.
+- New `task` module (renamed from `async`): `kioto/core/task/` provides the
+  same API; `async` module now delegates to `task` and is deprecated.
+
+### Fixed
+- `pal_proc_run` now captures stderr via temp file in addition to stdout.
+- `pal_proc_shell`/`pal_proc_exec` both use the stderr-capturing path.
+
 ## [3.11.28] - 2026-06-18
 
 ### Fixed

@@ -435,6 +435,25 @@ impl LlvmIrGen {
         })
     }
 
+    pub(super) fn compile_fs_is_file(&mut self, args: &[Expression]) -> Result<LlValue> {
+        if args.len() != 1 {
+            return Err(MireError::new(ErrorKind::Runtime {
+                message: "fs_is_file expects 1 argument".to_string(),
+            }));
+        }
+        let path = self.compile_expr(&args[0])?;
+        let tmp = self.tmp();
+        self.body.push(format!(
+            "  {tmp} = call i64 @pal_fs_is_file(ptr {})",
+            path.repr
+        ));
+        Ok(LlValue {
+            ty: LlType::I64,
+            repr: tmp,
+            owned: false,
+        })
+    }
+
     pub(super) fn compile_fs_size(&mut self, args: &[Expression]) -> Result<LlValue> {
         if args.len() != 1 {
             return Err(MireError::new(ErrorKind::Runtime {

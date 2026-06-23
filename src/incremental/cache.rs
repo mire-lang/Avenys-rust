@@ -10,7 +10,7 @@ const VERSION_FILE: &str = "version.txt";
 const INDEX_DIR: &str = "index";
 const BLOBS_DIR: &str = "blobs";
 const WAL_DIR: &str = "wal";
-const NEW_CACHE_FORMAT: &str = "MIREINC3";
+const NEW_CACHE_FORMAT: &str = "MIREINC4";
 const NEW_FORMAT_VERSION: u32 = 1;
 const FILES_INDEX: &str = "files";
 const ANALYSES_INDEX: &str = "analyses";
@@ -151,7 +151,7 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
             })
         })?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "wal"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "wal"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -170,10 +170,8 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
 fn clear_wal(base_dir: &Path) -> Result<()> {
     let wal_dir = base_dir.join(WAL_DIR);
     if wal_dir.exists() {
-        for entry in fs::read_dir(&wal_dir).ok().into_iter().flatten() {
-            if let Ok(e) = entry {
-                let _ = fs::remove_file(e.path());
-            }
+        for e in fs::read_dir(&wal_dir).ok().into_iter().flatten().flatten() {
+            let _ = fs::remove_file(e.path());
         }
     }
     Ok(())
@@ -218,13 +216,11 @@ fn gc_blobs(base_dir: &Path, referenced: &HashSet<String>) -> Result<()> {
         return Ok(());
     }
     for entry in fs::read_dir(&blob_dir).ok().into_iter().flatten() {
-        if let Ok(e) = entry {
-            if let Some(name) = e.file_name().to_str() {
-                if !referenced.contains(name) {
+        if let Ok(e) = entry
+            && let Some(name) = e.file_name().to_str()
+                && !referenced.contains(name) {
                     let _ = fs::remove_file(e.path());
                 }
-            }
-        }
     }
     Ok(())
 }
@@ -365,11 +361,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let files_dir = base_dir.join(INDEX_DIR).join(FILES_INDEX);
     if let Ok(entries) = fs::read_dir(&files_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -377,11 +372,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let analyses_dir = base_dir.join(INDEX_DIR).join(ANALYSES_INDEX);
     if let Ok(entries) = fs::read_dir(&analyses_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -391,11 +385,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     let mir_dir = base_dir.join(INDEX_DIR).join(MIR_INDEX);
     if let Ok(entries) = fs::read_dir(&mir_dir) {
         for entry in entries.flatten() {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
+            if let Ok(content) = fs::read_to_string(entry.path())
+                && let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
                     referenced.insert(meta.blob_hash);
                 }
-            }
         }
     }
 
@@ -448,19 +441,7 @@ impl IncrementalCache {
     }
 
     pub fn load_with_settings(source_path: &Path, settings: CacheSettings) -> Result<Self> {
-        let cache_dir = {
-            let base = if let Some(project_root) =
-                find_project_root(source_path.parent().unwrap_or_else(|| Path::new(".")))
-            {
-                project_root.join("bin")
-            } else {
-                source_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .to_path_buf()
-            };
-            base.join(CACHE_DIR_NAME)
-        };
+        let cache_dir = cache_file_path(source_path);
 
         // Create directory structure
         fs::create_dir_all(&cache_dir).ok();
@@ -584,7 +565,7 @@ impl IncrementalCache {
         }
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredParsedFile = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredParsedFile = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::File);
         if let Some(meta) = self.files.get_mut(&normalize_path_key(path)) {
@@ -608,7 +589,7 @@ impl IncrementalCache {
             exports: entry.exports,
             local_imports: entry.local_imports,
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize cached parsed file: {e}"),
             })
@@ -655,7 +636,7 @@ impl IncrementalCache {
         };
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::Analysis);
         self.metrics.analysis_hits += 1;
@@ -678,7 +659,7 @@ impl IncrementalCache {
             }),
             units: units.clone(),
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize analysis cache entry: {e}"),
             })
@@ -729,7 +710,7 @@ impl IncrementalCache {
             outcome: StoredAnalysisOutcome::Error(error.into()),
             units: units.clone(),
         };
-        let blob = serde_json::to_vec(&stored).map_err(|e| {
+        let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize analysis error cache entry: {e}"),
             })
@@ -782,7 +763,7 @@ impl IncrementalCache {
         let key = analysis_cache_key(source_path, source_hash);
         let meta = self.analyses.get(&key)?;
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         let StoredAnalysisOutcome::Success(s) = stored.outcome else {
             return None;
         };
@@ -869,7 +850,7 @@ impl IncrementalCache {
         }
 
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let ir: String = serde_json::from_slice(&blob).ok()?;
+        let ir: String = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::MirFn);
         if let Some(meta) = self.mir_fns.get_mut(&mir_cache_key(source_path, fn_name, body_hash, opt_level)) {
@@ -889,7 +870,7 @@ impl IncrementalCache {
     ) -> Result<()> {
         let key = mir_cache_key(source_path, fn_name, body_hash, opt_level);
 
-        let blob = serde_json::to_vec(llvm_ir).map_err(|e| {
+        let blob = bincode::serialize(llvm_ir).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
                 message: format!("Cannot serialize MIR fn IR: {e}"),
             })
@@ -964,7 +945,7 @@ impl IncrementalCache {
         let key = analysis_cache_key(source_path, source_hash);
         let meta = self.analyses.get(&key)?;
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
-        let stored: StoredAnalysisPayload = serde_json::from_slice(&blob).ok()?;
+        let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         Some(stored.units)
     }
 }
@@ -981,16 +962,14 @@ impl IncrementalCache {
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
                 // Derive key from filename (hash)
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+                if let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         files.insert(stem.to_string(), meta);
                     }
-                }
             }
-        }
     }
 }
 
@@ -1004,15 +983,12 @@ fn load_analysis_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         analyses.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 
@@ -1026,15 +1002,12 @@ fn load_build_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<BuildMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<BuildMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         builds.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 
@@ -1048,15 +1021,12 @@ fn load_mir_metas(
         return;
     };
     for entry in entries.flatten() {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            if let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if let Some(stem) = name.strip_suffix(".meta") {
+        if let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(meta) = serde_json::from_str::<MirMeta>(&content)
+                && let Some(name) = entry.file_name().to_str()
+                    && let Some(stem) = name.strip_suffix(".meta") {
                         mir_fns.insert(stem.to_string(), meta);
                     }
-                }
-            }
-        }
     }
 }
 

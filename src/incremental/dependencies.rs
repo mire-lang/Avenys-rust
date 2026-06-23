@@ -176,7 +176,7 @@ pub(crate) fn collect_statement_dependencies(statement: &Statement, deps: &mut V
             deps.push(name.clone());
             deps.push(path.clone());
         }
-        Statement::Break | Statement::Continue | Statement::Module { .. } | Statement::Use { .. } | Statement::UseModule { .. } => {}
+        Statement::Break | Statement::Continue | Statement::Module { .. } => {}
     }
 }
 

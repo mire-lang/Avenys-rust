@@ -57,9 +57,21 @@ impl TypeChecker {
 
         if name == "contains" || name == "strings.contains" {
             let haystack_type = arg_types.first().cloned().unwrap_or(DataType::Unknown);
-            if !matches!(haystack_type, DataType::Str | DataType::Unknown | DataType::Anything) {
+            if !matches!(
+                haystack_type,
+                DataType::Str
+                    | DataType::Vector { .. }
+                    | DataType::List
+                    | DataType::Dict
+                    | DataType::Map { .. }
+                    | DataType::Unknown
+                    | DataType::Anything
+            ) {
                 return Err(MireError::new(ErrorKind::Backend {
-                    message: "contains(...) is currently lowered for strings only".to_string(),
+                    message: format!(
+                        "contains(...) is not implemented for type {:?}",
+                        haystack_type
+                    ),
                 }));
             }
             *data_type = DataType::Bool;

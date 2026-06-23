@@ -47,14 +47,4 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_use_path(&mut self) -> Result<Vec<String>> {
-        self.expect(TokenType::Use)?;
-        let mut path = vec![self.expect_ident()?];
-        while self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon {
-            self.advance();
-            self.advance();
-            path.push(self.expect_ident()?);
-        }
-        Ok(path)
-    }
 }
