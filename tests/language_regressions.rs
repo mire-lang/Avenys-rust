@@ -4098,6 +4098,10 @@ fn pal_proc_spawn_wait_exit_code() {
 
 #[test]
 fn owl_build_run_info_cycle() {
+    if Command::new("owl").arg("--version").output().is_err() {
+        eprintln!("SKIP: owl not found in PATH");
+        return;
+    }
     let root = make_temp_project_root("mire_owl_cycle");
     let source_path = root.join("main.mire");
     fs::write(root.join("owl.toml"), "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n")
