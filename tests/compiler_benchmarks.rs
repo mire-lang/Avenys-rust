@@ -48,7 +48,7 @@ fn read_vmrss() -> u64 {
 
 fn kioto_path() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../kioto")
+    manifest.parent().unwrap().join("kioto")
 }
 
 fn bench_compile(
@@ -58,12 +58,11 @@ fn bench_compile(
 ) {
     let root = make_project_dir(&format!("bench_{name}"));
     let source_path = root.join("main.mire");
-    let kioto = kioto_path().canonicalize().unwrap_or_else(|_| kioto_path());
     fs::write(
         root.join("owl.toml"),
         format!(
             "[project]\nname = \"bench\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n\n[dependencies]\nkioto = {{ path = \"{}\" }}\n",
-            kioto.display()
+            kioto_path().display()
         ),
     )
     .expect("write owl.toml");

@@ -19,6 +19,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq llvm-dev clang
 
+      - name: Checkout kioto
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/libs
+          path: libs
+
+      - name: Setup kioto for tests
+        run: cp -r libs/kioto ../kioto
+
       - name: Build
         run: cargo build --release
 
