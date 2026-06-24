@@ -24,20 +24,16 @@ impl TypeChecker {
                 if self.functions.contains_key(&ident.name) || {
                     let mut stripped = ident.name.clone();
                     let mut found = false;
-                    loop {
-                        if let Some(next) = Self::strip_root_namespace(&stripped) {
-                            if next == stripped {
-                                break;
-                            }
-                            if self.functions.contains_key(&next) {
-                                found = true;
-                                break;
-                            }
-                            stripped = next;
-                        } else {
-                            break;
-                        }
+                while let Some(next) = Self::strip_root_namespace(&stripped) {
+                    if next == stripped {
+                        break;
                     }
+                    if self.functions.contains_key(&next) {
+                        found = true;
+                        break;
+                    }
+                    stripped = next;
+                }
                     found
                 } {
                     ident.data_type = DataType::Function;

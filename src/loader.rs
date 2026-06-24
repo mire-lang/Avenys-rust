@@ -670,6 +670,7 @@ impl<'a> ModuleRenamer<'a> {
         self.rename_statement_with_scope(statement, &mut scope_stack, top_level)
     }
 
+    #[allow(clippy::ptr_arg)]
     fn rename_statement_with_scope(
         &self,
         statement: Statement,

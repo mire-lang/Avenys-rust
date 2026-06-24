@@ -44,10 +44,7 @@ fn try_fold(inst: &MirInst) -> Option<MirConst> {
         }
         ICmp(cmp, MirValue::Const(a), MirValue::Const(b)) => cmp_const(cmp, a, b),
         FCmp(cmp, MirValue::Const(a), MirValue::Const(b)) => fcmp_const(cmp, a, b),
-        ZExt(MirValue::Const(c), _) => match c {
-            MirConst::Bool(v) => Some(MirConst::Int(if *v { 1 } else { 0 })),
-            _ => None,
-        },
+        ZExt(MirValue::Const(MirConst::Bool(v)), _) => Some(MirConst::Int(if *v { 1 } else { 0 })),
         _ => None,
     }
 }

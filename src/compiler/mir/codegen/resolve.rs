@@ -39,6 +39,7 @@ pub(crate) fn resolve_typed(val: &MirValue, ctx: &mut LlvmCtx) -> (String, Strin
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_named_call(
     name: &str,
     env: &MirValue,
@@ -102,7 +103,7 @@ pub(crate) fn resolve_named_call(
     // Only wrap PAL functions (pal_*) that return str — they return raw malloc'd char*.
     let is_pal_str = is_str_return
         && (name.starts_with("pal_")
-            || name.split_once('.').map_or(false, |(_, rest)| rest.starts_with("pal_")));
+            || name.split_once('.').is_some_and(|(_, rest)| rest.starts_with("pal_")));
     if is_void {
         format!("call void {}({})", fn_name, arg_strs.join(", "))
     } else if is_pal_str {

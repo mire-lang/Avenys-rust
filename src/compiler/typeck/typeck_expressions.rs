@@ -211,28 +211,24 @@ impl TypeChecker {
 
         {
             let mut stripped = name.to_string();
-            loop {
-                if let Some(next) = Self::strip_root_namespace(&stripped) {
-                    if next == stripped {
-                        break;
-                    }
-                    if let Some(sig) = self.functions.get(&next).cloned() {
-                        match self.resolve_function_call(&next, &sig, arg_types, type_args) {
-                            Ok(resolved) => {
-                                *data_type = resolved.clone();
-                                return Ok(Some(resolved));
-                            }
-                            Err(err) => {
-                                if !self.builtin_returns.contains_key(&next) {
-                                    return Err(err);
-                                }
+            while let Some(next) = Self::strip_root_namespace(&stripped) {
+                if next == stripped {
+                    break;
+                }
+                if let Some(sig) = self.functions.get(&next).cloned() {
+                    match self.resolve_function_call(&next, &sig, arg_types, type_args) {
+                        Ok(resolved) => {
+                            *data_type = resolved.clone();
+                            return Ok(Some(resolved));
+                        }
+                        Err(err) => {
+                            if !self.builtin_returns.contains_key(&next) {
+                                return Err(err);
                             }
                         }
                     }
-                    stripped = next;
-                } else {
-                    break;
                 }
+                stripped = next;
             }
         }
 

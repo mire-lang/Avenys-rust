@@ -906,13 +906,11 @@ impl IncrementalCache {
             let Some(oldest_key) = self.lru.evict_one() else {
                 break;
             };
-            if self.files.remove(&oldest_key).is_some() {
-                self.metrics.evictions += 1;
-            } else if self.analyses.remove(&oldest_key).is_some() {
-                self.metrics.evictions += 1;
-            } else if self.builds.remove(&oldest_key).is_some() {
-                self.metrics.evictions += 1;
-            } else if self.mir_fns.remove(&oldest_key).is_some() {
+            if self.files.remove(&oldest_key).is_some()
+                || self.analyses.remove(&oldest_key).is_some()
+                || self.builds.remove(&oldest_key).is_some()
+                || self.mir_fns.remove(&oldest_key).is_some()
+            {
                 self.metrics.evictions += 1;
             }
             let new_total = self.files.len() + self.analyses.len() + self.builds.len() + self.mir_fns.len();

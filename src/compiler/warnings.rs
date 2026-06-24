@@ -350,11 +350,8 @@ impl WarningAnalyzer {
         self.current_column = column;
         match stmt {
             Statement::Expression(expr) => self.scan_expr(expr),
-            Statement::Let { value, .. } => {
-                if let Some(value) = value {
-                    self.scan_expr(value);
-                }
-            }
+            Statement::Let { value: Some(value), .. } => self.scan_expr(value),
+            Statement::Let { .. } => {}
             Statement::Assignment { value, .. } => {
                 self.scan_expr(value);
             }
@@ -697,6 +694,7 @@ impl WarningAnalyzer {
         self.push_warn_at(code, title, message, line, column, 3, help);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn push_warn_at(
         &mut self,
         code: DiagnosticCode,

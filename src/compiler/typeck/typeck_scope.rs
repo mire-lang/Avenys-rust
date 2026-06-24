@@ -72,18 +72,14 @@ impl TypeChecker {
                     return Some(ident.name.clone());
                 }
                 let mut stripped = ident.name.clone();
-                loop {
-                    if let Some(next) = Self::strip_root_namespace(&stripped) {
-                        if next == stripped {
-                            break;
-                        }
-                        if self.functions.contains_key(&next) {
-                            return Some(next);
-                        }
-                        stripped = next;
-                    } else {
+                while let Some(next) = Self::strip_root_namespace(&stripped) {
+                    if next == stripped {
                         break;
                     }
+                    if self.functions.contains_key(&next) {
+                        return Some(next);
+                    }
+                    stripped = next;
                 }
                 self.lookup_function_alias(&ident.name)
             }
@@ -127,18 +123,14 @@ impl TypeChecker {
                     return Some(sig);
                 }
                 let mut stripped = ident.name.clone();
-                loop {
-                    if let Some(next) = Self::strip_root_namespace(&stripped) {
-                        if next == stripped {
-                            break;
-                        }
-                        if let Some(sig) = self.functions.get(&next).cloned() {
-                            return Some(sig);
-                        }
-                        stripped = next;
-                    } else {
+                while let Some(next) = Self::strip_root_namespace(&stripped) {
+                    if next == stripped {
                         break;
                     }
+                    if let Some(sig) = self.functions.get(&next).cloned() {
+                        return Some(sig);
+                    }
+                    stripped = next;
                 }
                 self.lookup_function_value_signature(&ident.name)
             }
@@ -567,16 +559,14 @@ fn collect_used_identifiers_in_statement(
                 collect_used_identifiers_in_expr(expr, declared, used);
             }
         }
-        Statement::New { value, .. } => {
-            if let Some(v) = value {
-                collect_used_identifiers_in_expr(v, declared, used);
-            }
+        Statement::New { value: Some(v), .. } => {
+            collect_used_identifiers_in_expr(v, declared, used);
         }
-        Statement::Own { value, .. } => {
-            if let Some(v) = value {
-                collect_used_identifiers_in_expr(v, declared, used);
-            }
+        Statement::New { .. } => {}
+        Statement::Own { value: Some(v), .. } => {
+            collect_used_identifiers_in_expr(v, declared, used);
         }
+        Statement::Own { .. } => {}
         Statement::Move { target, value } => {
             collect_used_identifiers_in_expr(value, declared, used);
             if !declared.contains(target) {

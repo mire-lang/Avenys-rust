@@ -17,8 +17,8 @@ fn runtime_base() -> PathBuf {
     if manifest_dir.join("src/runtime").exists() {
         return manifest_dir.join("src");
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent() {
             if parent.join("runtime").exists() {
                 return parent.to_path_buf();
             }
@@ -26,7 +26,6 @@ fn runtime_base() -> PathBuf {
                 return parent.join("../lib/mire");
             }
         }
-    }
     manifest_dir.join("src")
 }
 
