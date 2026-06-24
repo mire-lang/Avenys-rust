@@ -350,6 +350,11 @@ impl WarningAnalyzer {
         self.current_column = column;
         match stmt {
             Statement::Expression(expr) => self.scan_expr(expr),
+            Statement::Let { value, .. } => {
+                if let Some(value) = value {
+                    self.scan_expr(value);
+                }
+            }
             Statement::Assignment { value, .. } => {
                 self.scan_expr(value);
             }
