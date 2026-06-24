@@ -14,6 +14,9 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <signal.h>
+
+static int sigpipe_ignored = 0;
 
 int64_t pal_net_connect(const char *host, int64_t port) {
     return pal_net_connect_timeout(host, port, 30000);
@@ -108,6 +111,11 @@ int pal_net_set_nonblock(int64_t fd, int nonblock) {
 }
 
 int64_t pal_net_bind(int64_t port) {
+    if (!sigpipe_ignored) {
+        signal(SIGPIPE, SIG_IGN);
+        sigpipe_ignored = 1;
+    }
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
     int opt = 1;
