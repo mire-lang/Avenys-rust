@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.11.28** · 285 tests passing
+Version: **3.11.31** · 285 tests passing
 
 ---
 
@@ -185,7 +185,128 @@ set label = match c {
 
 ---
 
-## 7. Control flow
+## 7. Skills (Traits)
+
+Skills define abstract contracts — method signatures with no bodies. Types
+implement skills via `impl ... for ...` blocks. This is Mire's trait system.
+
+### Declaring a skill
+
+```mire
+pub skill Show {
+    fn show: (self) :str
+}
+
+pub skill Size {
+    fn size: (self) :i64
+}
+```
+
+A skill must have at least one method. `self` (if present) must be the first
+parameter.
+
+### Implementing a skill
+
+```mire
+struct Point {
+    x: i64
+    y: i64
+}
+
+impl Show for Point {
+    fn show: (self) :str {
+        return "Point({self.x}, {self.y})"
+    }
+}
+
+impl Size for Point {
+    fn size: (self) :i64 { return self.x + self.y }
+}
+```
+
+The type must provide a method for EVERY signature declared in the skill.
+
+### Self-type annotation
+
+Methods can require a specific `self` type:
+
+```mire
+pub skill Projectable {
+    fn project: (self: Point) :i64
+}
+
+impl Projectable for Point {
+    fn project: (self) :i64 { return self.x }
+}
+```
+
+### Multiple skills on one type
+
+A single type can implement any number of skills:
+
+```mire
+pub skill Greeter {
+    fn greet: (self) :str
+}
+
+pub skill Counter {
+    fn count: (self) :i64
+}
+
+struct Person { name :str, age :i64 }
+
+impl Greeter for Person {
+    fn greet: (self) :str { return "Hi, " + self.name }
+}
+
+impl Counter for Person {
+    fn count: (self) :i64 { return self.age }
+}
+```
+
+### Generic trait bounds
+
+Skills can constrain generic type parameters with `[T: SkillName]`:
+
+```mire
+skill Show {
+    fn show: (self) :str
+}
+
+type Num { value :i64 }
+
+impl Show for Num {
+    fn show: (self) :str { return "num" }
+}
+
+fn print_it[T: Show]: (x: T) {
+    use dasu(x.show())
+}
+
+pub fn main: () {
+    set n = Num(1)
+    print_it(n)                     # prints "num"
+}
+```
+
+The compiler enforces that the concrete type argument implements all required
+skills at the call site.
+
+### Instance vs associated methods
+
+Methods with `self` are **instance methods** — called with dot notation
+(`x.method()`). Methods without `self` are **associated methods** — called
+with `::` (`Type::method()`). The impl must match the skill declaration.
+
+### Error: skill not implemented
+
+```
+error[E0008]: Type 'Foo' does not implement required method 'Show.show'
+```
+
+---
+
+## 8. Control flow
 
 ```mire
 # If / elif / else
@@ -223,7 +344,7 @@ while true {
 
 ---
 
-## 8. Collections
+## 9. Collections
 
 ### Arrays (fixed size)
 
@@ -272,7 +393,7 @@ pub fn main: () {
 
 ---
 
-## 9. Operators
+## 10. Operators
 
 ### Arithmetic
 
@@ -308,7 +429,7 @@ set result = [1, 2, 3]
 
 ---
 
-## 10. Types
+## 11. Types
 
 ### Primitives
 
@@ -353,7 +474,7 @@ set raw = r"no\nescapes"    # raw string
 
 ---
 
-## 11. Ownership and references
+## 12. Ownership and references
 
 ```mire
 set x = 42 :i64
@@ -375,7 +496,7 @@ The borrow checker enforces:
 
 ---
 
-## 12. Module system
+## 13. Module system
 
 Mire uses `load` to import modules. Dependencies are declared in `owl.toml`.
 `use` executes expressions as statements (calls for side effects).
@@ -415,7 +536,7 @@ mechanism — use `load` exclusively for importing modules.
 
 ---
 
-## 13. Kioto standard library
+## 14. Kioto standard library
 
 Kioto is auto-injected if not in `[dependencies]`. Available modules:
 
@@ -437,7 +558,7 @@ Kioto is auto-injected if not in `[dependencies]`. Available modules:
 
 ---
 
-## 14. I/O
+## 15. I/O
 
 ```mire
 # Output
@@ -455,7 +576,7 @@ set height = ireru("Height: ") :f64  # parse as f64
 
 ---
 
-## 15. String interpolation
+## 16. String interpolation
 
 ```mire
 set name = "Mire"
@@ -469,7 +590,7 @@ Anything inside `{}` is evaluated, converted to string with `str()`, and concate
 
 ---
 
-## 16. Unsafe, extern, assembly
+## 17. Unsafe, extern, assembly
 
 ### Unsafe blocks
 
@@ -497,7 +618,7 @@ asm {
 
 ---
 
-## 17. Tests
+## 18. Tests
 
 ### Directives
 
@@ -532,7 +653,7 @@ assert_ne(actual, expected)
 
 ---
 
-## 18. CLI reference
+## 19. CLI reference
 
 ```bash
 mire run    [file] [--release] [-O<0|1|2|3|s|z>] [-- args...]
@@ -547,10 +668,11 @@ mire owl remove <name>              # remove dependency
 
 ---
 
-## 19. Stability
+## 20. Stability
 
 **Stable and tested:**
 - Structs, enums, pattern matching
+- Skills (traits) and impl blocks, generic trait bounds
 - Functions, closures, generics
 - Type inference, borrow checking
 - Collections (arrays, vectors, maps)
@@ -564,5 +686,5 @@ mire owl remove <name>              # remove dependency
 **Improving:**
 - Higher-order functions on lists (map/filter/fold — MIR lowering done, stubs in kioto)
 - Type-safe unwrap for maybe/result
-- WASM backend (PAL stubs exist, not production-tested)
+- Skill codegen (frontend/type-checking complete, LLVM backend pending)
 - owl sync (package fetch/update command not yet implemented)

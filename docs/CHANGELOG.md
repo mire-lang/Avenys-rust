@@ -2,6 +2,47 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.11.31] - 2026-06-24
+
+### Fixed
+- **String concatenation memory leak**: LLVM codegen now tracks and frees
+  intermediate temporaries produced by chained `+` operations. In long-running
+  programs (e.g. HTTP servers), chained concat previously leaked every
+  intermediate result until memory exhaustion. Fixed in both MIR and Avenys
+  codegen paths with `owned_temps`/`owned_string_temps` tracking sets and
+  `rt_managed_free` insertion.
+- **Dict value overwrite leak**: `store_value` now frees old string values
+  when a dict key is overwritten. Previously only `store_key` freed old keys.
+- **Dict remove leak**: `rt_dict_remove` now frees old key+value strings
+  at the removed slot before swapping in the last entry.
+- **MIR PAL name mismatch**: `builtin_to_pal` mapped `fs_dir`/`fs_name`/`fs_ext`
+  to `pal_fs_dirname`/`pal_fs_filename`/`pal_fs_filext` (nonexistent). Fixed to
+  correct PAL names `pal_fs_dir`/`pal_fs_name`/`pal_fs_ext`.
+- **proc_exec ownership flag**: marked result `owned: true` (was `false`).
+  `pal_proc_exec` returns raw `malloc`'d output; the flag now correctly
+  triggers managed copy in `store_variable`.
+
+### Added
+- **`rt_list_free`**: frees list backing allocation.
+- **`rt_dict_free`**: frees all STR keys, STR values, dict storage arrays,
+  and the dict struct itself.
+- **`rt_closure_env_free`**: frees closure environment allocations.
+- **`rt_managed_cleanup_all`**: drains the managed-string linked list at
+  program exit, freeing all registered string headers and list nodes.
+- **Avenys function-exit cleanup**: `emit_string_locals_cleanup` iterates
+  `self.vars`, loads and calls `rt_managed_free` for every variable with
+  `owns_heap_string = true`. Called before explicit `return` statements
+  and implicit end-of-function returns.
+- **`declare i32 @fflush` / `declare void @rt_managed_free`** added to
+  MIR builtin declarations.
+
+### Docs
+- **SYNTAX.md**: Added comprehensive §7 Skills (Traits) section with
+  declaration, implementation, self-type annotation, multiple impls,
+  generic trait bounds, instance vs associated methods, and error examples.
+  Section numbering updated through §20.
+- **SYNTAX.md**: Version bumped 3.11.28 → 3.11.31.
+
 ## [3.11.30] - 2026-06-24
 
 ### Added
