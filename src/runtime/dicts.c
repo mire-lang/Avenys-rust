@@ -104,10 +104,15 @@ static void store_key(MireDict *dict, int64_t entry_index,
 }
 
 static void store_value(MireDict *dict, int64_t entry_index,
-                         int64_t value_i64, const void *value_ptr)
+                         int64_t value_i64, const void *value_ptr,
+                         int replacing)
 {
     void *slot = value_slot(dict, entry_index);
     if (dict->value_kind == MIRE_KIND_STR) {
+        if (replacing) {
+            char *existing = *(char **)slot;
+            if (existing) free(existing);
+        }
         memcpy(slot, &value_ptr, sizeof(void *));
         return;
     }
@@ -257,7 +262,7 @@ void *rt_dict_set_i64(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     uint64_t h = hash_key(key_kind, key_i64, key_ptr);
     int64_t idx = dict_find(dict, key_i64, key_ptr, h);
     if (idx >= 0) {
-        store_value(dict, idx, value, NULL);
+        store_value(dict, idx, value, NULL, 1);
         return dict;
     }
     if (dict->len >= dict->cap) {
@@ -267,7 +272,7 @@ void *rt_dict_set_i64(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     dict->entries[idx].hash = (int64_t)h;
     dict->entries[idx].next = -1;
     store_key(dict, idx, key_i64, key_ptr, 0);
-    store_value(dict, idx, value, NULL);
+    store_value(dict, idx, value, NULL, 0);
     dict->len++;
     int64_t bi = (int64_t)(h % (uint64_t)dict->bucket_cap);
     if (bi < 0) bi = -bi;
@@ -296,7 +301,7 @@ void *rt_dict_set_ptr(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     uint64_t h = hash_key(key_kind, key_i64, key_ptr);
     int64_t idx = dict_find(dict, key_i64, key_ptr, h);
     if (idx >= 0) {
-        store_value(dict, idx, 0, value);
+        store_value(dict, idx, 0, value, 1);
         return dict;
     }
     if (dict->len >= dict->cap) {
@@ -306,7 +311,7 @@ void *rt_dict_set_ptr(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     dict->entries[idx].hash = (int64_t)h;
     dict->entries[idx].next = -1;
     store_key(dict, idx, key_i64, key_ptr, 0);
-    store_value(dict, idx, 0, value);
+    store_value(dict, idx, 0, value, 0);
     dict->len++;
     int64_t bi = (int64_t)(h % (uint64_t)dict->bucket_cap);
     if (bi < 0) bi = -bi;
@@ -337,6 +342,14 @@ void *rt_dict_remove(void *dict_ptr, int64_t key_kind, int64_t key_i64, void *ke
             else dict->entries[prev].next = dict->entries[idx].next;
             dict->len--;
             if (idx != dict->len) {
+                if (dict->key_kind == MIRE_KIND_STR) {
+                    char *old_key = *(char **)key_slot(dict, idx);
+                    if (old_key) free(old_key);
+                }
+                if (dict->value_kind == MIRE_KIND_STR) {
+                    char *old_val = *(char **)value_slot(dict, idx);
+                    if (old_val) free(old_val);
+                }
                 dict->entries[idx] = dict->entries[dict->len];
                 memcpy(key_slot(dict, idx), key_slot(dict, dict->len), (size_t)dict->key_size);
                 memcpy(value_slot(dict, idx), value_slot(dict, dict->len), (size_t)dict->value_size);
