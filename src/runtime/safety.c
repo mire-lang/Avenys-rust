@@ -29,3 +29,7 @@ void rt_check_bounds_i64(int64_t index, int64_t len) {
 void *rt_closure_env_alloc(int64_t size) {
     return malloc((size_t)size);
 }
+
+void rt_closure_env_free(void *env) {
+    if (env) free(env);
+}

@@ -1,6 +1,27 @@
 use super::*;
 
 impl LlvmIrGen {
+    fn emit_string_locals_cleanup(&mut self) {
+        let ref_body = &self.body;
+        let owned_vars: Vec<(String, String)> = self
+            .vars
+            .iter()
+            .filter(|(_, var)| var.owns_heap_string && var.ty == LlType::Ptr)
+            .map(|(name, var)| (name.clone(), var.ptr.clone()))
+            .collect();
+        let _ = ref_body;
+        for (name, ptr) in owned_vars {
+            let tmp = self.tmp();
+            self.body
+                .push(format!("  {tmp} = load ptr, ptr {ptr}"));
+            self.body
+                .push(format!("  call void @rt_managed_free(ptr {tmp})"));
+            if let Some(var) = self.vars.get_mut(&name) {
+                var.owns_heap_string = false;
+            }
+        }
+    }
+
     pub(super) fn compile_program(
         mut self,
         program: &Program,
@@ -611,6 +632,7 @@ impl LlvmIrGen {
                 Ok(())
             }
             Statement::Return(expr) => {
+                self.emit_string_locals_cleanup();
                 let ret_ty = self.current_return.clone();
                 let value = if let Some(expr) = expr {
                     self.compile_expr(expr)?
@@ -2218,6 +2240,7 @@ impl LlvmIrGen {
         }
 
         let ret_clone = ret.clone();
+        self.emit_string_locals_cleanup();
         if body
             .iter()
             .all(|stmt| !matches!(stmt, Statement::Return(_)))

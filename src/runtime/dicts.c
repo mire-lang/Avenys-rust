@@ -540,3 +540,27 @@ void *rt_dicts_merge(void *a, void *b) {
     return a;
 }
 int64_t rt_dicts_is_empty(void *dict) { return rt_dict_len(dict) <= 0 ? 1 : 0; }
+
+void rt_dict_free(void *dict_ptr) {
+    if (!dict_ptr) return;
+    MireDict *dict = (MireDict *)dict_ptr;
+    // Free all string keys (they are rt_strdup_raw'd copies)
+    if (dict->key_kind == MIRE_KIND_STR) {
+        for (int64_t i = 0; i < dict->len; i++) {
+            char *key = *(char **)(dict->key_storage + i * dict->key_size);
+            if (key) free(key);
+        }
+    }
+    // Free all string values
+    if (dict->value_kind == MIRE_KIND_STR) {
+        for (int64_t i = 0; i < dict->len; i++) {
+            char *val = *(char **)(dict->value_storage + i * dict->value_size);
+            if (val) free(val);
+        }
+    }
+    free(dict->buckets);
+    free(dict->entries);
+    free(dict->key_storage);
+    free(dict->value_storage);
+    free(dict);
+}

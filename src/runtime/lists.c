@@ -133,6 +133,11 @@ void *rt_list_remove(void *list_ptr, int64_t index) {
     return list_ptr;
 }
 
+void rt_list_free(void *list_ptr) {
+    if (!list_ptr) return;
+    free(((int64_t *)list_ptr) - 1);
+}
+
 void *rt_list_clear(void *list_ptr) {
     if (list_ptr) ((int64_t *)list_ptr)[0] = 0;
     return list_ptr;
