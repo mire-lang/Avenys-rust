@@ -131,6 +131,18 @@ void rt_managed_free(char *value) {
     free(header);
 }
 
+void rt_managed_cleanup_all(void) {
+    MireManagedStringNode *node = managed_strings;
+    while (node != NULL) {
+        MireManagedStringNode *next = node->next;
+        MireManagedString *header = string_header(node->data_ptr);
+        if (header) free(header);
+        free(node);
+        node = next;
+    }
+    managed_strings = NULL;
+}
+
 size_t rt_managed_len(const char *value) {
     if (value == NULL) return 0;
     MireManagedString *header = string_header((char *)value);

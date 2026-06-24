@@ -84,9 +84,9 @@ impl LlvmIrGen {
             base.repr, exp.repr
         ));
         Ok(LlValue {
-            ty: LlType::F64,
+            ty: LlType::Ptr,
             repr: tmp,
-            owned: false,
+            owned: true,
         })
     }
 

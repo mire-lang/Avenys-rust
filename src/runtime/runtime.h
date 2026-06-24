@@ -18,6 +18,7 @@ char *rt_managed_from_cstr(const char *src);
 char *rt_managed_printf_i64(const char *fmt, long long value);
 char *rt_managed_printf_f64(const char *fmt, double value);
 void  rt_managed_free(char *value);
+void  rt_managed_cleanup_all(void);
 size_t rt_managed_len(const char *value);
 int   rt_managed_contains(const char *data_ptr);
 void  rt_managed_register(char *data_ptr);
