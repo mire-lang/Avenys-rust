@@ -118,6 +118,9 @@ pub(crate) fn resolve_named_call(
             result, raw_tmp
         ));
         extra.push(format!("call void @free(ptr {})", raw_tmp));
+        if let Some(id) = result_id {
+            ctx.owned_string_temps.insert(id);
+        }
         String::new() // The result id was already registered by tmp_result
     } else {
         let result = tmp_result(ctx, ll_ret, result_id);

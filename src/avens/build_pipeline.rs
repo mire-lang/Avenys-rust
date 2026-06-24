@@ -106,6 +106,7 @@ fn generate_runtime_declarations(ir: &str) -> String {
         ("declare i32 @printf(", "declare i32 @printf(ptr, ...)"),
         ("declare i32 @fflush(", "declare i32 @fflush(ptr)"),
         ("declare i32 @strcmp(", "declare i32 @strcmp(ptr, ptr)"),
+        ("declare void @rt_managed_free(", "declare void @rt_managed_free(ptr)"),
         ("declare ptr @rt_string_concat(", "declare ptr @rt_string_concat(ptr, ptr)"),
         ("@.argc =", "@.argc = global i32 0"),
         ("@.argv =", "@.argv = global ptr null"),

@@ -1350,6 +1350,15 @@ impl LlvmIrGen {
             "  {result} = call ptr @rt_string_concat(ptr {}, ptr {})",
             lhs.repr, rhs.repr
         ));
+        if self.owned_temps.remove(&lhs.repr) {
+            self.body
+                .push(format!("  call void @rt_managed_free(ptr {})", lhs.repr));
+        }
+        if self.owned_temps.remove(&rhs.repr) {
+            self.body
+                .push(format!("  call void @rt_managed_free(ptr {})", rhs.repr));
+        }
+        self.owned_temps.insert(result.clone());
         LlValue {
             ty: LlType::Ptr,
             repr: result,

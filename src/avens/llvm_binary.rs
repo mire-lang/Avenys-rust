@@ -150,6 +150,15 @@ impl LlvmIrGen {
             self.body.push(format!(
                 "  {result} = call ptr @rt_string_concat(ptr {left_repr}, ptr {right_repr})"
             ));
+            if self.owned_temps.remove(&lhs.repr) {
+                self.body
+                    .push(format!("  call void @rt_managed_free(ptr {})", lhs.repr));
+            }
+            if self.owned_temps.remove(&rhs.repr) {
+                self.body
+                    .push(format!("  call void @rt_managed_free(ptr {})", rhs.repr));
+            }
+            self.owned_temps.insert(result.clone());
             return Ok(LlValue {
                 ty: LlType::Ptr,
                 repr: result,
@@ -684,6 +693,7 @@ impl LlvmIrGen {
                 }
             };
 
+            self.owned_temps.remove(&owned_value.repr);
             self.store_casted(ptr, ty.clone(), owned_value)?;
             if let Some(var) = self.vars.get_mut(name) {
                 var.data_type = data_type;

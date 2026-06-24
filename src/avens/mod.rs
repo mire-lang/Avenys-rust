@@ -76,6 +76,7 @@ struct LlvmIrGen {
     next_tmp: usize,
     next_label: usize,
     emitted_monomorph_wrappers: HashSet<String>,
+    owned_temps: HashSet<String>,
 }
 
 impl LlvmIrGen {
@@ -102,6 +103,7 @@ impl LlvmIrGen {
             next_tmp: 0,
             next_label: 0,
             emitted_monomorph_wrappers: HashSet::new(),
+            owned_temps: HashSet::new(),
         }
     }
 }

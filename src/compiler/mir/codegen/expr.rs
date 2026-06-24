@@ -21,6 +21,11 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::Store(dst, src) => {
             let (src_s, src_ty) = resolve_typed(src, ctx);
             let (dst_s, _) = resolve_typed(dst, ctx);
+            if src_ty == "ptr" {
+                if let MirValue::Temp(s_id) = src {
+                    ctx.owned_string_temps.remove(s_id);
+                }
+            }
             format!("store {} {}, ptr {}", src_ty, src_s, dst_s)
         }
         MirOp::Add(l, r) => {
@@ -43,6 +48,20 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 } else {
                     r_str.clone()
                 };
+                // Free owned operand temps that were previous concat results
+                if let MirValue::Temp(l_id) = l {
+                    if ctx.owned_string_temps.remove(l_id) {
+                        extra.push(format!("call void @rt_managed_free(ptr {})", l_str));
+                    }
+                }
+                if let MirValue::Temp(r_id) = r {
+                    if ctx.owned_string_temps.remove(r_id) {
+                        extra.push(format!("call void @rt_managed_free(ptr {})", r_str));
+                    }
+                }
+                if let Some(id) = inst.result {
+                    ctx.owned_string_temps.insert(id);
+                }
                 format!("%t{} = call ptr @rt_string_concat(ptr {}, ptr {})", result, lhs, rhs)
             } else {
                 let ty = if lt == "double" || rt == "double" { "double" } else { "i64" };

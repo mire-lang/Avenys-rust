@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use self::builtins::pal_extern_decls;
 use self::expr::compile_inst;
@@ -21,11 +21,14 @@ pub(crate) struct LlvmCtx<'a> {
     next_tmp: usize,
     next_extra: usize,
     next_string_id: usize,
-    defined_fn_names: std::collections::HashSet<String>,
-    extern_fn_names: std::collections::HashSet<String>,
+    defined_fn_names: HashSet<String>,
+    extern_fn_names: HashSet<String>,
     /// Maps extern function name -> its mire-wrapper LLVM name (e.g. "abs" -> "@fn_abs_wrapper").
     extern_wrapper_names: HashMap<String, String>,
     struct_types: &'a HashMap<String, Vec<(String, DataType)>>,
+    /// Temp IDs that own heap-allocated strings (results of rt_string_concat, pal calls, etc.).
+    /// Freed when consumed by another concat or stored to a variable.
+    pub(crate) owned_string_temps: HashSet<usize>,
 }
 
 pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
@@ -67,6 +70,7 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
         extern_fn_names,
         extern_wrapper_names,
         struct_types: &program.struct_types,
+        owned_string_temps: HashSet::new(),
     };
     for func in &program.functions {
         let func_ir = compile_function_to_llvm(func, &mut ctx);
