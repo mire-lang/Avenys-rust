@@ -253,6 +253,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 };
                 let result = tmp_result(ctx, "ptr", inst.result);
                 extra.push(format!("%t{} = inttoptr i64 0 to ptr", result));
+                extra.push("call i32 @fflush(ptr null)".to_string());
                 line
                 // result is the ptr returned by dasu (dummy null pointer)
             } else if name_opt == Some("env_args") {

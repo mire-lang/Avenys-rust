@@ -242,6 +242,7 @@ impl LlvmIrGen {
 
         let mut out = vec![
             "declare i32 @printf(ptr, ...)".to_string(),
+            "declare i32 @fflush(ptr)".to_string(),
             "declare i32 @scanf(ptr, ...)".to_string(),
             "declare i64 @strlen(ptr)".to_string(),
             "declare i64 @clock()".to_string(),

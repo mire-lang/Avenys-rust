@@ -389,16 +389,14 @@ impl LlvmIrGen {
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 {})",
                     value.repr
                 ));
-                Ok(())
             }
             LlType::I8 => {
                 self.body.push(format!(
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 {})",
                     value.repr
                 ));
-                Ok(())
             }
-            LlType::Struct(_) => Err(MireError::new(ErrorKind::Backend {
+            LlType::Struct(_) => return Err(MireError::new(ErrorKind::Backend {
                 message: "Struct type not supported here".to_string(),
             })),
             LlType::Ptr => {
@@ -406,7 +404,6 @@ impl LlvmIrGen {
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
                     value.repr
                 ));
-                Ok(())
             }
             LlType::I1 => {
                 let true_ptr = self.string_value("true");
@@ -419,16 +416,16 @@ impl LlvmIrGen {
                 self.body.push(format!(
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {select})"
                 ));
-                Ok(())
             }
             LlType::F64 => {
                 self.body.push(format!(
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_f64, double {})",
                     value.repr
                 ));
-                Ok(())
             }
         }
+        self.body.push("  call i32 @fflush(ptr null)".to_string());
+        Ok(())
     }
 
     pub(super) fn emit_dasu_expr(&mut self, expr: &Expression) -> Result<()> {

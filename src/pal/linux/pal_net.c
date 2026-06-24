@@ -107,6 +107,34 @@ int pal_net_set_nonblock(int64_t fd, int nonblock) {
     return fcntl((int)fd, F_SETFL, flags) == 0 ? 1 : 0;
 }
 
+int64_t pal_net_bind(int64_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons((uint16_t)port);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+    if (listen(fd, SOMAXCONN) < 0) {
+        close(fd);
+        return -1;
+    }
+    return (int64_t)fd;
+}
+
+int64_t pal_net_accept(int64_t server_fd) {
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    int client_fd = accept((int)server_fd, (struct sockaddr *)&client_addr, &len);
+    return (int64_t)client_fd;
+}
+
 char *pal_net_resolve(const char *host) {
     struct hostent *he = gethostbyname(host);
     if (!he || !he->h_addr_list[0]) return NULL;
