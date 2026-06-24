@@ -2,6 +2,22 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.11.32] - 2026-06-24
+
+### Fixed
+- **dasu dict render leak**: `emit_dasu_expr` now frees the rendered string
+  after printing Dict/Map types via `rt_managed_free`.
+- **split_list raw malloc leak**: `rt_strings_split_list` now uses
+  `rt_managed_from_cstr` and `rt_managed_from_slice` (managed) instead of
+  `rt_strdup_raw`/`rt_strdup_raw_n` (raw malloc).
+- **Managed string lookup performance**: replaced O(n) linked-list scan in
+  `rt_managed_contains` and `rt_managed_unregister` with an open-addressing
+  hash table for O(1) amortized lookup. Linked list retained for iteration
+  in `rt_managed_cleanup_all`; hash table keys freed on cleanup.
+
+### Docs
+- **SYNTAX.md**: Added `Avenys` maintainer identity note.
+
 ## [3.11.31] - 2026-06-24
 
 ### Fixed

@@ -1,6 +1,10 @@
 # Mire Language Reference
 
-Version: **3.11.31** · 285 tests passing
+Version: **3.11.32** · 285 tests passing
+
+> **Avenys** is the maintainer identity used by the Mire core team for
+> commits and releases. It represents the collective work of all
+> contributors to the project, not a single individual.
 
 ---
 
