@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ── Managed string tracking (linked list of allocated strings) ───────
+// ── Managed string tracking (linked list + hash table) ────────────────
 
 typedef struct MireManagedStringNode {
     char *data_ptr;
@@ -12,6 +12,77 @@ typedef struct MireManagedStringNode {
 
 static MireManagedStringNode *managed_strings = NULL;
 
+// Hash table for O(1) contains / unregister (replaces linear scan).
+#define MANAGED_HT_INITIAL 64
+
+static char **managed_ht_keys = NULL;
+static size_t managed_ht_cap = 0;
+static size_t managed_ht_len = 0;
+
+static size_t managed_ht_hash(const char *key) {
+    size_t h = (size_t)key;
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    return h;
+}
+
+static int managed_ht_put(const char *key) {
+    if (!managed_ht_keys || managed_ht_len * 2 >= managed_ht_cap) {
+        size_t new_cap = managed_ht_cap ? managed_ht_cap * 2 : MANAGED_HT_INITIAL;
+        char **new_keys = (char **)calloc(new_cap, sizeof(char *));
+        if (!new_keys) return 0;
+        for (size_t i = 0; i < managed_ht_cap; i++) {
+            if (managed_ht_keys[i]) {
+                size_t h = managed_ht_hash(managed_ht_keys[i]);
+                for (size_t j = 0; j < new_cap; j++) {
+                    size_t idx = (h + j) % new_cap;
+                    if (!new_keys[idx]) { new_keys[idx] = managed_ht_keys[i]; break; }
+                }
+            }
+        }
+        free(managed_ht_keys);
+        managed_ht_keys = new_keys;
+        managed_ht_cap = new_cap;
+    }
+    size_t h = managed_ht_hash(key);
+    for (size_t j = 0; j < managed_ht_cap; j++) {
+        size_t idx = (h + j) % managed_ht_cap;
+        if (!managed_ht_keys[idx]) {
+            managed_ht_keys[idx] = (char *)key;
+            managed_ht_len++;
+            return 1;
+        }
+        if (managed_ht_keys[idx] == key) return 1;
+    }
+    return 0;
+}
+
+static void managed_ht_remove(const char *key) {
+    if (!managed_ht_keys) return;
+    size_t h = managed_ht_hash(key);
+    for (size_t j = 0; j < managed_ht_cap; j++) {
+        size_t idx = (h + j) % managed_ht_cap;
+        if (!managed_ht_keys[idx]) return;
+        if (managed_ht_keys[idx] == key) {
+            managed_ht_keys[idx] = NULL;
+            managed_ht_len--;
+            return;
+        }
+    }
+}
+
+static int managed_ht_contains(const char *key) {
+    if (!managed_ht_keys) return 0;
+    size_t h = managed_ht_hash(key);
+    for (size_t j = 0; j < managed_ht_cap; j++) {
+        size_t idx = (h + j) % managed_ht_cap;
+        if (!managed_ht_keys[idx]) return 0;
+        if (managed_ht_keys[idx] == key) return 1;
+    }
+    return 0;
+}
+
 void rt_managed_register(char *data_ptr) {
     if (data_ptr == NULL) return;
     MireManagedStringNode *node = (MireManagedStringNode *)malloc(sizeof(MireManagedStringNode));
@@ -19,9 +90,11 @@ void rt_managed_register(char *data_ptr) {
     node->data_ptr = data_ptr;
     node->next = managed_strings;
     managed_strings = node;
+    managed_ht_put(data_ptr);
 }
 
 void rt_managed_unregister(char *data_ptr) {
+    managed_ht_remove(data_ptr);
     MireManagedStringNode **cursor = &managed_strings;
     while (*cursor != NULL) {
         if ((*cursor)->data_ptr == data_ptr) {
@@ -35,10 +108,7 @@ void rt_managed_unregister(char *data_ptr) {
 }
 
 int rt_managed_contains(const char *data_ptr) {
-    for (MireManagedStringNode *node = managed_strings; node != NULL; node = node->next) {
-        if (node->data_ptr == data_ptr) return 1;
-    }
-    return 0;
+    return managed_ht_contains(data_ptr);
 }
 
 // ── String growth ────────────────────────────────────────────────────
@@ -141,6 +211,10 @@ void rt_managed_cleanup_all(void) {
         node = next;
     }
     managed_strings = NULL;
+    free(managed_ht_keys);
+    managed_ht_keys = NULL;
+    managed_ht_cap = 0;
+    managed_ht_len = 0;
 }
 
 size_t rt_managed_len(const char *value) {

@@ -243,7 +243,7 @@ char *rt_strings_split_list(const char *input, const char *delimiter) {
     if (delim_len == 0) {
         void *list = rt_list_create(1, 8);
         if (!list) return NULL;
-        char *copy = rt_strdup_raw(input);
+        char *copy = rt_managed_from_cstr(input);
         if (copy) list = rt_list_push_ptr(list, copy);
         return (char *)list;
     }
@@ -257,13 +257,13 @@ char *rt_strings_split_list(const char *input, const char *delimiter) {
     cursor = input;
     while ((match = strstr(cursor, delimiter)) != NULL) {
         size_t seg_len = (size_t)(match - seg_start);
-        char *copy = rt_strdup_raw_n(seg_start, seg_len);
+        char *copy = rt_managed_from_slice(seg_start, seg_len);
         if (copy) list = rt_list_push_ptr(list, copy);
         seg_start = match + delim_len;
         cursor = seg_start;
     }
     size_t tail_len = input_len - (size_t)(seg_start - input);
-    char *tail = rt_strdup_raw_n(seg_start, tail_len);
+    char *tail = rt_managed_from_slice(seg_start, tail_len);
     if (tail) list = rt_list_push_ptr(list, tail);
     return (char *)list;
 }

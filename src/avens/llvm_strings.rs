@@ -439,9 +439,12 @@ impl LlvmIrGen {
                 ));
                 self.emit_print(&LlValue {
                     ty: LlType::Ptr,
-                    repr: rendered,
+                    repr: rendered.clone(),
                     owned: true,
                 })?;
+                self.body.push(format!(
+                    "  call void @rt_managed_free(ptr {rendered})"
+                ));
             }
             _ => self.emit_print(&value)?,
         }
