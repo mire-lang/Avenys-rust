@@ -27,10 +27,7 @@ pub struct WarningAnalyzer {
 }
 
 impl WarningAnalyzer {
-    pub fn new(
-        filter: WarningFilter,
-        deny: HashSet<DiagnosticCode>,
-    ) -> Self {
+    pub fn new(filter: WarningFilter, deny: HashSet<DiagnosticCode>) -> Self {
         Self {
             diagnostics: Vec::new(),
             filter,
@@ -52,11 +49,7 @@ impl WarningAnalyzer {
         }
     }
 
-    pub fn with_origins(
-        mut self,
-        statement_origins: &[PathBuf],
-        entry_path: &Path,
-    ) -> Self {
+    pub fn with_origins(mut self, statement_origins: &[PathBuf], entry_path: &Path) -> Self {
         self.statement_origins = statement_origins.to_vec();
         self.entry_path = Some(entry_path.to_path_buf());
         self.suppress_library_warnings = true;
@@ -74,9 +67,10 @@ impl WarningAnalyzer {
                 let origin = self.statement_origins.get(index);
                 if let Some(entry) = &self.entry_path
                     && let Some(origin) = origin
-                        && origin != entry {
-                            continue;
-                        }
+                    && origin != entry
+                {
+                    continue;
+                }
             }
             self.scan_defs(stmt);
         }
@@ -85,9 +79,10 @@ impl WarningAnalyzer {
                 let origin = self.statement_origins.get(index);
                 if let Some(entry) = &self.entry_path
                     && let Some(origin) = origin
-                        && origin != entry {
-                            continue;
-                        }
+                    && origin != entry
+                {
+                    continue;
+                }
             }
             self.scan_usage(stmt);
         }
@@ -298,10 +293,7 @@ impl WarningAnalyzer {
                     self.scan_defs(b);
                 }
             }
-            Statement::Load {
-                path,
-                ..
-            } => {
+            Statement::Load { path, .. } => {
                 self.imported_modules.push(Identifier {
                     name: path.join("::"),
                     data_type: DataType::Unknown,
@@ -350,7 +342,9 @@ impl WarningAnalyzer {
         self.current_column = column;
         match stmt {
             Statement::Expression(expr) => self.scan_expr(expr),
-            Statement::Let { value: Some(value), .. } => self.scan_expr(value),
+            Statement::Let {
+                value: Some(value), ..
+            } => self.scan_expr(value),
             Statement::Let { .. } => {}
             Statement::Assignment { value, .. } => {
                 self.scan_expr(value);

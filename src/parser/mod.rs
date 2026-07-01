@@ -24,7 +24,12 @@ pub fn parse(source: &str) -> Result<Program> {
 pub fn parse_with_recovery(source: &str) -> (Program, Vec<MireError>) {
     match tokenize(source) {
         Ok(tokens) => Parser::new(tokens).parse_with_recovery(),
-        Err(e) => (Program { statements: Vec::new() }, vec![e]),
+        Err(e) => (
+            Program {
+                statements: Vec::new(),
+            },
+            vec![e],
+        ),
     }
 }
 

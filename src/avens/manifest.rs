@@ -125,10 +125,7 @@ pub fn load_manifest_dependencies(cwd: &Path) -> Result<HashMap<String, MireDepe
 
 pub fn load_exports(cwd: &Path) -> Result<HashMap<String, String>> {
     match load_project_manifest(cwd) {
-        Ok(Some(manifest)) => Ok(manifest
-            .exports
-            .map(|e| e.entries)
-            .unwrap_or_default()),
+        Ok(Some(manifest)) => Ok(manifest.exports.map(|e| e.entries).unwrap_or_default()),
         Ok(None) => Ok(HashMap::new()),
         Err(e) => Err(e),
     }

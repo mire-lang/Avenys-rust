@@ -11,5 +11,5 @@ void pal_io_print_err(const char *msg) {
 }
 
 char *pal_io_readln(void) {
-    return rt_read_line(NULL);
+    return ireru(NULL);
 }

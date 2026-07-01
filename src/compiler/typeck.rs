@@ -16,12 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
-use crate::compiler::{location, AnalysisSelection};
+use crate::compiler::{AnalysisSelection, location};
 use crate::error::{MireError, Result};
 use crate::incremental::analysis_unit_key;
 use crate::parser::ast::{
-    AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement,
-    TraitMethodSig,
+    AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement, TraitMethodSig,
 };
 #[derive(Debug, Clone)]
 struct FunctionSig {
@@ -380,14 +379,12 @@ impl TypeChecker {
             | Statement::ExternLib { .. }
             | Statement::ExternFunction { .. }
             | Statement::Enum { .. }
-            | Statement::Module { .. }
-            => {}
+            | Statement::Module { .. } => {}
             Statement::Load { .. } => {}
         }
 
         Ok(())
     }
-
 }
 
 fn type_error(message: String) -> MireError {
@@ -801,7 +798,8 @@ mod tests {
     fn partial_typecheck_can_skip_nested_members_in_type_and_impl_members() {
         let mut program = Program {
             statements: vec![
-                Statement::Type { visibility: Visibility::Public, 
+                Statement::Type {
+                    visibility: Visibility::Public,
                     name: "PointType".to_string(),
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),

@@ -4,9 +4,9 @@ use mire::lexer::tokenize;
 use mire::parser::parse;
 use mire::{
     BuildMode, BuildOptions, CacheOverrides, ImportMode, MireDependency, MireError, OptLevel,
-    WarningConfig,     analyze_program, analyze_program_with_warnings_and_origins,
-    compile_file_with_avenys, default_output_dir, find_project_root, load_project_manifest,
-    load_program_with_metadata, project_manifest_path, write_manifest,
+    WarningConfig, analyze_program, analyze_program_with_warnings_and_origins,
+    compile_file_with_avenys, default_output_dir, find_project_root, load_program_with_metadata,
+    load_project_manifest, project_manifest_path, write_manifest,
 };
 use std::collections::HashSet;
 use std::env;
@@ -419,12 +419,15 @@ fn validate_command(cwd: &Path) -> Result<i32, MireError> {
         return Ok(1);
     }
 
-    let manifest = load_project_manifest(cwd)?
-        .ok_or_else(|| runtime_msg("Could not parse owl.toml"))?;
+    let manifest =
+        load_project_manifest(cwd)?.ok_or_else(|| runtime_msg("Could not parse owl.toml"))?;
 
     let mut has_issues = false;
 
-    println!("Project: {} v{}", manifest.project.name, manifest.project.version);
+    println!(
+        "Project: {} v{}",
+        manifest.project.name, manifest.project.version
+    );
     println!("Entry: {}", manifest.project.entry);
 
     println!("\n[dependencies]:");
@@ -435,10 +438,17 @@ fn validate_command(cwd: &Path) -> Result<i32, MireError> {
             let resolved = match dep {
                 MireDependency::PathOnly { path } | MireDependency::WithPath { path, .. } => {
                     let p = PathBuf::from(path);
-                    if p.is_absolute() { p.clone() } else { cwd.join(p) }
+                    if p.is_absolute() {
+                        p.clone()
+                    } else {
+                        cwd.join(p)
+                    }
                 }
                 MireDependency::Simple { version } => {
-                    println!("  {} = \"{}\" (version only, cannot validate path)", name, version);
+                    println!(
+                        "  {} = \"{}\" (version only, cannot validate path)",
+                        name, version
+                    );
                     continue;
                 }
             };
@@ -477,7 +487,9 @@ fn validate_command(cwd: &Path) -> Result<i32, MireError> {
 
 fn add_dependency_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     if args.is_empty() {
-        return Err(runtime_msg("Usage: mire owl add <name> [--path <path>] [--version <ver>]"));
+        return Err(runtime_msg(
+            "Usage: mire owl add <name> [--path <path>] [--version <ver>]",
+        ));
     }
     let name = &args[0];
 
@@ -490,7 +502,10 @@ fn add_dependency_command(cwd: &Path, args: &[String]) -> Result<i32, MireError>
         .ok_or_else(|| runtime_msg("Could not parse existing owl.toml"))?;
 
     if manifest.dependencies.entries.contains_key(name) {
-        return Err(runtime_msg(&format!("Dependency '{}' already exists", name)));
+        return Err(runtime_msg(&format!(
+            "Dependency '{}' already exists",
+            name
+        )));
     }
 
     let mut path = None;
@@ -500,11 +515,19 @@ fn add_dependency_command(cwd: &Path, args: &[String]) -> Result<i32, MireError>
         match args[i].as_str() {
             "--path" => {
                 i += 1;
-                path = Some(args.get(i).ok_or_else(|| runtime_msg("Missing value for --path"))?.clone());
+                path = Some(
+                    args.get(i)
+                        .ok_or_else(|| runtime_msg("Missing value for --path"))?
+                        .clone(),
+                );
             }
             "--version" => {
                 i += 1;
-                version = Some(args.get(i).ok_or_else(|| runtime_msg("Missing value for --version"))?.clone());
+                version = Some(
+                    args.get(i)
+                        .ok_or_else(|| runtime_msg("Missing value for --version"))?
+                        .clone(),
+                );
             }
             _ => return Err(runtime_msg(&format!("Unknown option: {}", args[i]))),
         }
@@ -512,10 +535,17 @@ fn add_dependency_command(cwd: &Path, args: &[String]) -> Result<i32, MireError>
     }
 
     let dep = match (path, version) {
-        (Some(p), Some(v)) => MireDependency::WithPath { version: v, path: p },
+        (Some(p), Some(v)) => MireDependency::WithPath {
+            version: v,
+            path: p,
+        },
         (Some(p), None) => MireDependency::PathOnly { path: p },
         (None, Some(v)) => MireDependency::Simple { version: v },
-        (None, None) => return Err(runtime_msg("Specify --path or --version for the dependency")),
+        (None, None) => {
+            return Err(runtime_msg(
+                "Specify --path or --version for the dependency",
+            ));
+        }
     };
 
     manifest.dependencies.entries.insert(name.clone(), dep);
@@ -539,7 +569,10 @@ fn remove_dependency_command(cwd: &Path, args: &[String]) -> Result<i32, MireErr
         .ok_or_else(|| runtime_msg("Could not parse existing owl.toml"))?;
 
     if manifest.dependencies.entries.remove(name).is_none() {
-        return Err(runtime_msg(&format!("Dependency '{}' not found in [dependencies]", name)));
+        return Err(runtime_msg(&format!(
+            "Dependency '{}' not found in [dependencies]",
+            name
+        )));
     }
 
     write_manifest(&manifest, &manifest_path)?;

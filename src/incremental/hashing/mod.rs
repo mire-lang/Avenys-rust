@@ -83,7 +83,8 @@ mod tests {
         let source_path = make_cache_path(&root);
         fs::write(&source_path, "pub fn main: () {}\n").expect("source");
 
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         cache
             .store_file(
                 &source_path,
@@ -123,7 +124,8 @@ mod tests {
         let source_path = make_cache_path(&root);
         fs::write(&source_path, "pub fn main: () {}\n").expect("source");
 
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         cache
             .store_analysis(&source_path, 0, &demo_program("typed_main"))
             .expect("store analysis");
@@ -176,7 +178,8 @@ mod tests {
         let source_path = make_cache_path(&root);
         setup_test_root(&root, &source_path);
 
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
 
         for i in 0..32 {
             let function_name = format!("main_{}", i);
@@ -186,7 +189,11 @@ mod tests {
         }
 
         // After 32 overwrites, only the latest analysis should be present
-        assert_eq!(cache.analysis_count(), 1, "overwrites should keep only 1 entry");
+        assert_eq!(
+            cache.analysis_count(),
+            1,
+            "overwrites should keep only 1 entry"
+        );
     }
 
     #[test]
@@ -196,7 +203,8 @@ mod tests {
         let source_path = make_cache_path(&root);
         fs::write(&source_path, "pub fn main: () {}\n").expect("source");
 
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         cache
             .store_file(
                 &source_path,
@@ -231,7 +239,8 @@ mod tests {
         let source_path = make_cache_path(&root);
         fs::write(&source_path, "pub fn main: () {}\n").expect("source");
 
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         let error = MireError::new(ErrorKind::Type {
             line: 1,
             column: 1,
@@ -265,7 +274,8 @@ mod tests {
         setup_test_root(&root, &source_path);
 
         // First load with no prior cache
-        let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         assert_eq!(cache.file_count(), 0);
         assert_eq!(cache.analysis_count(), 0);
         assert_eq!(cache.build_count(), 0);
@@ -375,7 +385,8 @@ mod tests {
     fn analysis_units_include_nested_children_for_supported_containers() {
         let program = Program {
             statements: vec![
-                Statement::Type { visibility: Visibility::Public, 
+                Statement::Type {
+                    visibility: Visibility::Public,
                     name: "PointType".to_string(),
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),
@@ -666,7 +677,8 @@ mod tests {
     fn invalidation_report_matches_member_access_to_type_field_units() {
         let previous = Program {
             statements: vec![
-                Statement::Type { visibility: Visibility::Public, 
+                Statement::Type {
+                    visibility: Visibility::Public,
                     name: "Point".to_string(),
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),

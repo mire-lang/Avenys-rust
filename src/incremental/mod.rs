@@ -3,8 +3,8 @@ use crate::error::mss::MssError;
 use crate::error::{ErrorKind, MireError, Result};
 use crate::parser::Program;
 use crate::parser::ast::{
-    AssignmentTarget, DataType, EnumVariantDef, Expression, Identifier, Literal,
-    QueryBinding, QueryGroup, QueryJoin, QueryOp, Statement, TraitMethodSig, Visibility,
+    AssignmentTarget, DataType, EnumVariantDef, Expression, Identifier, Literal, QueryBinding,
+    QueryGroup, QueryJoin, QueryOp, Statement, TraitMethodSig, Visibility,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -26,8 +26,8 @@ pub(crate) use dependencies::collect_statement_bindings;
 pub(crate) use dependencies::collect_statement_dependencies;
 pub use hasher::FxHasher;
 
-mod lru;
 mod cache;
+mod lru;
 mod utils;
 pub(crate) use utils::{
     analysis_cache_key, build_cache_key, manifest_cache_settings, mir_cache_key, normalize_path_key,
@@ -191,13 +191,37 @@ pub(crate) struct StoredMireError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum StoredErrorKind {
-    Lexer { line: usize, column: usize, message: String },
-    DeprecatedSyntax { line: usize, column: usize, message: String },
-    Parser { line: usize, column: usize, message: String },
-    Backend { message: String },
-    Runtime { message: String },
-    Type { line: usize, column: usize, message: String },
-    Ownership { line: usize, column: usize, kind: StoredMssError },
+    Lexer {
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    DeprecatedSyntax {
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    Parser {
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    Backend {
+        message: String,
+    },
+    Runtime {
+        message: String,
+    },
+    Type {
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    Ownership {
+        line: usize,
+        column: usize,
+        kind: StoredMssError,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,13 +270,53 @@ impl From<StoredMireError> for MireError {
 impl From<&ErrorKind> for StoredErrorKind {
     fn from(value: &ErrorKind) -> Self {
         match value {
-            ErrorKind::Lexer { line, column, message } => Self::Lexer { line: *line, column: *column, message: message.clone() },
-            ErrorKind::DeprecatedSyntax { line, column, message } => Self::DeprecatedSyntax { line: *line, column: *column, message: message.clone() },
-            ErrorKind::Parser { line, column, message } => Self::Parser { line: *line, column: *column, message: message.clone() },
-            ErrorKind::Backend { message } => Self::Backend { message: message.clone() },
-            ErrorKind::Runtime { message } => Self::Runtime { message: message.clone() },
-            ErrorKind::Type { line, column, message } => Self::Type { line: *line, column: *column, message: message.clone() },
-            ErrorKind::Ownership { line, column, kind } => Self::Ownership { line: *line, column: *column, kind: kind.into() },
+            ErrorKind::Lexer {
+                line,
+                column,
+                message,
+            } => Self::Lexer {
+                line: *line,
+                column: *column,
+                message: message.clone(),
+            },
+            ErrorKind::DeprecatedSyntax {
+                line,
+                column,
+                message,
+            } => Self::DeprecatedSyntax {
+                line: *line,
+                column: *column,
+                message: message.clone(),
+            },
+            ErrorKind::Parser {
+                line,
+                column,
+                message,
+            } => Self::Parser {
+                line: *line,
+                column: *column,
+                message: message.clone(),
+            },
+            ErrorKind::Backend { message } => Self::Backend {
+                message: message.clone(),
+            },
+            ErrorKind::Runtime { message } => Self::Runtime {
+                message: message.clone(),
+            },
+            ErrorKind::Type {
+                line,
+                column,
+                message,
+            } => Self::Type {
+                line: *line,
+                column: *column,
+                message: message.clone(),
+            },
+            ErrorKind::Ownership { line, column, kind } => Self::Ownership {
+                line: *line,
+                column: *column,
+                kind: kind.into(),
+            },
         }
     }
 }
@@ -260,13 +324,49 @@ impl From<&ErrorKind> for StoredErrorKind {
 impl From<StoredErrorKind> for ErrorKind {
     fn from(value: StoredErrorKind) -> Self {
         match value {
-            StoredErrorKind::Lexer { line, column, message } => Self::Lexer { line, column, message },
-            StoredErrorKind::DeprecatedSyntax { line, column, message } => Self::DeprecatedSyntax { line, column, message },
-            StoredErrorKind::Parser { line, column, message } => Self::Parser { line, column, message },
+            StoredErrorKind::Lexer {
+                line,
+                column,
+                message,
+            } => Self::Lexer {
+                line,
+                column,
+                message,
+            },
+            StoredErrorKind::DeprecatedSyntax {
+                line,
+                column,
+                message,
+            } => Self::DeprecatedSyntax {
+                line,
+                column,
+                message,
+            },
+            StoredErrorKind::Parser {
+                line,
+                column,
+                message,
+            } => Self::Parser {
+                line,
+                column,
+                message,
+            },
             StoredErrorKind::Backend { message } => Self::Backend { message },
             StoredErrorKind::Runtime { message } => Self::Runtime { message },
-            StoredErrorKind::Type { line, column, message } => Self::Type { line, column, message },
-            StoredErrorKind::Ownership { line, column, kind } => Self::Ownership { line, column, kind: kind.into() },
+            StoredErrorKind::Type {
+                line,
+                column,
+                message,
+            } => Self::Type {
+                line,
+                column,
+                message,
+            },
+            StoredErrorKind::Ownership { line, column, kind } => Self::Ownership {
+                line,
+                column,
+                kind: kind.into(),
+            },
         }
     }
 }

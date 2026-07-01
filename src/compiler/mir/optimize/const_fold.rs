@@ -19,29 +19,29 @@ pub(super) fn constant_fold_function(func: &mut MirFunction) -> usize {
 fn try_fold(inst: &MirInst) -> Option<MirConst> {
     use MirOp::*;
     match &inst.op {
-        Add(MirValue::Const(a), MirValue::Const(b)) => binop_const(a, b, |x, y| x + y, |x, y| x + y),
-        Sub(MirValue::Const(a), MirValue::Const(b)) => binop_const(a, b, |x, y| x - y, |x, y| x - y),
-        Mul(MirValue::Const(a), MirValue::Const(b)) => binop_const(a, b, |x, y| x * y, |x, y| x * y),
-        SDiv(MirValue::Const(a), MirValue::Const(b)) => {
-            match (a, b) {
-                (MirConst::Int(0), _) => None,
-                (_, MirConst::Int(0)) => None,
-                _ => binop_const(a, b, |x, y| x / y, |_, _| 0.0),
-            }
+        Add(MirValue::Const(a), MirValue::Const(b)) => {
+            binop_const(a, b, |x, y| x + y, |x, y| x + y)
         }
-        SRem(MirValue::Const(a), MirValue::Const(b)) => {
-            match (a, b) {
-                (MirConst::Int(0), _) => None,
-                (_, MirConst::Int(0)) => None,
-                _ => binop_const(a, b, |x, y| x % y, |_, _| 0.0),
-            }
+        Sub(MirValue::Const(a), MirValue::Const(b)) => {
+            binop_const(a, b, |x, y| x - y, |x, y| x - y)
         }
-        Shl(MirValue::Const(a), MirValue::Const(b)) => {
-            match (a, b) {
-                (MirConst::Int(x), MirConst::Int(y)) => Some(MirConst::Int(x << y)),
-                _ => None,
-            }
+        Mul(MirValue::Const(a), MirValue::Const(b)) => {
+            binop_const(a, b, |x, y| x * y, |x, y| x * y)
         }
+        SDiv(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
+            (MirConst::Int(0), _) => None,
+            (_, MirConst::Int(0)) => None,
+            _ => binop_const(a, b, |x, y| x / y, |_, _| 0.0),
+        },
+        SRem(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
+            (MirConst::Int(0), _) => None,
+            (_, MirConst::Int(0)) => None,
+            _ => binop_const(a, b, |x, y| x % y, |_, _| 0.0),
+        },
+        Shl(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
+            (MirConst::Int(x), MirConst::Int(y)) => Some(MirConst::Int(x << y)),
+            _ => None,
+        },
         ICmp(cmp, MirValue::Const(a), MirValue::Const(b)) => cmp_const(cmp, a, b),
         FCmp(cmp, MirValue::Const(a), MirValue::Const(b)) => fcmp_const(cmp, a, b),
         ZExt(MirValue::Const(MirConst::Bool(v)), _) => Some(MirConst::Int(if *v { 1 } else { 0 })),
@@ -67,7 +67,9 @@ fn cmp_const(cmp: &MirCmp, a: &MirConst, b: &MirConst) -> Option<MirConst> {
         (MirConst::Int(x), MirConst::Int(y)) => Some(int_cmp(cmp, *x, *y)),
         (MirConst::Float(x), MirConst::Float(y)) => Some(float_cmp(cmp, *x, *y)),
         (MirConst::Bool(x), MirConst::Bool(y)) => Some(int_cmp(cmp, *x as i64, *y as i64)),
-        (MirConst::Char(x), MirConst::Char(y)) => Some(int_cmp(cmp, *x as u32 as i64, *y as u32 as i64)),
+        (MirConst::Char(x), MirConst::Char(y)) => {
+            Some(int_cmp(cmp, *x as u32 as i64, *y as u32 as i64))
+        }
         _ => None,
     };
     result.map(MirConst::Bool)

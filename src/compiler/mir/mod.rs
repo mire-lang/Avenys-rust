@@ -266,7 +266,10 @@ pub enum MirValue {
     /// environment pointer. For top-level functions and non-capturing closures
     /// this is `Const(None)` (i.e. `ptr null`). For capturing closures it is a
     /// temp holding the allocated environment struct.
-    FunctionRef { name: String, env: Box<MirValue> },
+    FunctionRef {
+        name: String,
+        env: Box<MirValue>,
+    },
 }
 
 #[derive(Clone, Debug)]

@@ -18,7 +18,15 @@ fn max_temp_in_value(value: &MirValue, max: &mut usize) {
 fn max_temp_in_op(op: &MirOp, max: &mut usize) {
     match op {
         MirOp::Alloca(_) => {}
-        MirOp::Load(v, _) | MirOp::PtrToInt(v, _) | MirOp::IntToPtr(v, _) | MirOp::BitCast(v, _) | MirOp::ZExt(v, _) | MirOp::Trunc(v, _) | MirOp::Sitofp(v, _) | MirOp::Fptosi(v, _) | MirOp::Copy(v) => {
+        MirOp::Load(v, _)
+        | MirOp::PtrToInt(v, _)
+        | MirOp::IntToPtr(v, _)
+        | MirOp::BitCast(v, _)
+        | MirOp::ZExt(v, _)
+        | MirOp::Trunc(v, _)
+        | MirOp::Sitofp(v, _)
+        | MirOp::Fptosi(v, _)
+        | MirOp::Copy(v) => {
             max_temp_in_value(v, max);
         }
         MirOp::Store(d, s)
@@ -85,9 +93,14 @@ pub fn inlining(program: &mut MirProgram) -> usize {
 
     loop {
         let candidate = program.functions.iter().enumerate().find(|(i, f)| {
-            !tried.contains(i) && f.name != "main" && !f.blocks.is_empty() && callee_instr_count(f) <= 5
+            !tried.contains(i)
+                && f.name != "main"
+                && !f.blocks.is_empty()
+                && callee_instr_count(f) <= 5
         });
-        let Some((callee_idx, _)) = candidate else { break };
+        let Some((callee_idx, _)) = candidate else {
+            break;
+        };
         tried.insert(callee_idx);
 
         let callee_name = program.functions[callee_idx].name.clone();
@@ -138,9 +151,11 @@ fn inline_into(caller: &mut MirFunction, callee: &MirFunction) -> bool {
         for (bi, block) in caller.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
                 if let MirOp::Call(MirValue::FunctionRef { name, .. }, _, _) = &inst.op
-                    && name == &callee.name && ii + 1 == block.insts.len() {
-                        sites.push((bi, ii));
-                    }
+                    && name == &callee.name
+                    && ii + 1 == block.insts.len()
+                {
+                    sites.push((bi, ii));
+                }
             }
         }
         sites
@@ -230,14 +245,20 @@ fn remap_op(op: &MirOp, temp_offset: usize, callee: &MirFunction, args: &[MirVal
     }
 }
 
-fn remap_val(val: &MirValue, temp_offset: usize, callee: &MirFunction, args: &[MirValue]) -> MirValue {
+fn remap_val(
+    val: &MirValue,
+    temp_offset: usize,
+    callee: &MirFunction,
+    args: &[MirValue],
+) -> MirValue {
     match val {
         MirValue::Temp(id) => MirValue::Temp(*id + temp_offset),
-        MirValue::Param(pname) => {
-            callee.params.iter().position(|p| p.name == *pname)
-                .and_then(|pi| args.get(pi).cloned())
-                .unwrap_or_else(|| MirValue::Global(pname.clone()))
-        }
+        MirValue::Param(pname) => callee
+            .params
+            .iter()
+            .position(|p| p.name == *pname)
+            .and_then(|pi| args.get(pi).cloned())
+            .unwrap_or_else(|| MirValue::Global(pname.clone())),
         other => other.clone(),
     }
 }
@@ -261,41 +282,103 @@ mod tests {
     }
 
     fn block(id: usize, insts: Vec<MirInst>, term: MirTerminator) -> MirBlock {
-        MirBlock { id, label: format!("b{id}"), insts, terminator: term }
+        MirBlock {
+            id,
+            label: format!("b{id}"),
+            insts,
+            terminator: term,
+        }
     }
 
     fn inst(result: usize, op: MirOp) -> MirInst {
-        MirInst { result: Some(result), op, loc: (0, 0) }
+        MirInst {
+            result: Some(result),
+            op,
+            loc: (0, 0),
+        }
     }
 
     #[test]
     fn inline_simple_noop() {
         // callee: returns constant 42
-        let callee = make_func("add42", vec![
-            block(0, vec![inst(0, MirOp::Add(MirValue::Const(MirConst::Int(40)), MirValue::Const(MirConst::Int(2))))], MirTerminator::Ret(Some(MirValue::Temp(0)))),
-        ]);
+        let callee = make_func(
+            "add42",
+            vec![block(
+                0,
+                vec![inst(
+                    0,
+                    MirOp::Add(
+                        MirValue::Const(MirConst::Int(40)),
+                        MirValue::Const(MirConst::Int(2)),
+                    ),
+                )],
+                MirTerminator::Ret(Some(MirValue::Temp(0))),
+            )],
+        );
         // caller: calls add42
-        let caller = make_func("main", vec![
-            block(0, vec![inst(0, MirOp::Call(MirValue::FunctionRef { name: "add42".into(), env: Box::new(MirValue::Const(MirConst::None)) }, vec![], MirType { data_type: DataType::I64 }))], MirTerminator::Ret(Some(MirValue::Temp(0))))
-        ]);
-        let mut prog = MirProgram { functions: vec![caller, callee], entry_point: None, extern_functions: vec![], extern_libs: vec![], struct_types: HashMap::new() };
+        let caller = make_func(
+            "main",
+            vec![block(
+                0,
+                vec![inst(
+                    0,
+                    MirOp::Call(
+                        MirValue::FunctionRef {
+                            name: "add42".into(),
+                            env: Box::new(MirValue::Const(MirConst::None)),
+                        },
+                        vec![],
+                        MirType {
+                            data_type: DataType::I64,
+                        },
+                    ),
+                )],
+                MirTerminator::Ret(Some(MirValue::Temp(0))),
+            )],
+        );
+        let mut prog = MirProgram {
+            functions: vec![caller, callee],
+            entry_point: None,
+            extern_functions: vec![],
+            extern_libs: vec![],
+            struct_types: HashMap::new(),
+        };
         let count = inlining(&mut prog);
         assert_eq!(count, 1, "should have inlined add42");
         assert_eq!(prog.functions.len(), 1, "callee should be removed");
         assert_eq!(prog.functions[0].name, "main");
         // main should have more blocks than before (callee blocks inlined)
-        assert!(prog.functions[0].blocks.len() > 1, "should have inlined blocks");
+        assert!(
+            prog.functions[0].blocks.len() > 1,
+            "should have inlined blocks"
+        );
     }
 
     #[test]
     fn inline_no_callers_untouched() {
-        let callee = make_func("helper", vec![
-            block(0, vec![], MirTerminator::Ret(Some(MirValue::Const(MirConst::Int(1))))),
-        ]);
-        let caller = make_func("main", vec![
-            block(0, vec![], MirTerminator::Ret(Some(MirValue::Const(MirConst::Int(0))))),
-        ]);
-        let mut prog = MirProgram { functions: vec![caller, callee], entry_point: None, extern_functions: vec![], extern_libs: vec![], struct_types: HashMap::new() };
+        let callee = make_func(
+            "helper",
+            vec![block(
+                0,
+                vec![],
+                MirTerminator::Ret(Some(MirValue::Const(MirConst::Int(1)))),
+            )],
+        );
+        let caller = make_func(
+            "main",
+            vec![block(
+                0,
+                vec![],
+                MirTerminator::Ret(Some(MirValue::Const(MirConst::Int(0)))),
+            )],
+        );
+        let mut prog = MirProgram {
+            functions: vec![caller, callee],
+            entry_point: None,
+            extern_functions: vec![],
+            extern_libs: vec![],
+            struct_types: HashMap::new(),
+        };
         let count = inlining(&mut prog);
         assert_eq!(count, 0, "no inlining should happen");
         assert_eq!(prog.functions.len(), 2, "both functions remain");
@@ -304,20 +387,69 @@ mod tests {
     #[test]
     fn inline_large_callee_unchanged() {
         // callee has 6 instructions (> 5 threshold)
-        let callee = make_func("big", vec![
-            block(0, vec![
-                inst(0, MirOp::Add(MirValue::Const(MirConst::Int(1)), MirValue::Const(MirConst::Int(2)))),
-                inst(1, MirOp::Add(MirValue::Temp(0), MirValue::Const(MirConst::Int(3)))),
-                inst(2, MirOp::Add(MirValue::Temp(1), MirValue::Const(MirConst::Int(4)))),
-                inst(3, MirOp::Add(MirValue::Temp(2), MirValue::Const(MirConst::Int(5)))),
-                inst(4, MirOp::Add(MirValue::Temp(3), MirValue::Const(MirConst::Int(6)))),
-                inst(5, MirOp::Add(MirValue::Temp(4), MirValue::Const(MirConst::Int(7)))),
-            ], MirTerminator::Ret(Some(MirValue::Temp(5)))),
-        ]);
-        let caller = make_func("main", vec![
-            block(0, vec![inst(0, MirOp::Call(MirValue::FunctionRef { name: "big".into(), env: Box::new(MirValue::Const(MirConst::None)) }, vec![], MirType { data_type: DataType::I64 }))], MirTerminator::Ret(Some(MirValue::Temp(0))))
-        ]);
-        let mut prog = MirProgram { functions: vec![caller, callee], entry_point: None, extern_functions: vec![], extern_libs: vec![], struct_types: HashMap::new() };
+        let callee = make_func(
+            "big",
+            vec![block(
+                0,
+                vec![
+                    inst(
+                        0,
+                        MirOp::Add(
+                            MirValue::Const(MirConst::Int(1)),
+                            MirValue::Const(MirConst::Int(2)),
+                        ),
+                    ),
+                    inst(
+                        1,
+                        MirOp::Add(MirValue::Temp(0), MirValue::Const(MirConst::Int(3))),
+                    ),
+                    inst(
+                        2,
+                        MirOp::Add(MirValue::Temp(1), MirValue::Const(MirConst::Int(4))),
+                    ),
+                    inst(
+                        3,
+                        MirOp::Add(MirValue::Temp(2), MirValue::Const(MirConst::Int(5))),
+                    ),
+                    inst(
+                        4,
+                        MirOp::Add(MirValue::Temp(3), MirValue::Const(MirConst::Int(6))),
+                    ),
+                    inst(
+                        5,
+                        MirOp::Add(MirValue::Temp(4), MirValue::Const(MirConst::Int(7))),
+                    ),
+                ],
+                MirTerminator::Ret(Some(MirValue::Temp(5))),
+            )],
+        );
+        let caller = make_func(
+            "main",
+            vec![block(
+                0,
+                vec![inst(
+                    0,
+                    MirOp::Call(
+                        MirValue::FunctionRef {
+                            name: "big".into(),
+                            env: Box::new(MirValue::Const(MirConst::None)),
+                        },
+                        vec![],
+                        MirType {
+                            data_type: DataType::I64,
+                        },
+                    ),
+                )],
+                MirTerminator::Ret(Some(MirValue::Temp(0))),
+            )],
+        );
+        let mut prog = MirProgram {
+            functions: vec![caller, callee],
+            entry_point: None,
+            extern_functions: vec![],
+            extern_libs: vec![],
+            struct_types: HashMap::new(),
+        };
         let count = inlining(&mut prog);
         assert_eq!(count, 0, "big function should not be inlined");
         assert_eq!(prog.functions.len(), 2);

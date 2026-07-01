@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::ast::{
-    AssignmentTarget, DataType, Expression, Program, QueryOp, Statement,
-};
+use crate::parser::ast::{AssignmentTarget, DataType, Expression, Program, QueryOp, Statement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionInfo {
@@ -435,8 +433,7 @@ impl SemanticModelBuilder {
             | Statement::ExternFunction { .. }
             | Statement::Load { .. }
             | Statement::Enum { .. }
-            | Statement::Module { .. }
-            => {}
+            | Statement::Module { .. } => {}
         }
     }
 
@@ -728,5 +725,4 @@ impl SemanticModelBuilder {
             QueryOp::Export { .. } | QueryOp::Import { .. } => {}
         }
     }
-
 }

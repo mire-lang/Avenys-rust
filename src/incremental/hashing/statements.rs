@@ -113,7 +113,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             }
             hash_statements(default, hasher);
         }
-        Statement::Type { visibility: _, 
+        Statement::Type {
+            visibility: _,
             name,
             type_params,
             type_param_bounds,
@@ -176,11 +177,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
                 hash_expression(expr, hasher);
             }
         }
-        Statement::Load {
-            path,
-            alias,
-            items,
-        } => {
+        Statement::Load { path, alias, items } => {
             hasher.write_u8(23);
             path.hash(hasher);
             alias.hash(hasher);
@@ -212,7 +209,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             hash_option_expr(value, hasher);
             hash_data_type(inner_type, hasher);
         }
-        Statement::Enum { visibility: _, 
+        Statement::Enum {
+            visibility: _,
             name,
             type_params,
             type_param_bounds,

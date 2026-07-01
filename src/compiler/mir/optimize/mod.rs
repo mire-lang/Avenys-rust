@@ -87,65 +87,128 @@ mod tests {
 
     #[test]
     fn alg_x_plus_0() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Add(t(0), i64(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Add(t(0), i64(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     #[test]
     fn alg_0_plus_x() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Add(i64(0), t(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Add(i64(0), t(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     #[test]
     fn alg_x_mul_1() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(1)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(1)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     #[test]
     fn alg_1_mul_x() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(i64(1), t(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(i64(1), t(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     #[test]
     fn alg_x_mul_0() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Const(MirConst::Int(0)))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Const(MirConst::Int(0)))
+        ));
     }
 
     #[test]
     fn alg_0_mul_x() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(i64(0), t(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(i64(0), t(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Const(MirConst::Int(0)))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Const(MirConst::Int(0)))
+        ));
     }
 
     #[test]
     fn alg_x_minus_0() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Sub(t(0), i64(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Sub(t(0), i64(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     #[test]
     fn alg_x_minus_x() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Sub(t(0), t(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Sub(t(0), t(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Const(MirConst::Int(0)))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Const(MirConst::Int(0)))
+        ));
     }
 
     #[test]
     fn alg_x_div_1() {
-        let mut f = make_func("f", vec![inst(1, MirOp::SDiv(t(0), i64(1)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::SDiv(t(0), i64(1)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(algebraic_simplify(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[0].op, MirOp::Copy(MirValue::Temp(0))));
+        assert!(matches!(
+            f.blocks[0].insts[0].op,
+            MirOp::Copy(MirValue::Temp(0))
+        ));
     }
 
     // ── Copy propagation ──
@@ -162,7 +225,10 @@ mod tests {
             MirTerminator::Ret(Some(t(2))),
         );
         assert_eq!(copy_propagate(&mut f), 1);
-        assert!(matches!(f.blocks[0].insts[1].op, MirOp::Add(MirValue::Temp(0), _)));
+        assert!(matches!(
+            f.blocks[0].insts[1].op,
+            MirOp::Add(MirValue::Temp(0), _)
+        ));
     }
 
     #[test]
@@ -181,14 +247,21 @@ mod tests {
         let count = copy_propagate(&mut f);
         assert!(count >= 2, "expected at least 2 replacements, got {count}");
         // t2 = Copy(x) — already handled by first pass
-        assert!(matches!(f.blocks[0].insts[2].op, MirOp::Add(MirValue::Temp(0), _)));
+        assert!(matches!(
+            f.blocks[0].insts[2].op,
+            MirOp::Add(MirValue::Temp(0), _)
+        ));
     }
 
     // ── Dead code elimination ──
 
     #[test]
     fn dce_removes_unused_add() {
-        let mut f = make_func("f", vec![inst(1, MirOp::Add(i64(1), i64(2)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Add(i64(1), i64(2)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(dce_function(&mut f), 1);
         assert!(f.blocks[0].insts.is_empty());
     }
@@ -197,7 +270,16 @@ mod tests {
     fn dce_preserves_call() {
         let mut f = make_func(
             "f",
-            vec![void_inst(MirOp::Call(MirValue::FunctionRef { name: "print".to_string(), env: Box::new(MirValue::Const(MirConst::None)) }, vec![i64(42)], MirType { data_type: DataType::None }))],
+            vec![void_inst(MirOp::Call(
+                MirValue::FunctionRef {
+                    name: "print".to_string(),
+                    env: Box::new(MirValue::Const(MirConst::None)),
+                },
+                vec![i64(42)],
+                MirType {
+                    data_type: DataType::None,
+                },
+            ))],
             MirTerminator::Ret(None),
         );
         assert_eq!(dce_function(&mut f), 0);
@@ -238,7 +320,19 @@ mod tests {
         // result = Call(...) — has side effect, kept even if result unused
         let mut f = make_func(
             "f",
-            vec![inst(1, MirOp::Call(MirValue::FunctionRef { name: "print".to_string(), env: Box::new(MirValue::Const(MirConst::None)) }, vec![i64(42)], MirType { data_type: DataType::None }))],
+            vec![inst(
+                1,
+                MirOp::Call(
+                    MirValue::FunctionRef {
+                        name: "print".to_string(),
+                        env: Box::new(MirValue::Const(MirConst::None)),
+                    },
+                    vec![i64(42)],
+                    MirType {
+                        data_type: DataType::None,
+                    },
+                ),
+            )],
             MirTerminator::Ret(None),
         );
         assert_eq!(dce_function(&mut f), 0);
@@ -249,14 +343,22 @@ mod tests {
 
     #[test]
     fn fold_brcond_true() {
-        let mut f = make_func("f", vec![], MirTerminator::BrCond(MirValue::Const(MirConst::Bool(true)), 1, 2));
+        let mut f = make_func(
+            "f",
+            vec![],
+            MirTerminator::BrCond(MirValue::Const(MirConst::Bool(true)), 1, 2),
+        );
         assert_eq!(fold_constant_branches(&mut f), 1);
         assert!(matches!(f.blocks[0].terminator, MirTerminator::Br(1)));
     }
 
     #[test]
     fn fold_brcond_false() {
-        let mut f = make_func("f", vec![], MirTerminator::BrCond(MirValue::Const(MirConst::Bool(false)), 1, 2));
+        let mut f = make_func(
+            "f",
+            vec![],
+            MirTerminator::BrCond(MirValue::Const(MirConst::Bool(false)), 1, 2),
+        );
         assert_eq!(fold_constant_branches(&mut f), 1);
         assert!(matches!(f.blocks[0].terminator, MirTerminator::Br(2)));
     }
@@ -300,7 +402,10 @@ mod tests {
         let mut f = make_multi_block(vec![
             (vec![], MirTerminator::Br(1)),
             (vec![], MirTerminator::Ret(None)),
-            (vec![inst(0, MirOp::Add(i64(1), i64(2)))], MirTerminator::Ret(None)),
+            (
+                vec![inst(0, MirOp::Add(i64(1), i64(2)))],
+                MirTerminator::Ret(None),
+            ),
         ]);
         assert_eq!(dead_block_elim(&mut f), 1);
         assert_eq!(f.blocks.len(), 2);
@@ -309,9 +414,7 @@ mod tests {
     #[test]
     fn dead_elim_keeps_entry() {
         // block 0 alone, no predecessors — entry must be kept
-        let mut f = make_multi_block(vec![
-            (vec![], MirTerminator::Ret(None)),
-        ]);
+        let mut f = make_multi_block(vec![(vec![], MirTerminator::Ret(None))]);
         assert_eq!(dead_block_elim(&mut f), 0);
         assert_eq!(f.blocks.len(), 1);
     }
@@ -329,7 +432,10 @@ mod tests {
                 MirTerminator::BrCond(MirValue::Temp(0), 1, 2),
             ),
             (vec![], MirTerminator::Ret(None)),
-            (vec![inst(1, MirOp::Add(i64(1), i64(2)))], MirTerminator::Ret(None)),
+            (
+                vec![inst(1, MirOp::Add(i64(1), i64(2)))],
+                MirTerminator::Ret(None),
+            ),
         ]);
         // Apply passes in order
         copy_propagate(&mut f);
@@ -346,34 +452,59 @@ mod tests {
     #[test]
     fn sr_mul_by_2_to_shl() {
         // x * 2 → x << 1
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(2)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(2)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 1);
         let inst = &f.blocks[0].insts[0];
-        assert!(matches!(inst.op, MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(1)))));
+        assert!(matches!(
+            inst.op,
+            MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(1)))
+        ));
     }
 
     #[test]
     fn sr_mul_by_8_to_shl_3() {
         // x * 8 → x << 3
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(8)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(8)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 1);
         let inst = &f.blocks[0].insts[0];
-        assert!(matches!(inst.op, MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(3)))));
+        assert!(matches!(
+            inst.op,
+            MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(3)))
+        ));
     }
 
     #[test]
     fn sr_commutative_const_first() {
         // 4 * x → x << 2
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(i64(4), t(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(i64(4), t(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 1);
         let inst = &f.blocks[0].insts[0];
-        assert!(matches!(inst.op, MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(2)))));
+        assert!(matches!(
+            inst.op,
+            MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(2)))
+        ));
     }
 
     #[test]
     fn sr_non_power_of_two_unchanged() {
         // x * 3 → unchanged (not a power of 2)
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(3)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(3)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 0);
         assert!(matches!(f.blocks[0].insts[0].op, MirOp::Mul(_, _)));
     }
@@ -381,7 +512,11 @@ mod tests {
     #[test]
     fn sr_zero_unchanged() {
         // x * 0 → unchanged (handled by algebraic_simplify)
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(0)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(0)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 0);
         assert!(matches!(f.blocks[0].insts[0].op, MirOp::Mul(_, _)));
     }
@@ -389,7 +524,11 @@ mod tests {
     #[test]
     fn sr_negative_unchanged() {
         // x * -2 → unchanged (negative, not a power of 2 in i64 sense)
-        let mut f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(-2)))], MirTerminator::Ret(None));
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(-2)))],
+            MirTerminator::Ret(None),
+        );
         assert_eq!(strength_reduce(&mut f), 0);
         assert!(matches!(f.blocks[0].insts[0].op, MirOp::Mul(_, _)));
     }
@@ -398,7 +537,11 @@ mod tests {
     fn sr_in_pipeline() {
         // End-to-end: Mul by power of 2 should be strength-reduced in optimize()
         // Use Ret(Temp(1)) so DCE doesn't remove the instruction
-        let f = make_func("f", vec![inst(1, MirOp::Mul(t(0), i64(16)))], MirTerminator::Ret(Some(MirValue::Temp(1))));
+        let f = make_func(
+            "f",
+            vec![inst(1, MirOp::Mul(t(0), i64(16)))],
+            MirTerminator::Ret(Some(MirValue::Temp(1))),
+        );
         let mut prog = MirProgram {
             functions: vec![f],
             entry_point: None,
@@ -407,9 +550,15 @@ mod tests {
             struct_types: HashMap::new(),
         };
         let total = optimize(&mut prog);
-        assert!(total >= 1, "expected at least strength_reduction, got {total}");
+        assert!(
+            total >= 1,
+            "expected at least strength_reduction, got {total}"
+        );
         let inst = &prog.functions[0].blocks[0].insts[0];
-        assert!(matches!(inst.op, MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(4)))));
+        assert!(matches!(
+            inst.op,
+            MirOp::Shl(MirValue::Temp(0), MirValue::Const(MirConst::Int(4)))
+        ));
     }
 
     #[test]
@@ -432,9 +581,15 @@ mod tests {
             struct_types: HashMap::new(),
         };
         let total = optimize(&mut prog);
-        assert!(total >= 3, "expected copy_prop + fold + dead_elim + merge, got {total}");
+        assert!(
+            total >= 3,
+            "expected copy_prop + fold + dead_elim + merge, got {total}"
+        );
         // After all passes, the two remaining blocks should be merged into one
         assert_eq!(prog.functions[0].blocks.len(), 1);
-        assert!(matches!(prog.functions[0].blocks[0].terminator, MirTerminator::Ret(None)));
+        assert!(matches!(
+            prog.functions[0].blocks[0].terminator,
+            MirTerminator::Ret(None)
+        ));
     }
 }

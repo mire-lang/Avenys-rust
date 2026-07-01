@@ -21,9 +21,6 @@ pub(crate) fn llvm_type_str(dt: &DataType) -> String {
 }
 
 pub(crate) fn render_struct_llvm_type(fields: &[(String, DataType)]) -> String {
-    let tys: Vec<String> = fields
-        .iter()
-        .map(|(_, dt)| llvm_type_str(dt))
-        .collect();
+    let tys: Vec<String> = fields.iter().map(|(_, dt)| llvm_type_str(dt)).collect();
     format!("{{ {} }}", tys.join(", "))
 }

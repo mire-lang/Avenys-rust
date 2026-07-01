@@ -1,5 +1,5 @@
-use super::*;
 use super::simplify::{compute_predecessor_counts, fix_block_ids};
+use super::*;
 use std::collections::HashSet;
 
 pub(super) fn dead_block_elim(func: &mut MirFunction) -> usize {

@@ -223,7 +223,6 @@ impl MireError {
             .get_or_insert_with(|| Box::new(MireErrorContext::default()))
             .as_mut()
     }
-
 }
 
 impl From<std::io::Error> for MireError {

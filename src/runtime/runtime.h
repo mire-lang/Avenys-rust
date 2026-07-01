@@ -127,9 +127,9 @@ int64_t rt_string_to_i64(const char *value);
 int64_t rt_strings_index_of(const char *s, const char *sub);
 
 // ── I/O helpers ──────────────────────────────────────────────────────
-char   *rt_read_line(const char *prompt);
+void   *dasu(int64_t value);
+char   *ireru(const char *prompt);
 void   *rt_get_args(int argc, char **argv);
-void    dasu_i64(int64_t value);
 
 // ── Time / CPU string formatters ──────────────────────────────────────
 char   *rt_time_elapsed_ms_str(int64_t start_ns);

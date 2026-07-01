@@ -1,5 +1,5 @@
-use crate::compiler::mir::*;
 use super::MirLower;
+use crate::compiler::mir::*;
 use crate::parser::ast::{DataType, Statement};
 use std::collections::HashMap;
 
@@ -120,13 +120,8 @@ impl MirLower {
         self.struct_types
             .insert(env_struct_name.clone(), env_fields);
 
-        let name = self.lower_closure_function(
-            params,
-            body,
-            return_type,
-            captures,
-            &env_struct_name,
-        );
+        let name =
+            self.lower_closure_function(params, body, return_type, captures, &env_struct_name);
 
         let env_size = (captures.len() as i64) * 8;
         let env_ptr = self.new_temp();

@@ -1,6 +1,6 @@
 use super::sanitize_fn_name;
 use super::types::llvm_type_str;
-use crate::compiler::mir::{MirProgram, MirExternFunction, MirValue, MirOp};
+use crate::compiler::mir::{MirExternFunction, MirOp, MirProgram, MirValue};
 use std::collections::HashSet;
 
 pub(crate) fn collect_used_extern_wrappers(
@@ -8,14 +8,13 @@ pub(crate) fn collect_used_extern_wrappers(
     extern_fn_names: &HashSet<String>,
 ) -> HashSet<String> {
     let mut used = HashSet::new();
-    let mut visit_value = |v: &MirValue| {
-        match v {
-            MirValue::Global(name) | MirValue::FunctionRef { name, .. }
-                if extern_fn_names.contains(name) => {
-                    used.insert(name.clone());
-                }
-            _ => {}
+    let mut visit_value = |v: &MirValue| match v {
+        MirValue::Global(name) | MirValue::FunctionRef { name, .. }
+            if extern_fn_names.contains(name) =>
+        {
+            used.insert(name.clone());
         }
+        _ => {}
     };
     for func in &program.functions {
         for block in &func.blocks {
@@ -27,18 +26,39 @@ pub(crate) fn collect_used_extern_wrappers(
                             visit_value(arg);
                         }
                     }
-                    MirOp::Load(v, _) | MirOp::Store(_, v) | MirOp::Copy(v)
-                    | MirOp::Add(v, _) | MirOp::Sub(v, _) | MirOp::Mul(v, _) | MirOp::SDiv(v, _)
-                    | MirOp::SRem(v, _) | MirOp::Shl(v, _) | MirOp::And(v, _) | MirOp::Or(v, _)
-                    | MirOp::ICmp(_, v, _) | MirOp::FCmp(_, v, _) | MirOp::Gep(v, _, _)
-                    | MirOp::PtrToInt(v, _) | MirOp::IntToPtr(v, _) | MirOp::BitCast(v, _)
-                    | MirOp::ZExt(v, _) | MirOp::Trunc(v, _) | MirOp::Sitofp(v, _)
+                    MirOp::Load(v, _)
+                    | MirOp::Store(_, v)
+                    | MirOp::Copy(v)
+                    | MirOp::Add(v, _)
+                    | MirOp::Sub(v, _)
+                    | MirOp::Mul(v, _)
+                    | MirOp::SDiv(v, _)
+                    | MirOp::SRem(v, _)
+                    | MirOp::Shl(v, _)
+                    | MirOp::And(v, _)
+                    | MirOp::Or(v, _)
+                    | MirOp::ICmp(_, v, _)
+                    | MirOp::FCmp(_, v, _)
+                    | MirOp::Gep(v, _, _)
+                    | MirOp::PtrToInt(v, _)
+                    | MirOp::IntToPtr(v, _)
+                    | MirOp::BitCast(v, _)
+                    | MirOp::ZExt(v, _)
+                    | MirOp::Trunc(v, _)
+                    | MirOp::Sitofp(v, _)
                     | MirOp::Fptosi(v, _) => {
                         visit_value(v);
-                        if let MirOp::Add(_, r) | MirOp::Sub(_, r) | MirOp::Mul(_, r)
-                            | MirOp::SDiv(_, r) | MirOp::SRem(_, r) | MirOp::Shl(_, r)
-                            | MirOp::And(_, r) | MirOp::Or(_, r) | MirOp::ICmp(_, _, r)
-                            | MirOp::FCmp(_, _, r) | MirOp::Store(r, _) = &inst.op
+                        if let MirOp::Add(_, r)
+                        | MirOp::Sub(_, r)
+                        | MirOp::Mul(_, r)
+                        | MirOp::SDiv(_, r)
+                        | MirOp::SRem(_, r)
+                        | MirOp::Shl(_, r)
+                        | MirOp::And(_, r)
+                        | MirOp::Or(_, r)
+                        | MirOp::ICmp(_, _, r)
+                        | MirOp::FCmp(_, _, r)
+                        | MirOp::Store(r, _) = &inst.op
                         {
                             visit_value(r);
                         }
@@ -70,7 +90,9 @@ pub(crate) fn generate_extern_wrapper(ext: &MirExternFunction) -> String {
     let wrapper_name = format!("@fn_{}_wrapper", sanitize_fn_name(&ext.name));
     let ret_ty = llvm_type_str(&ext.return_type);
     let param_tys: Vec<String> = ext.params.iter().map(llvm_type_str).collect();
-    let param_names: Vec<String> = (0..ext.params.len()).map(|i| format!("%arg_{}", i)).collect();
+    let param_names: Vec<String> = (0..ext.params.len())
+        .map(|i| format!("%arg_{}", i))
+        .collect();
     let param_strs: Vec<String> = param_tys
         .iter()
         .zip(param_names.iter())
@@ -92,7 +114,11 @@ pub(crate) fn generate_extern_wrapper(ext: &MirExternFunction) -> String {
         .map(|(t, n)| format!("{} {}", t, n))
         .collect();
     if ret_ty == "void" {
-        lines.push(format!("  call void @{}({})", ext.name, arg_strs.join(", ")));
+        lines.push(format!(
+            "  call void @{}({})",
+            ext.name,
+            arg_strs.join(", ")
+        ));
         lines.push("  ret void".to_string());
     } else {
         lines.push(format!(

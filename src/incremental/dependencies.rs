@@ -192,7 +192,12 @@ pub(crate) fn collect_statement_bindings(statement: &Statement, bindings: &mut V
                 collect_statement_bindings(stmt, bindings);
             }
         }
-        Statement::For { variable, index, body, .. } => {
+        Statement::For {
+            variable,
+            index,
+            body,
+            ..
+        } => {
             bindings.push(variable.clone());
             if let Some(index) = index {
                 bindings.push(index.clone());
@@ -207,7 +212,11 @@ pub(crate) fn collect_statement_bindings(statement: &Statement, bindings: &mut V
                 collect_statement_bindings(stmt, bindings);
             }
         }
-        Statement::If { then_branch, else_branch, .. } => {
+        Statement::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             for stmt in then_branch {
                 collect_statement_bindings(stmt, bindings);
             }
@@ -232,12 +241,16 @@ pub(crate) fn collect_statement_bindings(statement: &Statement, bindings: &mut V
                 collect_statement_bindings(stmt, bindings);
             }
         }
-        Statement::Unsafe { body } | Statement::Type { fields: body, .. } | Statement::Impl { methods: body, .. } => {
+        Statement::Unsafe { body }
+        | Statement::Type { fields: body, .. }
+        | Statement::Impl { methods: body, .. } => {
             for stmt in body {
                 collect_statement_bindings(stmt, bindings);
             }
         }
-        Statement::Return(Some(expr)) | Statement::Expression(expr) | Statement::Drop { value: expr } => {
+        Statement::Return(Some(expr))
+        | Statement::Expression(expr)
+        | Statement::Drop { value: expr } => {
             collect_expression_bindings(expr, bindings);
         }
         _ => {}
@@ -292,7 +305,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
             collect_expression_bindings(input, bindings);
             collect_expression_bindings(stage, bindings);
         }
-        Expression::Try { expr, .. } | Expression::Ok { value: expr, .. } | Expression::Err { value: expr, .. } => {
+        Expression::Try { expr, .. }
+        | Expression::Ok { value: expr, .. }
+        | Expression::Err { value: expr, .. } => {
             collect_expression_bindings(expr, bindings);
         }
         Expression::EnumVariant { payloads, .. } => {
@@ -300,7 +315,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
                 collect_expression_bindings(payload, bindings);
             }
         }
-        Expression::EnumVariantPath { .. } | Expression::Identifier { .. } | Expression::Literal { .. } => {}
+        Expression::EnumVariantPath { .. }
+        | Expression::Identifier { .. }
+        | Expression::Literal { .. } => {}
     }
 }
 

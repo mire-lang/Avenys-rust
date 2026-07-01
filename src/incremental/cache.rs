@@ -218,9 +218,10 @@ fn gc_blobs(base_dir: &Path, referenced: &HashSet<String>) -> Result<()> {
     for entry in fs::read_dir(&blob_dir).ok().into_iter().flatten() {
         if let Ok(e) = entry
             && let Some(name) = e.file_name().to_str()
-                && !referenced.contains(name) {
-                    let _ = fs::remove_file(e.path());
-                }
+            && !referenced.contains(name)
+        {
+            let _ = fs::remove_file(e.path());
+        }
     }
     Ok(())
 }
@@ -362,9 +363,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     if let Ok(entries) = fs::read_dir(&files_dir) {
         for entry in entries.flatten() {
             if let Ok(content) = fs::read_to_string(entry.path())
-                && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
-                    referenced.insert(meta.blob_hash);
-                }
+                && let Ok(meta) = serde_json::from_str::<FileMeta>(&content)
+            {
+                referenced.insert(meta.blob_hash);
+            }
         }
     }
 
@@ -373,9 +375,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     if let Ok(entries) = fs::read_dir(&analyses_dir) {
         for entry in entries.flatten() {
             if let Ok(content) = fs::read_to_string(entry.path())
-                && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content) {
-                    referenced.insert(meta.blob_hash);
-                }
+                && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content)
+            {
+                referenced.insert(meta.blob_hash);
+            }
         }
     }
 
@@ -386,9 +389,10 @@ fn collect_referenced_blobs(base_dir: &Path) -> Result<HashSet<String>> {
     if let Ok(entries) = fs::read_dir(&mir_dir) {
         for entry in entries.flatten() {
             if let Ok(content) = fs::read_to_string(entry.path())
-                && let Ok(meta) = serde_json::from_str::<MirMeta>(&content) {
-                    referenced.insert(meta.blob_hash);
-                }
+                && let Ok(meta) = serde_json::from_str::<MirMeta>(&content)
+            {
+                referenced.insert(meta.blob_hash);
+            }
         }
     }
 
@@ -479,7 +483,15 @@ impl IncrementalCache {
 
         // Apply WAL records
         for rec in &records {
-            apply_wal_record(rec, &mut files, &mut analyses, &mut builds, &mut mir_fns, &mut lru, &cache_dir);
+            apply_wal_record(
+                rec,
+                &mut files,
+                &mut analyses,
+                &mut builds,
+                &mut mir_fns,
+                &mut lru,
+                &cache_dir,
+            );
         }
 
         Ok(Self {
@@ -501,7 +513,9 @@ impl IncrementalCache {
         for key in self.files.keys() {
             if let Some(meta) = self.files.get(key) {
                 let _ = write_file_meta(&self.cache_dir, key, meta);
-                wal_records.push(WalRecord::Checkpoint { timestamp: timestamp_ms() });
+                wal_records.push(WalRecord::Checkpoint {
+                    timestamp: timestamp_ms(),
+                });
             }
         }
         for key in self.analyses.keys() {
@@ -620,7 +634,11 @@ impl IncrementalCache {
         Ok(())
     }
 
-    pub fn cached_analysis(&mut self, source_path: &Path, source_hash: u64) -> Option<CachedAnalysis> {
+    pub fn cached_analysis(
+        &mut self,
+        source_path: &Path,
+        source_hash: u64,
+    ) -> Option<CachedAnalysis> {
         if !self.settings.analysis_cache {
             return None;
         }
@@ -646,7 +664,12 @@ impl IncrementalCache {
         }
     }
 
-    pub fn store_analysis(&mut self, source_path: &Path, source_hash: u64, program: &Program) -> Result<()> {
+    pub fn store_analysis(
+        &mut self,
+        source_path: &Path,
+        source_hash: u64,
+        program: &Program,
+    ) -> Result<()> {
         if !self.settings.analysis_cache {
             return Ok(());
         }
@@ -853,7 +876,10 @@ impl IncrementalCache {
         let ir: String = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::MirFn);
-        if let Some(meta) = self.mir_fns.get_mut(&mir_cache_key(source_path, fn_name, body_hash, opt_level)) {
+        if let Some(meta) =
+            self.mir_fns
+                .get_mut(&mir_cache_key(source_path, fn_name, body_hash, opt_level))
+        {
             meta.last_access_ms = timestamp_ms();
         }
 
@@ -901,7 +927,8 @@ impl IncrementalCache {
 
     fn enforce_capacity(&mut self) {
         let max = self.settings.max_units.unwrap_or(usize::MAX);
-        let mut total = self.files.len() + self.analyses.len() + self.builds.len() + self.mir_fns.len();
+        let mut total =
+            self.files.len() + self.analyses.len() + self.builds.len() + self.mir_fns.len();
         while total > max {
             let Some(oldest_key) = self.lru.evict_one() else {
                 break;
@@ -913,7 +940,8 @@ impl IncrementalCache {
             {
                 self.metrics.evictions += 1;
             }
-            let new_total = self.files.len() + self.analyses.len() + self.builds.len() + self.mir_fns.len();
+            let new_total =
+                self.files.len() + self.analyses.len() + self.builds.len() + self.mir_fns.len();
             if new_total >= total {
                 break;
             }
@@ -939,7 +967,11 @@ impl IncrementalCache {
         &self.cache_dir
     }
 
-    fn latest_analysis_units(&self, source_path: &Path, source_hash: u64) -> Option<Vec<AnalysisUnitMetadata>> {
+    fn latest_analysis_units(
+        &self,
+        source_path: &Path,
+        source_hash: u64,
+    ) -> Option<Vec<AnalysisUnitMetadata>> {
         let key = analysis_cache_key(source_path, source_hash);
         let meta = self.analyses.get(&key)?;
         let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
@@ -950,7 +982,7 @@ impl IncrementalCache {
 
 // ── Helper functions ────────────────────────────────────────────────────
 
-    fn load_file_metas(
+fn load_file_metas(
     base_dir: &Path,
     files: &mut HashMap<String, FileMeta>,
     _lru: &mut LruMap<String, CacheEntryKind>,
@@ -961,13 +993,15 @@ impl IncrementalCache {
     };
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
-            && let Ok(meta) = serde_json::from_str::<FileMeta>(&content) {
-                // Derive key from filename (hash)
-                if let Some(name) = entry.file_name().to_str()
-                    && let Some(stem) = name.strip_suffix(".meta") {
-                        files.insert(stem.to_string(), meta);
-                    }
+            && let Ok(meta) = serde_json::from_str::<FileMeta>(&content)
+        {
+            // Derive key from filename (hash)
+            if let Some(name) = entry.file_name().to_str()
+                && let Some(stem) = name.strip_suffix(".meta")
+            {
+                files.insert(stem.to_string(), meta);
             }
+        }
     }
 }
 
@@ -983,10 +1017,11 @@ fn load_analysis_metas(
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
             && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content)
-                && let Some(name) = entry.file_name().to_str()
-                    && let Some(stem) = name.strip_suffix(".meta") {
-                        analyses.insert(stem.to_string(), meta);
-                    }
+            && let Some(name) = entry.file_name().to_str()
+            && let Some(stem) = name.strip_suffix(".meta")
+        {
+            analyses.insert(stem.to_string(), meta);
+        }
     }
 }
 
@@ -1002,10 +1037,11 @@ fn load_build_metas(
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
             && let Ok(meta) = serde_json::from_str::<BuildMeta>(&content)
-                && let Some(name) = entry.file_name().to_str()
-                    && let Some(stem) = name.strip_suffix(".meta") {
-                        builds.insert(stem.to_string(), meta);
-                    }
+            && let Some(name) = entry.file_name().to_str()
+            && let Some(stem) = name.strip_suffix(".meta")
+        {
+            builds.insert(stem.to_string(), meta);
+        }
     }
 }
 
@@ -1021,10 +1057,11 @@ fn load_mir_metas(
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
             && let Ok(meta) = serde_json::from_str::<MirMeta>(&content)
-                && let Some(name) = entry.file_name().to_str()
-                    && let Some(stem) = name.strip_suffix(".meta") {
-                        mir_fns.insert(stem.to_string(), meta);
-                    }
+            && let Some(name) = entry.file_name().to_str()
+            && let Some(stem) = name.strip_suffix(".meta")
+        {
+            mir_fns.insert(stem.to_string(), meta);
+        }
     }
 }
 
@@ -1072,7 +1109,11 @@ fn apply_wal_record(
             analyses.insert(key.clone(), meta);
             lru.insert(key.clone(), CacheEntryKind::Analysis);
         }
-        WalRecord::StoreBuild { key, entry, timestamp } => {
+        WalRecord::StoreBuild {
+            key,
+            entry,
+            timestamp,
+        } => {
             let meta = BuildMeta {
                 fingerprint: entry.fingerprint,
                 entry: entry.clone(),

@@ -1,5 +1,5 @@
-use super::{LlvmCtx, tmp_extra, tmp_result, const_str, sanitize_fn_name};
-use crate::compiler::mir::{MirValue, MirConst};
+use super::{LlvmCtx, const_str, sanitize_fn_name, tmp_extra, tmp_result};
+use crate::compiler::mir::{MirConst, MirValue};
 
 pub(crate) fn resolve_typed(val: &MirValue, ctx: &mut LlvmCtx) -> (String, String) {
     match val {
@@ -14,12 +14,24 @@ pub(crate) fn resolve_typed(val: &MirValue, ctx: &mut LlvmCtx) -> (String, Strin
             (v, t.to_string())
         }
         MirValue::Temp(id) => {
-            let n = ctx.vars.get(id).cloned().unwrap_or_else(|| format!("%t{}", id));
-            let t = ctx.temp_types.get(id).cloned().unwrap_or_else(|| "i64".to_string());
+            let n = ctx
+                .vars
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| format!("%t{}", id));
+            let t = ctx
+                .temp_types
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| "i64".to_string());
             (n, t)
         }
         MirValue::Param(name) => {
-            let t = ctx.param_types.get(name).cloned().unwrap_or_else(|| "i64".to_string());
+            let t = ctx
+                .param_types
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| "i64".to_string());
             (format!("%arg_{}", name), t)
         }
         MirValue::Global(name) => {
@@ -103,7 +115,9 @@ pub(crate) fn resolve_named_call(
     // Only wrap PAL functions (pal_*) that return str — they return raw malloc'd char*.
     let is_pal_str = is_str_return
         && (name.starts_with("pal_")
-            || name.split_once('.').is_some_and(|(_, rest)| rest.starts_with("pal_")));
+            || name
+                .split_once('.')
+                .is_some_and(|(_, rest)| rest.starts_with("pal_")));
     if is_void {
         format!("call void {}({})", fn_name, arg_strs.join(", "))
     } else if is_pal_str {
@@ -112,7 +126,9 @@ pub(crate) fn resolve_named_call(
         let result = tmp_result(ctx, "ptr", result_id);
         extra.push(format!(
             "{} = call ptr {}({})",
-            raw_tmp, fn_name, arg_strs.join(", ")
+            raw_tmp,
+            fn_name,
+            arg_strs.join(", ")
         ));
         extra.push(format!(
             "%t{} = call ptr @rt_managed_from_cstr(ptr {})",
@@ -123,16 +139,43 @@ pub(crate) fn resolve_named_call(
             ctx.owned_string_temps.insert(id);
         }
         String::new() // The result id was already registered by tmp_result
+    } else if is_str_return && ll_ret == "ptr" {
+        // Regular function returning str: ensure result is managed (copy if literal)
+        let raw_tmp = tmp_extra(ctx, "ptr");
+        let result = tmp_result(ctx, "ptr", result_id);
+        extra.push(format!(
+            "{} = call {} {}({})",
+            raw_tmp,
+            ll_ret,
+            fn_name,
+            arg_strs.join(", ")
+        ));
+        extra.push(format!(
+            "%t{} = call ptr @rt_managed_ensure_managed(ptr {})",
+            result, raw_tmp
+        ));
+        if let Some(id) = result_id {
+            ctx.owned_string_temps.insert(id);
+        }
+        String::new()
     } else {
         let result = tmp_result(ctx, ll_ret, result_id);
         format!(
             "%t{} = call {} {}({})",
-            result, ll_ret, fn_name, arg_strs.join(", ")
+            result,
+            ll_ret,
+            fn_name,
+            arg_strs.join(", ")
         )
     }
 }
 
-pub(crate) fn coerce_to_bool(operand: &str, from_ty: &str, ctx: &mut LlvmCtx, extra: &mut Vec<String>) -> String {
+pub(crate) fn coerce_to_bool(
+    operand: &str,
+    from_ty: &str,
+    ctx: &mut LlvmCtx,
+    extra: &mut Vec<String>,
+) -> String {
     if from_ty == "i1" {
         return operand.to_string();
     }
@@ -141,7 +184,13 @@ pub(crate) fn coerce_to_bool(operand: &str, from_ty: &str, ctx: &mut LlvmCtx, ex
     conv
 }
 
-pub(crate) fn coerce_to(operand: &str, from_ty: &str, to_ty: &str, ctx: &mut LlvmCtx, extra: &mut Vec<String>) -> String {
+pub(crate) fn coerce_to(
+    operand: &str,
+    from_ty: &str,
+    to_ty: &str,
+    ctx: &mut LlvmCtx,
+    extra: &mut Vec<String>,
+) -> String {
     if from_ty == to_ty {
         return operand.to_string();
     }

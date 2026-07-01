@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::compiler::location;
 use crate::compiler::AnalysisSelection;
+use crate::compiler::location;
 use crate::compiler::semantic::{BindingInfo, BindingKind, FunctionInfo, SemanticModel};
 use crate::error::mss::MssError;
 use crate::error::{ErrorKind, MireError, Result};
@@ -225,7 +225,6 @@ impl<'a> BorrowChecker<'a> {
             }
             Statement::Assignment { target, value, .. } => {
                 let binding_target = assignment_binding_target(target);
-                self.ensure_binding_available(&binding_target)?;
                 self.ensure_can_write(&binding_target)?;
                 if let AssignmentTarget::Index { target, index } = target {
                     self.check_expression(target)?;
@@ -512,8 +511,7 @@ impl<'a> BorrowChecker<'a> {
             | Statement::ExternFunction { .. }
             | Statement::Load { .. }
             | Statement::Enum { .. }
-            | Statement::Module { .. }
-            => {}
+            | Statement::Module { .. } => {}
         }
 
         Ok(())
@@ -878,7 +876,10 @@ impl<'a> BorrowChecker<'a> {
                     self.ensure_borrow_allowed(&target, false)?;
                 } else if let Some(name) = Self::identifier_name(arg)
                     && let Some(binding) = self.semantic_binding(&name)
-                    && !matches!(binding.kind, BindingKind::SharedRef | BindingKind::MutableRef)
+                    && !matches!(
+                        binding.kind,
+                        BindingKind::SharedRef | BindingKind::MutableRef
+                    )
                 {
                     self.ensure_borrow_allowed(&name, false)?;
                 }
@@ -1220,7 +1221,8 @@ mod tests {
     fn rejects_returning_reference_to_local_from_impl_method() {
         let program = Program {
             statements: vec![
-                Statement::Type { visibility: Visibility::Public, 
+                Statement::Type {
+                    visibility: Visibility::Public,
                     name: "Point".to_string(),
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),

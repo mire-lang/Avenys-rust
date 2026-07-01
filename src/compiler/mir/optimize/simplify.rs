@@ -95,10 +95,11 @@ pub(super) fn copy_propagate(func: &mut MirFunction) -> usize {
     for block in &func.blocks {
         for inst in &block.insts {
             if let MirOp::Copy(ref v) = inst.op
-                && let Some(id) = inst.result {
-                    let resolved = resolve_copy(v, &copies);
-                    copies.insert(id, resolved);
-                }
+                && let Some(id) = inst.result
+            {
+                let resolved = resolve_copy(v, &copies);
+                copies.insert(id, resolved);
+            }
         }
     }
 
@@ -127,10 +128,11 @@ fn replace_value_in_op(op: &mut MirOp, copies: &HashMap<usize, MirValue>) -> usi
     let mut count = 0;
     fn replace(v: &mut MirValue, copies: &HashMap<usize, MirValue>, count: &mut usize) {
         if let MirValue::Temp(id) = v
-            && let Some(replacement) = copies.get(id) {
-                *v = replacement.clone();
-                *count += 1;
-            }
+            && let Some(replacement) = copies.get(id)
+        {
+            *v = replacement.clone();
+            *count += 1;
+        }
     }
     match op {
         MirOp::Load(v, _)
@@ -185,14 +187,18 @@ fn replace_value_in_op(op: &mut MirOp, copies: &HashMap<usize, MirValue>) -> usi
     count
 }
 
-fn replace_value_in_terminator(term: &mut MirTerminator, copies: &HashMap<usize, MirValue>) -> usize {
+fn replace_value_in_terminator(
+    term: &mut MirTerminator,
+    copies: &HashMap<usize, MirValue>,
+) -> usize {
     let mut count = 0;
     fn replace(v: &mut MirValue, copies: &HashMap<usize, MirValue>, count: &mut usize) {
         if let MirValue::Temp(id) = v
-            && let Some(replacement) = copies.get(id) {
-                *v = replacement.clone();
-                *count += 1;
-            }
+            && let Some(replacement) = copies.get(id)
+        {
+            *v = replacement.clone();
+            *count += 1;
+        }
     }
     match term {
         MirTerminator::BrCond(v, _, _) | MirTerminator::Ret(Some(v)) => {

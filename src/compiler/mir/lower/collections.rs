@@ -31,7 +31,11 @@ fn coerce_index_to_i64(lower: &mut MirLower, value: MirValue, value_type: &DataT
     MirValue::temp(widened)
 }
 
-fn coerce_value_for_scalar_store(lower: &mut MirLower, value: MirValue, value_type: &DataType) -> MirValue {
+fn coerce_value_for_scalar_store(
+    lower: &mut MirLower,
+    value: MirValue,
+    value_type: &DataType,
+) -> MirValue {
     if is_i64_wide_type(value_type) || matches!(value_type, DataType::Unknown | DataType::Anything)
     {
         return value;
@@ -86,11 +90,7 @@ fn narrow_scalar_result(lower: &mut MirLower, value: MirValue, result_type: &Dat
             let last = lower.current_block;
             lower.func.blocks[last].push(
                 Some(bool_tmp),
-                MirOp::ICmp(
-                    MirCmp::Ne,
-                    value,
-                    MirValue::Const(MirConst::Int(0)),
-                ),
+                MirOp::ICmp(MirCmp::Ne, value, MirValue::Const(MirConst::Int(0))),
                 (0, 0),
             );
             MirValue::temp(bool_tmp)
@@ -192,7 +192,11 @@ pub(crate) fn lower_index_read(
             ),
             (0, 0),
         );
-        Some(narrow_scalar_result(lower, MirValue::temp(result), result_type))
+        Some(narrow_scalar_result(
+            lower,
+            MirValue::temp(result),
+            result_type,
+        ))
     }
 }
 
@@ -206,10 +210,7 @@ pub(crate) fn lower_index_write(
     let target_type = effective_data_type(lower, target);
     let index_type = effective_data_type(lower, index);
     let key_type = match &target_type {
-        DataType::Map {
-            key_type,
-            ..
-        } => key_type.as_ref(),
+        DataType::Map { key_type, .. } => key_type.as_ref(),
         DataType::Dict => &DataType::Str,
         DataType::Unknown if matches!(index_type, DataType::Str) => &DataType::Str,
         _ => return false,
@@ -240,25 +241,14 @@ pub(crate) fn lower_index_write(
         coerce_value_for_scalar_store(lower, value, value_type)
     };
 
-    let args = if call_name == "rt_dict_set_ptr" {
-        vec![
-            target_val,
-            MirValue::Const(MirConst::Int(key_kind)),
-            MirValue::Const(MirConst::Int(value_kind)),
-            key_i64,
-            key_ptr,
-            stored_value,
-        ]
-    } else {
-        vec![
-            target_val,
-            MirValue::Const(MirConst::Int(key_kind)),
-            MirValue::Const(MirConst::Int(value_kind)),
-            key_i64,
-            key_ptr,
-            stored_value,
-        ]
-    };
+    let args = vec![
+        target_val,
+        MirValue::Const(MirConst::Int(key_kind)),
+        MirValue::Const(MirConst::Int(value_kind)),
+        key_i64,
+        key_ptr,
+        stored_value,
+    ];
 
     let result = lower.new_temp();
     let last = lower.current_block;

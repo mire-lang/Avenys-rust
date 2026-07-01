@@ -13,8 +13,7 @@ impl Parser {
             return Err(crate::error::MireError::deprecated_syntax(
                 token.line,
                 token.column,
-                "Legacy `add` imports are no longer supported; use `load` instead"
-                    .to_string(),
+                "Legacy `add` imports are no longer supported; use `load` instead".to_string(),
             ));
         }
 
@@ -36,10 +35,9 @@ impl Parser {
                     TokenType::Struct => self.parse_struct_statement(visibility),
                     TokenType::Enum => self.parse_enum_statement(visibility),
                     TokenType::Extern => self.parse_extern_statement_with_vis(visibility),
-                    _ => {
-                        Err(self
-                            .error("Expected fn, type, skill, struct, enum, or extern after visibility"))
-                    }
+                    _ => Err(self.error(
+                        "Expected fn, type, skill, struct, enum, or extern after visibility",
+                    )),
                 }
             }
             TokenType::Fn => self.parse_fn_statement(Visibility::Private),
@@ -375,7 +373,11 @@ impl Parser {
         }
 
         self.expect_block_close()?;
-        Ok(Statement::Skill { name, visibility, methods })
+        Ok(Statement::Skill {
+            name,
+            visibility,
+            methods,
+        })
     }
 
     fn parse_impl_statement(&mut self) -> Result<Statement> {
@@ -415,7 +417,6 @@ impl Parser {
     }
 
     fn parse_enum_statement(&mut self, visibility: Visibility) -> Result<Statement> {
-        
         self.expect(TokenType::Enum)?;
         let enum_name = self.expect_ident()?;
         let (type_params, type_param_bounds) = self.parse_optional_type_params_with_bounds()?;

@@ -8,10 +8,10 @@ use self::types::llvm_type_str;
 use self::wrapper::{collect_used_extern_wrappers, generate_extern_wrapper};
 
 pub(crate) mod builtins;
-pub(crate) mod resolve;
 pub(crate) mod expr;
-pub(crate) mod wrapper;
+pub(crate) mod resolve;
 pub(crate) mod types;
+pub(crate) mod wrapper;
 
 pub(crate) struct LlvmCtx<'a> {
     pub(crate) strings: Vec<String>,
@@ -56,7 +56,12 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
     let used_extern_wrappers = collect_used_extern_wrappers(program, &extern_fn_names);
     let extern_wrapper_names: HashMap<String, String> = used_extern_wrappers
         .iter()
-        .map(|name| (name.clone(), format!("@fn_{}_wrapper", sanitize_fn_name(name))))
+        .map(|name| {
+            (
+                name.clone(),
+                format!("@fn_{}_wrapper", sanitize_fn_name(name)),
+            )
+        })
         .collect();
     let mut ctx = LlvmCtx {
         strings: Vec::new(),
@@ -103,14 +108,16 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
 }
 
 fn sanitize_fn_name(name: &str) -> String {
-    name.split_once('[').map(|(base, rest)| {
-        // base = "Box", rest = "T].get" → "Box.get"
-        if let Some((_, after_bracket)) = rest.split_once(']') {
-            format!("{}{}", base, after_bracket)
-        } else {
-            base.to_string()
-        }
-    }).unwrap_or_else(|| name.to_string())
+    name.split_once('[')
+        .map(|(base, rest)| {
+            // base = "Box", rest = "T].get" → "Box.get"
+            if let Some((_, after_bracket)) = rest.split_once(']') {
+                format!("{}{}", base, after_bracket)
+            } else {
+                base.to_string()
+            }
+        })
+        .unwrap_or_else(|| name.to_string())
 }
 
 pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) -> String {
@@ -209,9 +216,7 @@ fn const_str(c: &MirConst, ctx: &mut LlvmCtx) -> String {
             let bits = v.to_bits();
             format!("{:#x}", bits)
         }
-        MirConst::Bool(v) => {
-            if *v { "1" } else { "0" }.to_string()
-        }
+        MirConst::Bool(v) => if *v { "1" } else { "0" }.to_string(),
         MirConst::Char(c) => format!("{}", *c as u32),
         MirConst::Str(s) => {
             let id = ctx.next_string_id;

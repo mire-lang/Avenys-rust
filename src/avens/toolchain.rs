@@ -76,9 +76,9 @@ pub(super) fn compile_binary_from_ir(
     }
     for (lib_name, lib_path) in extern_libs {
         let clean_name = if lib_name.contains('.') {
-            lib_name.rsplit('.').next().unwrap_or(&lib_name)
+            lib_name.rsplit('.').next().unwrap_or(lib_name)
         } else {
-            &lib_name
+            lib_name
         };
         if lib_path.ends_with(".so") || lib_path.ends_with(".dylib") {
             if let Some(parent) = std::path::Path::new(&lib_path).parent() {

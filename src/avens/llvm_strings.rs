@@ -396,9 +396,11 @@ impl LlvmIrGen {
                     value.repr
                 ));
             }
-            LlType::Struct(_) => return Err(MireError::new(ErrorKind::Backend {
-                message: "Struct type not supported here".to_string(),
-            })),
+            LlType::Struct(_) => {
+                return Err(MireError::new(ErrorKind::Backend {
+                    message: "Struct type not supported here".to_string(),
+                }));
+            }
             LlType::Ptr => {
                 self.body.push(format!(
                     "  call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
@@ -442,9 +444,8 @@ impl LlvmIrGen {
                     repr: rendered.clone(),
                     owned: true,
                 })?;
-                self.body.push(format!(
-                    "  call void @rt_managed_free(ptr {rendered})"
-                ));
+                self.body
+                    .push(format!("  call void @rt_managed_free(ptr {rendered})"));
             }
             _ => self.emit_print(&value)?,
         }

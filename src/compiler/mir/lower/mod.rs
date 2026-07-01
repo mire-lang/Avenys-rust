@@ -3,8 +3,8 @@ use crate::parser::ast::{DataType, Program, Statement};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-mod decl;
 mod collections;
+mod decl;
 mod expr;
 mod stmt;
 mod types;

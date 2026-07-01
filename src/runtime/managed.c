@@ -199,7 +199,6 @@ char *rt_alloc_printf_raw_i64(const char *fmt, long long value) {
 void rt_managed_free(char *value) {
     if (value == NULL) return;
     if (!rt_managed_contains(value)) {
-        free(value);
         return;
     }
     rt_managed_unregister(value);

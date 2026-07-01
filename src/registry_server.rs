@@ -56,9 +56,7 @@ fn main() {
         } else if let Some(rest) = path.strip_prefix("packages/") {
             respond_package(&dir, rest, request);
         } else {
-            let _ = request.respond(
-                Response::from_string("404 not found").with_status_code(404),
-            );
+            let _ = request.respond(Response::from_string("404 not found").with_status_code(404));
         }
     }
 }
@@ -111,8 +109,7 @@ fn respond_package(dir: &Path, rest: &str, request: tiny_http::Request) {
         let meta_path = pkg_dir.join("meta.json");
         let version =
             read_meta_field(&meta_path, "version").unwrap_or_else(|| "unknown".to_string());
-        let sha256 =
-            read_meta_field(&meta_path, "sha256").unwrap_or_else(|| "-".to_string());
+        let sha256 = read_meta_field(&meta_path, "sha256").unwrap_or_else(|| "-".to_string());
 
         let body = format!("{}@{}\nsha256: {}\n", pkg_name, version, sha256);
         let _ = request.respond(
@@ -149,9 +146,8 @@ fn serve_file(path: &Path, content_type: &str, request: tiny_http::Request) {
             let _ = request.respond(response);
         }
         Err(e) => {
-            let _ = request.respond(
-                Response::from_string(format!("read error: {}", e)).with_status_code(500),
-            );
+            let _ = request
+                .respond(Response::from_string(format!("read error: {}", e)).with_status_code(500));
         }
     }
 }

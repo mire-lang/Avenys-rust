@@ -1,18 +1,18 @@
 use crate::avens::{
-    find_project_root, load_exports, load_manifest_dependencies, load_project_manifest,
-    resolve_export_path, ImportMode, MireDependency,
+    ImportMode, MireDependency, find_project_root, load_exports, load_manifest_dependencies,
+    load_project_manifest, resolve_export_path,
 };
 use crate::error::{ErrorKind, MireError, Result};
 use crate::incremental::{
+    CacheSettings, CachedParsedFile, IncrementalCache, LoadedFile, LoadedProgram,
     collect_statement_bindings, collect_statement_dependencies, source_hash, source_hash2,
-    statement_export_name, CacheSettings, CachedParsedFile, IncrementalCache, LoadedFile,
-    LoadedProgram,
+    statement_export_name,
 };
 use crate::parser::ast::{
     AssignmentTarget, DataType, EnumVariantDef, Expression, Identifier, Literal, Statement,
     Visibility,
 };
-use crate::parser::{parse, Program};
+use crate::parser::{Program, parse};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,7 +48,8 @@ pub fn load_program_with_metadata_with_settings(
     {
         root
     } else {
-        let fallback = canonical.parent()
+        let fallback = canonical
+            .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         let manifest_dependencies = HashMap::new();
@@ -78,12 +79,8 @@ pub fn load_program_with_metadata_with_settings(
 
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
     let mut cache = IncrementalCache::load_with_settings(&canonical, settings)?;
-    let mut resolver = ImportResolver::new(
-        project_root,
-        &mut cache,
-        import_mode,
-        manifest_dependencies,
-    );
+    let mut resolver =
+        ImportResolver::new(project_root, &mut cache, import_mode, manifest_dependencies);
     let statements = resolver.load_file(&canonical)?;
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
@@ -119,16 +116,13 @@ pub fn load_program_with_cache(
     {
         root
     } else {
-        let fallback = canonical.parent()
+        let fallback = canonical
+            .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         let manifest_dependencies = HashMap::new();
-        let mut resolver = ImportResolver::new(
-            fallback.clone(),
-            cache,
-            import_mode,
-            manifest_dependencies,
-        );
+        let mut resolver =
+            ImportResolver::new(fallback.clone(), cache, import_mode, manifest_dependencies);
         let statements = resolver.load_file(&canonical)?;
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
@@ -143,12 +137,7 @@ pub fn load_program_with_cache(
     };
 
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
-    let mut resolver = ImportResolver::new(
-        project_root,
-        cache,
-        import_mode,
-        manifest_dependencies,
-    );
+    let mut resolver = ImportResolver::new(project_root, cache, import_mode, manifest_dependencies);
     let statements = resolver.load_file(&canonical)?;
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
@@ -226,11 +215,9 @@ impl<'a> ImportResolver<'a> {
         let mut dep_set = HashSet::new();
         for statement in parsed.program.statements {
             match statement {
-                Statement::Load {
-                    path,
-                    alias,
-                    items,
-                } if !path.is_empty() && !path[0].starts_with("__") => {
+                Statement::Load { path, alias, items }
+                    if !path.is_empty() && !path[0].starts_with("__") =>
+                {
                     let target = self.resolve_load_path(&path)?;
 
                     let selected = if items.is_some() {
@@ -264,8 +251,7 @@ impl<'a> ImportResolver<'a> {
                         }
                         expanded.extend(imported);
                     } else {
-                        let prefixed =
-                            prefix_loaded_statements_scoped(imported, &prefix, &target);
+                        let prefixed = prefix_loaded_statements_scoped(imported, &prefix, &target);
                         if dep_set.insert(target.clone()) {
                             direct_dependencies.push(target);
                         }
@@ -350,7 +336,9 @@ impl<'a> ImportResolver<'a> {
 
         if let Some(ref m) = manifest {
             for (dep_name, dep) in &m.dependencies.entries {
-                self.manifest_dependencies.entry(dep_name.clone()).or_insert_with(|| dep.clone());
+                self.manifest_dependencies
+                    .entry(dep_name.clone())
+                    .or_insert_with(|| dep.clone());
             }
         }
 
@@ -376,9 +364,10 @@ impl<'a> ImportResolver<'a> {
             }
             if let Some(export_path) =
                 resolve_export_path(&current_exports, &current_root, &segments[0])
-                && export_path.exists() {
-                    return Ok(export_path);
-                }
+                && export_path.exists()
+            {
+                return Ok(export_path);
+            }
             return Ok(direct);
         }
 
@@ -386,13 +375,10 @@ impl<'a> ImportResolver<'a> {
             let segment = &segments[i];
             let is_last = i == segments.len() - 1;
 
-            let target = resolve_export_path(&current_exports, &current_root, segment)
-                .ok_or_else(|| {
+            let target =
+                resolve_export_path(&current_exports, &current_root, segment).ok_or_else(|| {
                     MireError::new(ErrorKind::Runtime {
-                        message: format!(
-                            "Package '{}' has no export '{}'",
-                            segments[0], segment
-                        ),
+                        message: format!("Package '{}' has no export '{}'", segments[0], segment),
                     })
                 })?;
 
@@ -509,9 +495,11 @@ impl<'a> ImportResolver<'a> {
         items: Option<&[String]>,
     ) -> Result<Vec<ExpandedStatement>> {
         let parsed = self.load_or_parse_file(path)?;
-        let has_loads = parsed.program.statements.iter().any(|stmt| {
-            matches!(stmt, Statement::Load { .. })
-        });
+        let has_loads = parsed
+            .program
+            .statements
+            .iter()
+            .any(|stmt| matches!(stmt, Statement::Load { .. }));
         if has_loads {
             let loaded = self.load_file(path)?;
             return select_imported_statements(&loaded, items, path);
@@ -842,7 +830,8 @@ impl<'a> ModuleRenamer<'a> {
                     default,
                 }
             }
-            Statement::Type { visibility: _, 
+            Statement::Type {
+                visibility: _,
                 name,
                 type_params,
                 type_param_bounds,
@@ -868,7 +857,8 @@ impl<'a> ModuleRenamer<'a> {
                     .collect();
                 let parent = parent.map(|parent| self.rename_type_name(parent, scope_stack));
                 let fields = self.rename_statement_block(fields, &mut fields_scope);
-                Statement::Type { visibility: Visibility::Public, 
+                Statement::Type {
+                    visibility: Visibility::Public,
                     name,
                     type_params,
                     type_param_bounds,
@@ -959,15 +949,7 @@ impl<'a> ModuleRenamer<'a> {
                     .map(|(name, expr)| (name, self.rename_expression(expr, scope_stack)))
                     .collect(),
             },
-            Statement::Load {
-                path,
-                alias,
-                items,
-            } => Statement::Load {
-                path,
-                alias,
-                items,
-            },
+            Statement::Load { path, alias, items } => Statement::Load { path, alias, items },
             Statement::Module { name } => Statement::Module {
                 name: self.rename_decl_name(name, scope_stack, top_level),
             },
@@ -989,7 +971,8 @@ impl<'a> ModuleRenamer<'a> {
                 target: self.rename_decl_name(target, scope_stack, top_level),
                 value: self.rename_expression(value, scope_stack),
             },
-            Statement::Enum { visibility: _, 
+            Statement::Enum {
+                visibility: _,
                 name,
                 type_params,
                 type_param_bounds,
@@ -1012,7 +995,8 @@ impl<'a> ModuleRenamer<'a> {
                     .into_iter()
                     .map(|variant| self.rename_enum_variant(variant, &name, scope_stack))
                     .collect();
-                Statement::Enum { visibility: Visibility::Public, 
+                Statement::Enum {
+                    visibility: Visibility::Public,
                     name,
                     type_params,
                     type_param_bounds,
@@ -1035,7 +1019,6 @@ impl<'a> ModuleRenamer<'a> {
                 joins,
                 group_by,
             },
-
         }
     }
 
@@ -1097,9 +1080,7 @@ impl<'a> ModuleRenamer<'a> {
         // Skip names that already contain a prefix (introduced by a prior pass).
         // Function names in mire are plain identifiers without dots natively,
         // so a dot means the name was already prefixed by a nested load.
-        self.module_symbols.contains(name)
-            && !is_shadowed(scope_stack, name)
-            && !name.contains('.')
+        self.module_symbols.contains(name) && !is_shadowed(scope_stack, name) && !name.contains('.')
     }
 
     fn rename_data_type(&self, data_type: DataType, scope_stack: &[HashSet<String>]) -> DataType {
@@ -1690,6 +1671,3 @@ struct ExpandedStatement {
     statement: Statement,
     origin: PathBuf,
 }
-
-
-

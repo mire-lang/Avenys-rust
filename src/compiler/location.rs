@@ -44,10 +44,9 @@ pub fn expression_location(expression: &Expression) -> (usize, usize) {
         Expression::UnaryOp { operand, .. } => expression_location(operand),
         Expression::Call { args, .. }
         | Expression::List { elements: args, .. }
-        | Expression::Tuple { elements: args, .. } => args
-            .first()
-            .map(expression_location)
-            .unwrap_or((1, 1)),
+        | Expression::Tuple { elements: args, .. } => {
+            args.first().map(expression_location).unwrap_or((1, 1))
+        }
         Expression::Dict { entries, .. } => entries
             .first()
             .map(|(key, _)| expression_location(key))
@@ -55,14 +54,11 @@ pub fn expression_location(expression: &Expression) -> (usize, usize) {
         Expression::Index { target, .. } | Expression::MemberAccess { target, .. } => {
             expression_location(target)
         }
-        Expression::Closure { body, .. } => {
-            body.first().map(statement_location).unwrap_or((1, 1))
-        }
+        Expression::Closure { body, .. } => body.first().map(statement_location).unwrap_or((1, 1)),
         Expression::Match { value, .. } => expression_location(value),
-        Expression::EnumVariant { payloads, .. } => payloads
-            .first()
-            .map(expression_location)
-            .unwrap_or((1, 1)),
+        Expression::EnumVariant { payloads, .. } => {
+            payloads.first().map(expression_location).unwrap_or((1, 1))
+        }
         Expression::Literal(_) | Expression::EnumVariantPath { .. } => (1, 1),
     }
 }

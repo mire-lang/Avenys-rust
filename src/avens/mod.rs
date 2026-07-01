@@ -1,6 +1,5 @@
 use crate::compiler::{
-    AnalysisSelection, analyze_program_with_origins,
-    analyze_program_with_origins_partial,
+    AnalysisSelection, analyze_program_with_origins, analyze_program_with_origins_partial,
 };
 use crate::error::diagnostic::Severity;
 use crate::error::format::format_diagnostic;

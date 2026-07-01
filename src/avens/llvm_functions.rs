@@ -322,7 +322,7 @@ impl LlvmIrGen {
             "declare ptr @rt_list_slice(ptr, i64, i64)".to_string(),
             "declare void @rt_panic(ptr)".to_string(),
             "declare ptr @fgets(ptr, i64, ptr)".to_string(),
-            "declare ptr @rt_read_line(ptr)".to_string(),
+            "declare ptr @ireru(ptr)".to_string(),
             "declare i64 @atoll(ptr)".to_string(),
             "declare double @atof(ptr)".to_string(),
             "@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"".to_string(),
@@ -2025,7 +2025,7 @@ impl LlvmIrGen {
 
         let input = self.tmp();
         self.body.push(format!(
-            "  {input} = call ptr @rt_read_line(ptr {})",
+            "  {input} = call ptr @ireru(ptr {})",
             prompt.repr
         ));
 

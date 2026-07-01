@@ -3,14 +3,14 @@ use super::*;
 impl Parser {
     pub(super) fn parse_load_statement(&mut self) -> Result<Statement> {
         if self.function_body_depth > 0 {
-            return Err(self.error(
-                "`load` must be at the top level, not inside a function body",
-            ));
+            return Err(self.error("`load` must be at the top level, not inside a function body"));
         }
         self.expect(TokenType::Load)?;
 
         if self.check(TokenType::Dot) {
-            return Err(self.error("Local paths are not allowed; declare the dependency in owl.toml"));
+            return Err(
+                self.error("Local paths are not allowed; declare the dependency in owl.toml")
+            );
         }
 
         let mut path = vec![self.expect_ident()?];
@@ -40,11 +40,6 @@ impl Parser {
             None
         };
 
-        Ok(Statement::Load {
-            path,
-            alias,
-            items,
-        })
+        Ok(Statement::Load { path, alias, items })
     }
-
 }

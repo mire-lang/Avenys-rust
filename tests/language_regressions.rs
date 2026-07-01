@@ -1,8 +1,7 @@
 use mire::parser::ast::{DataType, Expression, Statement};
 use mire::{
-    BuildMode, BuildOptions, ErrorKind, MireError, OptLevel, analyze_program,
-    cache_file_path, check_program_types, compile_file_with_avenys,
-    load_program_with_metadata, parse,
+    BuildMode, BuildOptions, ErrorKind, MireError, OptLevel, analyze_program, cache_file_path,
+    check_program_types, compile_file_with_avenys, load_program_with_metadata, parse,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -1711,8 +1710,14 @@ fn contains_on_list_returns_correct_result() {
 
     assert!(output.status.success(), "binary should run successfully");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("true"), "expected contains(2) to be true, got: {stdout}");
-    assert!(stdout.contains("false"), "expected contains(5) to be false, got: {stdout}");
+    assert!(
+        stdout.contains("true"),
+        "expected contains(2) to be true, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("false"),
+        "expected contains(5) to be false, got: {stdout}"
+    );
 }
 
 #[test]
@@ -2167,16 +2172,14 @@ fn impl_method_local_assignment_parses() {
 #[test]
 fn parses_load_with_double_colon() {
     let program = parse("load kioto::math::basic\n").expect("source should parse");
-    let Statement::Load {
-        path,
-        items,
-        ..
-    } = &program.statements[0]
-    else {
+    let Statement::Load { path, items, .. } = &program.statements[0] else {
         panic!("expected load statement");
     };
 
-    assert_eq!(path, &["kioto".to_string(), "math".to_string(), "basic".to_string()]);
+    assert_eq!(
+        path,
+        &["kioto".to_string(), "math".to_string(), "basic".to_string()]
+    );
     assert!(items.is_none());
 }
 
@@ -3624,11 +3627,7 @@ fn owl_home_overrides_kioto_package_resolution() {
         "[project]\nname = \"kioto\"\nversion = \"0.1.0\"\nentry = \"mod.mire\"\n[exports]\nstrings = \"core/strings/mod.mire\"\n",
     )
     .expect("write fake kioto owl");
-    fs::write(
-        fake_kioto.join("mod.mire"),
-        "use strings\n",
-    )
-    .expect("write fake kioto mod");
+    fs::write(fake_kioto.join("mod.mire"), "use strings\n").expect("write fake kioto mod");
     fs::write(
         root.join("owl.toml"),
         "[project]\nname = \"owl-home-resolution\"\nversion = \"0.1.0\"\nentry = \"owl_home_resolution.mire\"\n[dependencies]\nkioto = { path = \"fake-kioto\" }\n",
@@ -3815,15 +3814,28 @@ fn runtime_lists_abi_smoke_test() {
         .output()
         .expect("run binary");
 
-    assert!(output.status.success(), "lists ABI: binary failed: {:?}", output);
+    assert!(
+        output.status.success(),
+        "lists ABI: binary failed: {:?}",
+        output
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
     assert!(stdout.contains("20"), "expected get(1)=20, got: {stdout}");
     assert!(stdout.contains("10"), "expected first=10, got: {stdout}");
     assert!(stdout.contains("30"), "expected last=30, got: {stdout}");
-    assert!(stdout.contains("true"), "expected contains(20)=true, got: {stdout}");
-    assert!(stdout.contains("false"), "expected contains(99)=false, got: {stdout}");
-    assert!(stdout.contains("2"), "expected index_of(30)=2, got: {stdout}");
+    assert!(
+        stdout.contains("true"),
+        "expected contains(20)=true, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("false"),
+        "expected contains(99)=false, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("2"),
+        "expected index_of(30)=2, got: {stdout}"
+    );
 }
 
 #[test]
@@ -3863,14 +3875,30 @@ fn runtime_strings_abi_smoke_test() {
         .output()
         .expect("run binary");
 
-    assert!(output.status.success(), "strings ABI: binary failed: {:?}", output);
+    assert!(
+        output.status.success(),
+        "strings ABI: binary failed: {:?}",
+        output
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("11"), "expected len=11, got: {stdout}");
-    assert!(stdout.contains("true"), "expected contains=true, got: {stdout}");
-    assert!(stdout.contains("false"), "expected contains=false, got: {stdout}");
+    assert!(
+        stdout.contains("true"),
+        "expected contains=true, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("false"),
+        "expected contains=false, got: {stdout}"
+    );
     assert!(stdout.contains("HELLO"), "expected upper, got: {stdout}");
-    assert!(stdout.contains("hello world"), "expected lower, got: {stdout}");
-    assert!(stdout.contains("hello mire"), "expected replace, got: {stdout}");
+    assert!(
+        stdout.contains("hello world"),
+        "expected lower, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("hello mire"),
+        "expected replace, got: {stdout}"
+    );
 }
 
 #[test]
@@ -3910,10 +3938,17 @@ fn runtime_dicts_abi_smoke_test() {
         .output()
         .expect("run binary");
 
-    assert!(output.status.success(), "dicts ABI: binary failed: {:?}", output);
+    assert!(
+        output.status.success(),
+        "dicts ABI: binary failed: {:?}",
+        output
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("3"), "expected len=3, got: {stdout}");
-    assert!(stdout.contains("false"), "expected has(z)=false, got: {stdout}");
+    assert!(
+        stdout.contains("false"),
+        "expected has(z)=false, got: {stdout}"
+    );
 }
 
 // ── PAL integration tests ──────────────────────────────────────────────
@@ -3922,20 +3957,35 @@ fn runtime_dicts_abi_smoke_test() {
 fn pal_env_get_returns_home() {
     let root = make_temp_project_root("mire_pal_env_get");
     let source_path = root.join("env_get.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"env-get\"\nversion = \"0.1.0\"\nentry = \"env_get.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"env-get\"\nversion = \"0.1.0\"\nentry = \"env_get.mire\"\n",
+    )
+    .expect("write project");
     fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env.get(\"HOME\")\n    use dasu(home)\n}\n")
         .expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("env.get should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("env.get should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "env.get failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty(), "HOME should not be empty");
@@ -3945,20 +3995,38 @@ fn pal_env_get_returns_home() {
 fn pal_env_cwd_returns_non_empty() {
     let root = make_temp_project_root("mire_pal_env_cwd");
     let source_path = root.join("env_cwd.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"env-cwd\"\nversion = \"0.1.0\"\nentry = \"env_cwd.mire\"\n")
-        .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set cwd = env.cwd()\n    use dasu(cwd)\n}\n")
-        .expect("write source");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"env-cwd\"\nversion = \"0.1.0\"\nentry = \"env_cwd.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    set cwd = env.cwd()\n    use dasu(cwd)\n}\n",
+    )
+    .expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("env.cwd should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("env.cwd should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "env.cwd failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("/"), "cwd should contain a slash: {stdout}");
@@ -3970,48 +4038,84 @@ fn pal_fs_write_read_roundtrip() {
     let source_path = root.join("fs_rw.mire");
     let test_file = root.join("pal_test.txt");
     let path = test_file.to_str().unwrap();
-    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-rw\"\nversion = \"0.1.0\"\nentry = \"fs_rw.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"fs-rw\"\nversion = \"0.1.0\"\nentry = \"fs_rw.mire\"\n",
+    )
+    .expect("write project");
     let src = format!(
         "load kioto\n\npub fn main: () {{\n    fs.write(\"{path}\" \"hello pal\")\n    set ok = fs.exists(\"{path}\")\n    set content = fs.read(\"{path}\")\n    fs.drop(\"{path}\")\n    set gone = !fs.exists(\"{path}\")\n    use dasu(\"{{ok}}-{{content}}-{{gone}}\")\n}}\n",
         path = path,
     );
     fs::write(&source_path, &src).expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("fs rw should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("fs rw should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "fs rw failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("true"), "exists should be true: {stdout}");
-    assert!(stdout.contains("hello pal"), "content should match: {stdout}");
-    assert!(stdout.contains("false") || stdout.contains("true"), "deleted state: {stdout}");
+    assert!(
+        stdout.contains("hello pal"),
+        "content should match: {stdout}"
+    );
+    assert!(
+        stdout.contains("false") || stdout.contains("true"),
+        "deleted state: {stdout}"
+    );
 }
 
 #[test]
 fn pal_fs_path_ops_join_dir_name_ext() {
     let root = make_temp_project_root("mire_pal_fs_path");
     let source_path = root.join("fs_path.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-path\"\nversion = \"0.1.0\"\nentry = \"fs_path.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"fs-path\"\nversion = \"0.1.0\"\nentry = \"fs_path.mire\"\n",
+    )
+    .expect("write project");
     fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs.join(\"/a/b\" \"c.d\")\n    set d = fs.dir(joined)\n    set n = fs.name(joined)\n    set e = fs.ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
         .expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("fs path ops should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("fs path ops should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "fs path ops failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("/a/b/c.d"), "join: {stdout}");
@@ -4026,23 +4130,38 @@ fn pal_fs_mkdir_rmdir() {
     let source_path = root.join("fs_dir.mire");
     let test_dir = root.join("newdir");
     let dir_path = test_dir.to_str().unwrap();
-    fs::write(root.join("owl.toml"), "[project]\nname = \"fs-dir\"\nversion = \"0.1.0\"\nentry = \"fs_dir.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"fs-dir\"\nversion = \"0.1.0\"\nentry = \"fs_dir.mire\"\n",
+    )
+    .expect("write project");
     let src = format!(
         "load kioto\n\npub fn main: () {{\n    fs.mkdir(\"{dir_path}\")\n    set ok = fs.exists(\"{dir_path}\")\n    fs.rmdir(\"{dir_path}\")\n    set gone = !fs.exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
         dir_path = dir_path,
     );
     fs::write(&source_path, &src).expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("fs mkdir should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("fs mkdir should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "fs mkdir failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("true"), "mkdir: {stdout}");
@@ -4052,20 +4171,35 @@ fn pal_fs_mkdir_rmdir() {
 fn pal_proc_shell_echo() {
     let root = make_temp_project_root("mire_pal_proc_sh");
     let source_path = root.join("proc_sh.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n",
+    )
+    .expect("write project");
     fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc.shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
         .expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("proc.shell should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("proc.shell should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
     assert!(output.status.success(), "proc.shell failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("hello_pal"), "echo: {stdout}");
@@ -4075,21 +4209,40 @@ fn pal_proc_shell_echo() {
 fn pal_proc_spawn_wait_exit_code() {
     let root = make_temp_project_root("mire_pal_proc_sw");
     let source_path = root.join("proc_sw.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"proc-sw\"\nversion = \"0.1.0\"\nentry = \"proc_sw.mire\"\n")
-        .expect("write project");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"proc-sw\"\nversion = \"0.1.0\"\nentry = \"proc_sw.mire\"\n",
+    )
+    .expect("write project");
     fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set pid = proc.spawn(\"exit 42\" [])\n    set code = proc.wait(pid)\n    use dasu(str(code))\n}\n")
         .expect("write source");
 
-    let build = compile_file_with_avenys(&source_path, &BuildOptions {
-        mode: BuildMode::Debug, opt_level: OptLevel::O0, debug_dump: false,
-        output: None, emit_binary: true, persist_ir: false,
-        import_mode: mire::ImportMode::Reachable, cache: Default::default(),
-        warning_filter: mire::error::diagnostic::WarningFilter::Default,
-        deny_warnings: std::collections::HashSet::new(), module_paths: vec![],
-    }).expect("proc spawn/wait should compile");
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            debug_dump: false,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::Default,
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+        },
+    )
+    .expect("proc spawn/wait should compile");
 
-    let output = Command::new(&build.binary_path).output().expect("run binary");
-    assert!(output.status.success(), "proc spawn/wait failed: {:?}", output);
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+    assert!(
+        output.status.success(),
+        "proc spawn/wait failed: {:?}",
+        output
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("42"), "exit code: {stdout}");
 }
@@ -4104,10 +4257,16 @@ fn owl_build_run_info_cycle() {
     }
     let root = make_temp_project_root("mire_owl_cycle");
     let source_path = root.join("main.mire");
-    fs::write(root.join("owl.toml"), "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n")
-        .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    use dasu(\"owl_build_ok\")\n}\n")
-        .expect("write source");
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n",
+    )
+    .expect("write project");
+    fs::write(
+        &source_path,
+        "load kioto\n\npub fn main: () {\n    use dasu(\"owl_build_ok\")\n}\n",
+    )
+    .expect("write source");
 
     // owl build --debug
     let build_out = Command::new("owl")
@@ -4115,7 +4274,11 @@ fn owl_build_run_info_cycle() {
         .current_dir(&root)
         .output()
         .expect("owl build");
-    assert!(build_out.status.success(), "owl build failed: {:?}", build_out);
+    assert!(
+        build_out.status.success(),
+        "owl build failed: {:?}",
+        build_out
+    );
 
     // owl info
     let info_out = Command::new("owl")
@@ -4136,7 +4299,10 @@ fn owl_build_run_info_cycle() {
         .expect("owl run");
     assert!(run_out.status.success(), "owl run failed: {:?}", run_out);
     let run_stdout = String::from_utf8_lossy(&run_out.stdout);
-    assert!(run_stdout.contains("owl_build_ok"), "run output: {run_stdout}");
+    assert!(
+        run_stdout.contains("owl_build_ok"),
+        "run output: {run_stdout}"
+    );
 }
 
 // ── end OWL integration tests ──────────────────────────────────────────

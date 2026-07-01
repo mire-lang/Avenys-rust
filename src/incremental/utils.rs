@@ -112,7 +112,9 @@ pub fn statement_export_name(statement: &Statement) -> Option<&str> {
         | Statement::Module { name, .. }
         | Statement::Enum { name, .. }
         | Statement::ExternLib { name, .. } => Some(name.as_str()),
-        Statement::ExternFunction { name, visibility, .. } => {
+        Statement::ExternFunction {
+            name, visibility, ..
+        } => {
             if *visibility == Visibility::Public {
                 Some(name.as_str())
             } else {
@@ -120,13 +122,15 @@ pub fn statement_export_name(statement: &Statement) -> Option<&str> {
             }
         }
         Statement::Load { path, alias, .. } => Some(
-            alias.as_deref().unwrap_or_else(|| path.last().map(|s| s.as_str()).unwrap_or("")),
+            alias
+                .as_deref()
+                .unwrap_or_else(|| path.last().map(|s| s.as_str()).unwrap_or("")),
         ),
         _ => None,
     }
 }
 
-    pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSettings> {
+pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSettings> {
     let Some(project_root) =
         find_project_root(source_path.parent().unwrap_or_else(|| Path::new(".")))
     else {
