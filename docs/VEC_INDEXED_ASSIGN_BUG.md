@@ -1,18 +1,18 @@
-# Bug: corruption of `vec[i64]` by indexed assignment
+# Bug: corrupción de `vec[i64]` por asignación indexada
 
-**Status:** reproduced on Avenys / Mire v3.15.0 / v3.16.0.
-**Severity:** high — affects any indexed write on dynamically-sized vectors
-(`vec[T]`). Subsequent reads return wrong or shifted values; the vector is
-silently corrupted.
+**Estado:** reproducido en Avenys / Mire v3.15.0 / v3.16.0.
+**Severidad:** alta — afecta cualquier escritura por índice sobre vectores
+dinámicos (`vec[T]`). Lecturas posteriores devuelven valores erróneos
+o desplazados; el vector queda corrupto silenciosamente.
 
-## Symptoms
+## Síntomas
 
-A benchmark that creates a `vec[i64]`, fills it, and then writes by index
-using the native indexed-assignment syntax loses the written value and
-corrupts later reads. There is no panic and no compile error: the result is
-simply incorrect.
+Un benchmark que crea un `vec[i64]`, lo llena, y luego escribe por índice
+con la sintáxis nativa de asignación indexada, pierde el valor escrito y
+corrumpe las lecturas. No hay panic ni error de compilación: el resultado
+simplemente es incorrecto.
 
-## Minimal reproducible case
+## Caso mínimo reproducible
 
 ```mire
 module main
@@ -21,52 +21,52 @@ load kioto::strings::from
 load kioto::lists
 
 pub fn main: () {
- set v = [] :vec[i64] mut
- set i = 0 :i64 mut
- while i < 10 {
- set v = lists::push(v 1)
- set i = i + 1
- }
- set v at 4 = 42 # native indexed assignment
- set a0 = lists::get(v 0)
- set a4 = lists::get(v 4)
- set a9 = lists::get(v 9)
- use dasu("expected: 1 42 1")
- use dasu("read: " + strings::from::i64(a0) + " "
- + strings::from::i64(a4) + " " + strings::from::i64(a9))
+    set v = [] :vec[i64] mut
+    set i = 0 :i64 mut
+    while i < 10 {
+        set v = lists::push(v 1)
+        set i = i + 1
+    }
+    set v at 4 = 42          # asignación indexada nativa
+    set a0 = lists::get(v 0)
+    set a4 = lists::get(v 4)
+    set a9 = lists::get(v 9)
+    use dasu("esperado: 1 42 1")
+    use dasu("leido:    " + strings::from::i64(a0) + " "
+            + strings::from::i64(a4) + " " + strings::from::i64(a9))
 }
 ```
 
-**Observed output:** `read: 1 1 1` (the 42 was lost; the vector is corrupted).
-**Expected output:** `read: 1 42 1`.
+**Salida observada:** `leido: 1 1 1` (el 42 se perdió; el vector está corrupto).
+**Salida esperada:** `leido: 1 42 1`.
 
-## Workaround (works)
+## Workaround (funciona)
 
-Use `lists::set(vec, idx, val)` from kioto instead of the native indexed
-assignment. This function routes to `rt_lists_set_i64` in the C runtime and
-writes the correct slot without corrupting the vector.
+Usar `lists::set(vec, idx, val)` de kioto en vez de la asignación
+indexada nativa. Esta función enruta a `rt_lists_set_i64` en el runtime C
+y escribe el slot correcto sin corromper el vector.
 
 ```mire
- lists::set(v 4 42) # correct: writes slot 4
+    lists::set(v 4 42)    # correcto: escribe el slot 4
 ```
 
-With `lists::set` the output is `read: 1 42 1` (correct).
+Con `lists::set` la salida es `leido: 1 42 1` (correcto).
 
-## Scope
+## Alcance
 
-- **Affected:** dynamically-sized `vec[T]` with indexed assignment
-  (`set vec at idx = val`).
-- **Not affected:** `arr[T N]` (fixed-size array) — its indexed assignment
-  (`set self.data at idx = v`) works correctly.
-- **Not affected:** indexed read (`lists::get`) or `lists::push`.
-- The bug is in the codegen/ABI of indexed assignment over the dynamic
-  vector header (the written slot is not resolved against the correct base
-  pointer, or `len`/capacity becomes desynchronized).
+- **Afecta:** `vec[T]` dinámico con asignación por índice (`set vec at idx = val`).
+- **No afecta:** `arr[T N]` (array de tamaño fijo) — su asignación
+  por índice (`set self.data at idx = v`) funciona correctamente.
+- **No afecta:** lectura por índice (`lists::get`) ni `lists::push`.
+- El bug es de codegen/ABI de la asignación indexada sobre el header
+  del vector dinámico (el slot escrito no se resuelve contra el puntero
+  base correcto, o se desincroniza el `len`/capacidad).
 
-## Relation to the stress suite
+## Relación con la stress suite
 
-The benchmark suite (`Arch/stress`) avoids this bug by using `lists::get` for
-reads and accumulating results in scalars; the few benchmarks that needed
-indexed writes were rewritten to avoid the native syntax. That is why the
-current suite does not trigger it, but the bug is still present in the runtime
-and must be documented for any code that writes to `vec[]` by index.
+La suite de benchmarks (`Arch/stress`) evita este bug usando `lists::get`
+para lectura y acumulando resultados en escalares; los pocos benches que
+necesitaban escritura por índice fueron reescritos para no usar la
+sintáxis nativa. Por eso la suite actual no lo dispara, pero el bug
+sigue presente en el runtime y debe documentarse para cualquier código
+que escriba en `vec[]` por índice.

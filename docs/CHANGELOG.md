@@ -7,108 +7,108 @@ All notable changes to Mire are documented in this file.
 ### Fixed
 
 - **Private fn visibility for `load!` modules**: `select_imported_statements`
- in `src/loader/renamer.rs` now runs full dependency resolution when
- `items=None` (wildcard imports), matching the explicit-items path. Private
- `fn` declarations are now discoverable as transitive dependencies via the
- `internal_name` match for `Statement::Function`. Previously, private `fn`
- in `load!`-imported modules were invisible to the dependency resolver,
- causing "Unknown function" errors for owl sub-packages using `load!`.
+  in `src/loader/renamer.rs` now runs full dependency resolution when
+  `items=None` (wildcard imports), matching the explicit-items path. Private
+  `fn` declarations are now discoverable as transitive dependencies via the
+  `internal_name` match for `Statement::Function`. Previously, private `fn`
+  in `load!`-imported modules were invisible to the dependency resolver,
+  causing "Unknown function" errors for owl sub-packages using `load!`.
 - **`statement_export_name` visibility consistency**: `Type`, `Skill`, and
- `Enum` variants in `src/incremental/utils.rs` now only export when
- `visibility == Public`. Previously these were always exported regardless
- of visibility, inconsistent with `Function` which already checked
- `Public`.
+  `Enum` variants in `src/incremental/utils.rs` now only export when
+  `visibility == Public`. Previously these were always exported regardless
+  of visibility, inconsistent with `Function` which already checked
+  `Public`.
 
 ## [3.17.0] - 2026-07-18
 
 ### Added
 
 - **Real fixed-width scalar types (up to 128-bit).** Mire now uses true
- integer widths `i8`/`i16`/`i32`/`i64`/`i128` and `u8`/`u16`/`u32`/`u64`/`u128`,
- 32/64-bit floats `f32`/`f64`, `bool`, and `char` (32-bit UTF-32 code point).
- LLVM lowering maps each type to its exact width (`u8`→`i8`, `char`→`i32`,
- `u64`→`i64`, etc.); there is no silent widening to `i64`.
+  integer widths `i8`/`i16`/`i32`/`i64`/`i128` and `u8`/`u16`/`u32`/`u64`/`u128`,
+  32/64-bit floats `f32`/`f64`, `bool`, and `char` (32-bit UTF-32 code point).
+  LLVM lowering maps each type to its exact width (`u8`→`i8`, `char`→`i32`,
+  `u64`→`i64`, etc.); there is no silent widening to `i64`.
 - **Type ascription `(value :T)` / `expr :T`.** A trailing `:T` converts a
- value to the named type. Conversions are checked, not silent:
- - Integer → wider integer (same/larger width): zero-extended (`u*`) or
- sign-extended (`i*`); never loses information.
- - Integer → narrower integer: only allowed when the literal value fits the
- target range; otherwise a compile error (no silent truncation).
- - Integer → float (`f32`/`f64`): allowed.
- - Float → integer: requires an explicit ascription and discards the fraction.
- - Float → float: `f64 → f32` truncates, `f32 → f64` extends without loss.
+  value to the named type. Conversions are checked, not silent:
+  - Integer → wider integer (same/larger width): zero-extended (`u*`) or
+    sign-extended (`i*`); never loses information.
+  - Integer → narrower integer: only allowed when the literal value fits the
+    target range; otherwise a compile error (no silent truncation).
+  - Integer → float (`f32`/`f64`): allowed.
+  - Float → integer: requires an explicit ascription and discards the fraction.
+  - Float → float: `f64 → f32` truncates, `f32 → f64` extends without loss.
 - **Arithmetic preserves declared widths.** `+ - * / %` compute in a promoted
- width (`i64` for integers, `f32`/`f64` for floats) and narrow the result back
- to the operands' declared type, so `u8 + u8` yields `u8` and `f32 * f32`
- yields `f32`.
+  width (`i64` for integers, `f32`/`f64` for floats) and narrow the result back
+  to the operands' declared type, so `u8 + u8` yields `u8` and `f32 * f32`
+  yields `f32`.
 - **`print` / `dasu` / `str` resolve by the argument's real type.** Floats use
- `rt_f32_to_string` / `rt_f64_to_string`; 128-bit integers use the new
- `rt_i128_to_string` / `rt_u128_to_string` runtime helpers; narrower integers
- are extended to `i64` for `rt_i64_to_string`.
+  `rt_f32_to_string` / `rt_f64_to_string`; 128-bit integers use the new
+  `rt_i128_to_string` / `rt_u128_to_string` runtime helpers; narrower integers
+  are extended to `i64` for `rt_i64_to_string`.
 - **Granular type-conversion error codes.** Real-types conversion failures now
- report dedicated codes: `E0100` (precision loss), `E0101` (type mismatch),
- `E0102` (implicit float→int), `E0103` (signed/unsigned boundary), `E0107`
- (integer literal out of range). See `docs/ERROR_CODES.md`.
+  report dedicated codes: `E0100` (precision loss), `E0101` (type mismatch),
+  `E0102` (implicit float→int), `E0103` (signed/unsigned boundary), `E0107`
+  (integer literal out of range). See `docs/ERROR_CODES.md`.
 - **`load!` / `use!` — simple local module import.** `load! <path>` exposes
- nearly all `pub` content of a relative `.mire` file or directory as a
- namespace (the **last path segment** is the module name; no alias). A
- leading `/` resolves from the project root (the `owl.toml` dir); a bare
- directory defaults to `main.mire` (fallback `mod.mire`). Resolution only
- searches up to **2 levels below the project root**. Unlike package `load`,
- `load!` needs no `owl.toml`, `module` declaration, or `exports` table. Every
- call into a `load!` module **must** be wrapped in `use!`
- (`set x = use! module::symbol(...)`); a bare `module::symbol(...)` is a type
- error. Package `load` (kioto) is unaffected.
+  nearly all `pub` content of a relative `.mire` file or directory as a
+  namespace (the **last path segment** is the module name; no alias). A
+  leading `/` resolves from the project root (the `owl.toml` dir); a bare
+  directory defaults to `main.mire` (fallback `mod.mire`). Resolution only
+  searches up to **2 levels below the project root**. Unlike package `load`,
+  `load!` needs no `owl.toml`, `module` declaration, or `exports` table. Every
+  call into a `load!` module **must** be wrapped in `use!`
+  (`set x = use! module::symbol(...)`); a bare `module::symbol(...)` is a type
+  error. Package `load` (kioto) is unaffected.
 
 ### Changed
 
 - **No silent numeric widening or narrowing.** Assigning a wider/narrower or
- differently-signed numeric value now requires an explicit ascription; the
- compiler rejects implicit precision-losing conversions.
+  differently-signed numeric value now requires an explicit ascription; the
+  compiler rejects implicit precision-losing conversions.
 - Integer literals infer `i64`; floating-point literals infer `f64`. Select a
- narrower/signed/unsigned type with an ascription (e.g. `200 :u8`).
+  narrower/signed/unsigned type with an ascription (e.g. `200 :u8`).
 
 ## [3.16.1] - 2026-07-17
 
 ### Docs
 
 - **`docs/VEC_INDEXED_ASSIGN_BUG.md`** — nuevo documento de bug conocido:
- la asignación por índice nativa (`set vec at idx = val`) sobre vectores
- dinámicos `vec[T]` corrumpe el vector silenciosamente (lecturas
- posteriores devuelven valores erróneos/desplazados). Caso mínimo
- reproducible incluido. Workaround: usar `lists::set(vec, idx, val)` de
- kioto (enruta a `rt_lists_set_i64`), que escribe el slot correcto.
- No afecta `arr[T N]` (array fijo) ni `lists::get`/`lists::push`.
+  la asignación por índice nativa (`set vec at idx = val`) sobre vectores
+  dinámicos `vec[T]` corrumpe el vector silenciosamente (lecturas
+  posteriores devuelven valores erróneos/desplazados). Caso mínimo
+  reproducible incluido. Workaround: usar `lists::set(vec, idx, val)` de
+  kioto (enruta a `rt_lists_set_i64`), que escribe el slot correcto.
+  No afecta `arr[T N]` (array fijo) ni `lists::get`/`lists::push`.
 
 ## [3.16.0] - 2026-07-15
 
 ### Added
 
 - **Warning system overhaul**: Added `WarningFilter::Off` (default, suppresses
- all warnings). New CLI flags `--show-warn` / `--sh-warn` (summary table) and
- `--position` / `--pos` (per-file detailed output). Warnings are collected as
- raw `Diagnostic` values in `BuildResult.warnings_raw: Vec<Diagnostic>` and
- suppressed for test paths in `run`/`build`/`check` commands. Summary table
- aggregates by diagnostic name at the end of test output.
+  all warnings). New CLI flags `--show-warn` / `--sh-warn` (summary table) and
+  `--position` / `--pos` (per-file detailed output). Warnings are collected as
+  raw `Diagnostic` values in `BuildResult.warnings_raw: Vec<Diagnostic>` and
+  suppressed for test paths in `run`/`build`/`check` commands. Summary table
+  aggregates by diagnostic name at the end of test output.
 - **Runtime location (Phase A)**: Runtime safety functions (`rt_div_i64`,
- `rt_rem_i64`, `rt_check_bounds_i64`) now accept `i64` line, `i64` column, and
- `ptr` source filename parameters. `rt_panic_loc(msg, line, col, file)` emits
- runtime errors with source position. LLVM declarations in `build_pipeline.rs`
- updated. `lower_program_with_filename` and `mir_to_llvm_with_filename` thread
- source filename through the MIR pipeline. `MirLower.filename` passed to bounds
- check calls in `lower/expr.rs`/`lower/stmt.rs`. `LlvmCtx.source_filename`
- passed to div/rem in `codegen/expr.rs`.
+  `rt_rem_i64`, `rt_check_bounds_i64`) now accept `i64` line, `i64` column, and
+  `ptr` source filename parameters. `rt_panic_loc(msg, line, col, file)` emits
+  runtime errors with source position. LLVM declarations in `build_pipeline.rs`
+  updated. `lower_program_with_filename` and `mir_to_llvm_with_filename` thread
+  source filename through the MIR pipeline. `MirLower.filename` passed to bounds
+  check calls in `lower/expr.rs`/`lower/stmt.rs`. `LlvmCtx.source_filename`
+  passed to div/rem in `codegen/expr.rs`.
 - **`mire build --help` and `mire check --help`**: Now print usage flags
- instead of erroring with "Unknown option: --help".
+  instead of erroring with "Unknown option: --help".
 - **`[tests]` schema supports arbitrary keys**: Nested `read_owl_test_paths` in
- `test_command` now accepts any key-value pair (not just `path`/`dirs`),
- matching the standalone `read_test_roots` function.
+  `test_command` now accepts any key-value pair (not just `path`/`dirs`),
+  matching the standalone `read_test_roots` function.
 
 ### Changed
 
 - **Warnings are now off by default**: `WarningFilter::Off` is the default
- filter. Previously all warnings were shown. Use `--show-warn` to see a
- summary or `--position` for per-file details.
+  filter. Previously all warnings were shown. Use `--show-warn` to see a
+  summary or `--position` for per-file details.
 
 ## [3.15.0] - 2026-07-15
 
