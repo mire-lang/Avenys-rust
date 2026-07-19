@@ -88,6 +88,16 @@ impl Parser {
             Expression::Closure { return_type, .. } => {
                 *return_type = data_type.clone();
             }
+            // Literals (and any node without a mutable `data_type` slot) cannot
+            // carry the ascription inline, so wrap them in an `Ascription` node
+            // that the typechecker and lower turn into a real conversion.
+            Expression::Literal(_) => {
+                return Ok(Expression::Ascription {
+                    expr: Box::new(expr),
+                    target: data_type.clone(),
+                    data_type: data_type.clone(),
+                });
+            }
             _ => {}
         }
 
@@ -1165,6 +1175,16 @@ impl Parser {
 
     pub(super) fn parse_use_expr(&mut self) -> Result<Expression> {
         self.expect(TokenType::Use)?;
+        // `use! module::symbol(args)` — mandatory wrapper for calling a symbol
+        // exposed by `load!`/`load`. The inner expression is the qualified
+        // call; enforcement of the `use!` requirement happens during typeck.
+        if self.check(TokenType::Bang) {
+            self.advance();
+            let expr = self.parse_pipeline_free_expression()?;
+            return Ok(Expression::UseMacro {
+                inner: Box::new(expr),
+            });
+        }
         let expr = self.parse_pipeline_free_expression()?;
 
         let result = if let Expression::Identifier(ident) = expr {

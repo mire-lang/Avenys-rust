@@ -2,18 +2,18 @@ load kioto
 
 pub fn main: () {
     set nums = [10 20 30 40 50] :arr[i64 5]
-    
+
     set sum = 0 :i64 mut
     set i = 0 :i64 mut
-    
+
     while i < 5 {
         set current = nums at i
         set sum = sum + current
         set i = i + 1
     }
-    
+
     set avg = sum / 5
-    
+
     use dasu(sum)
     use dasu(avg)
 }

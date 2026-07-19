@@ -4,7 +4,7 @@ pub fn main: () {
     set outer = 0 :i64 mut
     set inner = 0 :i64 mut
     set total = 0 :i64 mut
-    
+
     while outer < 3 {
         set inner = 0 :i64 mut
         while inner < 3 {
@@ -13,6 +13,6 @@ pub fn main: () {
         }
         set outer = outer + 1
     }
-    
+
     use dasu(total)
 }

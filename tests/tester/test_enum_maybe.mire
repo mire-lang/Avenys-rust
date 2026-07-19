@@ -8,22 +8,22 @@ enum Maybe {
 pub fn main: () {
     set m1 = Maybe.Nothing
     set m2 = Maybe.Just(42)
-    
+
     set is_nothing1 = match m1 {
         Maybe.Nothing { true }
         Maybe.Just { false }
     } :bool
-    
+
     set is_nothing2 = match m2 {
         Maybe.Nothing { true }
         Maybe.Just { false }
     } :bool
-    
+
     set val = match m2 {
         Maybe.Nothing { 0 }
         Maybe.Just(v) { v }
     } :i64
-    
+
     use dasu(is_nothing1)
     use dasu(is_nothing2)
     use dasu(val)

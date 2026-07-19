@@ -19,6 +19,12 @@
 | E0013 | Ownership Error | Borrow outlives owner scope, or unsafe block violation | Ensure borrows do not outlive the borrowed value; review unsafe blocks |
 | E0014 | Backend Limitation | The frontend accepted the program, but the current backend cannot lower a construct (e.g., tuples, `contains`) | Use an alternative approach or implement the missing lowering |
 | E0015 | Runtime Error | I/O errors, file not found, process failures, or other runtime failures during compilation | Check file paths, permissions, and system resources; ensure runtime dependencies are available |
+| E0100 | Type Conversion Error | Implicit numeric conversion would lose precision (e.g. `i64` → `i8`, `f64` → `f32`) | Use an explicit type ascription `(value :T)` or a wider target type |
+| E0101 | Type Mismatch | Declared type and assigned/operand type are incompatible (non-unifiable) | Make the types match, or convert the value explicitly |
+| E0102 | Type Conversion Error | Implicit float → int conversion would discard the fractional part | Use an explicit cast `(value :T)` if truncation is intended |
+| E0103 | Type Conversion Error | Implicit signed/unsigned conversion across the sign boundary | Use an explicit cast if the bit reinterpretation is intended |
+| E0107 | Type Range Error | Integer literal does not fit the target type's range (e.g. `300 :i8`) | Pick a value within range, or use a wider integer type (`i64`, `i128`) |
+| E0100–E0110 | Real-Types Conversion family | Reserved range for real-width type ascription / precision / range errors (see §3.1 of `SYNTAX.md`) | Mire uses real types with exact widths; convert explicitly with `(value :T)` |
 
 ## Warning Codes (W)
 

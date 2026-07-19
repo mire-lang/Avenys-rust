@@ -1,0 +1,18 @@
+pub fn main: () {
+    use dasu
+
+    set a = 200 :u8
+    set b = 100 :u8
+    set c = a + b
+    use dasu(c)
+
+    set x = 120 :i8
+    set y = 10 :i8
+    set z = x - y
+    use dasu(z)
+
+    set f = 1.5 :f32
+    set g = 2.0 :f32
+    set h = f * g
+    use dasu(h)
+}

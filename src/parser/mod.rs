@@ -731,27 +731,51 @@ mod tests {
             panic!("expected function");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Int(b))),
+            value:
+                Some(Expression::Ascription {
+                    expr: b_expr,
+                    ..
+                }),
             ..
         } = &body[0]
         else {
             panic!("expected first int literal");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Int(o))),
+            value:
+                Some(Expression::Ascription {
+                    expr: o_expr,
+                    ..
+                }),
             ..
         } = &body[1]
         else {
             panic!("expected second int literal");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Int(h))),
+            value:
+                Some(Expression::Ascription {
+                    expr: h_expr,
+                    ..
+                }),
             ..
         } = &body[2]
         else {
             panic!("expected third int literal");
         };
-        assert_eq!((*b, *o, *h), (10, 10, 255));
+        let b = match &**b_expr {
+            Expression::Literal(Literal::Int(v)) => *v,
+            _ => panic!("expected first int literal"),
+        };
+        let o = match &**o_expr {
+            Expression::Literal(Literal::Int(v)) => *v,
+            _ => panic!("expected second int literal"),
+        };
+        let h = match &**h_expr {
+            Expression::Literal(Literal::Int(v)) => *v,
+            _ => panic!("expected third int literal"),
+        };
+        assert_eq!((b, o, h), (10, 10, 255));
     }
 
     #[test]
@@ -796,27 +820,51 @@ mod tests {
             panic!("expected function");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Char(a))),
+            value:
+                Some(Expression::Ascription {
+                    expr: a_expr,
+                    ..
+                }),
             ..
         } = &body[0]
         else {
             panic!("expected first char");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Char(n))),
+            value:
+                Some(Expression::Ascription {
+                    expr: n_expr,
+                    ..
+                }),
             ..
         } = &body[1]
         else {
             panic!("expected second char");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Char(u))),
+            value:
+                Some(Expression::Ascription {
+                    expr: u_expr,
+                    ..
+                }),
             ..
         } = &body[2]
         else {
             panic!("expected third char");
         };
-        assert_eq!((*a, *n, *u), ('a' as u32, '\n' as u32, 'ñ' as u32));
+        let a = match &**a_expr {
+            Expression::Literal(Literal::Char(c)) => *c,
+            _ => panic!("expected first char literal"),
+        };
+        let n = match &**n_expr {
+            Expression::Literal(Literal::Char(c)) => *c,
+            _ => panic!("expected second char literal"),
+        };
+        let u = match &**u_expr {
+            Expression::Literal(Literal::Char(c)) => *c,
+            _ => panic!("expected third char literal"),
+        };
+        assert_eq!((a, n, u), ('a' as u32, '\n' as u32, 'ñ' as u32));
     }
 
     #[test]

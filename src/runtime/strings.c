@@ -96,6 +96,59 @@ char *rt_f64_to_string(double value) {
     return rt_managed_printf_f64("%g", value);
 }
 
+char *rt_f32_to_string(float value) {
+    return rt_managed_printf_f64("%g", (double)value);
+}
+
+char *rt_i128_to_string(__int128 value) {
+    char buf[48];
+    int n = 0;
+    unsigned __int128 u;
+    int neg = 0;
+    if (value < 0) {
+        neg = 1;
+        u = (unsigned __int128)(-(value + 1)) + 1;
+    } else {
+        u = (unsigned __int128)value;
+    }
+    if (u == 0) {
+        buf[n++] = '0';
+    } else {
+        while (u > 0) {
+            buf[n++] = (char)('0' + (int)(u % 10));
+            u /= 10;
+        }
+    }
+    if (neg) buf[n++] = '-';
+    for (int i = 0; i < n / 2; i++) {
+        char tmp = buf[i];
+        buf[i] = buf[n - 1 - i];
+        buf[n - 1 - i] = tmp;
+    }
+    buf[n] = '\0';
+    return rt_managed_from_slice(buf, n);
+}
+
+char *rt_u128_to_string(unsigned __int128 value) {
+    char buf[48];
+    int n = 0;
+    if (value == 0) {
+        buf[n++] = '0';
+    } else {
+        while (value > 0) {
+            buf[n++] = (char)('0' + (int)(value % 10));
+            value /= 10;
+        }
+    }
+    for (int i = 0; i < n / 2; i++) {
+        char tmp = buf[i];
+        buf[i] = buf[n - 1 - i];
+        buf[n - 1 - i] = tmp;
+    }
+    buf[n] = '\0';
+    return rt_managed_from_slice(buf, n);
+}
+
 char rt_unicode_to_lower(unsigned char c) {
     if (c >= 'A' && c <= 'Z') return (char)(c + 32);
     if (c >= 0xC0 && c <= 0xD6) return (char)(c + 32);

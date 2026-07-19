@@ -42,12 +42,14 @@ char   *pal_proc_run(const char *cmd);
 char   *pal_proc_exec(const char *cmd);
 char   *pal_proc_shell(const char *cmd);
 int64_t pal_proc_spawn(const char *cmd);
+int64_t pal_proc_spawn_argv(const char **argv);
 int64_t pal_proc_wait(int64_t pid);
 int     pal_proc_kill(int64_t pid);
 void    pal_proc_exit(int64_t status);
 int64_t pal_proc_exists(int64_t pid);
 char   *pal_proc_err(void);
 void    pal_proc_on(const char *signal_name);
+int     pal_proc_last_signal(void);
 
 // ── Time ─────────────────────────────────────────────────────────────
 int64_t pal_time_unix_ms(void);

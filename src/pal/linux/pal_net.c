@@ -23,48 +23,66 @@ int64_t pal_net_connect(const char *host, int64_t port) {
 }
 
 int64_t pal_net_connect_timeout(const char *host, int64_t port, int64_t timeout_ms) {
-    struct hostent *he = gethostbyname(host);
-    if (!he) return -1;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
 
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
-
-    if (timeout_ms > 0) {
-        int flags = fcntl(fd, F_GETFL, 0);
-        if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-
-    int ret = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
-    if (ret < 0 && errno == EINPROGRESS) {
-        struct pollfd pfd;
-        pfd.fd = fd;
-        pfd.events = POLLOUT;
-        int pr = poll(&pfd, 1, (int)timeout_ms);
-        if (pr <= 0) {
-            close(fd);
-            return -1;
-        }
-        int err = 0;
-        socklen_t len = sizeof(err);
-        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
-            close(fd);
-            return -1;
-        }
-    } else if (ret < 0) {
-        close(fd);
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
         return -1;
     }
 
     if (timeout_ms > 0) {
-        int flags = fcntl(fd, F_GETFL, 0);
-        if (flags >= 0) fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+        // Non-blocking connect path: try candidates until one connects.
+        int fd = -1;
+        for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+            fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (fd < 0) continue;
+            int flags = fcntl(fd, F_GETFL, 0);
+            if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+            int ret = connect(fd, ai->ai_addr, ai->ai_addrlen);
+            if (ret == 0) {
+                fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+                freeaddrinfo(res);
+                return (int64_t)fd;
+            }
+            if (ret < 0 && errno == EINPROGRESS) {
+                struct pollfd pfd;
+                pfd.fd = fd;
+                pfd.events = POLLOUT;
+                int pr = poll(&pfd, 1, (int)timeout_ms);
+                if (pr > 0) {
+                    int err = 0;
+                    socklen_t len = sizeof(err);
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0
+                        && err == 0) {
+                        fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+                        freeaddrinfo(res);
+                        return (int64_t)fd;
+                    }
+                }
+            }
+            close(fd);
+        }
+        freeaddrinfo(res);
+        return -1;
     }
+
+    // Blocking connect path.
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd < 0) return -1;
     return (int64_t)fd;
 }
 
@@ -150,10 +168,34 @@ int64_t pal_net_accept(int64_t server_fd) {
 }
 
 char *pal_net_resolve(const char *host) {
-    struct hostent *he = gethostbyname(host);
-    if (!he || !he->h_addr_list[0]) return NULL;
-    struct in_addr addr;
-    memcpy(&addr, he->h_addr_list[0], sizeof(addr));
-    extern char *rt_strdup_raw(const char *src);
-    return rt_strdup_raw(inet_ntoa(addr));
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, NULL, &hints, &res) != 0 || !res) {
+        return NULL;
+    }
+
+    char buf[INET6_ADDRSTRLEN];
+    const char *ip = NULL;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            ip = inet_ntop(AF_INET, &((struct sockaddr_in *)ai->ai_addr)->sin_addr,
+                           buf, sizeof(buf));
+            break;
+        } else if (ai->ai_family == AF_INET6 && !ip) {
+            ip = inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr,
+                           buf, sizeof(buf));
+        }
+    }
+
+    char *out = NULL;
+    if (ip) {
+        extern char *rt_strdup_raw(const char *src);
+        out = rt_strdup_raw(ip);
+    }
+    freeaddrinfo(res);
+    return out;
 }

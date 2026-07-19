@@ -11,28 +11,28 @@ pub fn main: () {
     set l1 = Level.Debug
     set l2 = Level.Warning
     set l3 = Level.Error
-    
+
     set msg1 = match l1 {
         Level.Debug { "debug" }
         Level.Info { "info" }
         Level.Warning { "warning" }
         Level.Error { "error" }
     } :str
-    
+
     set msg2 = match l2 {
         Level.Debug { "debug" }
         Level.Info { "info" }
         Level.Warning { "warning" }
         Level.Error { "error" }
     } :str
-    
+
     set msg3 = match l3 {
         Level.Debug { "debug" }
         Level.Info { "info" }
         Level.Warning { "warning" }
         Level.Error { "error" }
     } :str
-    
+
     use dasu("{msg1}")
     use dasu("{msg2}")
     use dasu("{msg3}")

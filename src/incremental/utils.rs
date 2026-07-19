@@ -148,10 +148,22 @@ pub fn statement_export_name(statement: &Statement) -> Option<&str> {
                 None
             }
         }
-        Statement::Type { name, .. }
-        | Statement::Skill { name, .. }
-        | Statement::Enum { name, .. }
-        | Statement::Module { name, .. }
+        Statement::Type {
+            name, visibility, ..
+        }
+        | Statement::Skill {
+            name, visibility, ..
+        }
+        | Statement::Enum {
+            name, visibility, ..
+        } => {
+            if *visibility == Visibility::Public {
+                Some(name.as_str())
+            } else {
+                None
+            }
+        }
+        Statement::Module { name, .. }
         | Statement::ExternLib { name, .. } => Some(name.as_str()),
         Statement::ExternFunction {
             name, visibility, ..

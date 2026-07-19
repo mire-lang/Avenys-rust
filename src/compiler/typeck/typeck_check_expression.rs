@@ -5,7 +5,7 @@ use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
 };
 use crate::compiler::typeck::typeck_type_parsing::data_type_name_for_diag;
-use crate::compiler::typeck::{TypeChecker, type_error, type_error_at};
+use crate::compiler::typeck::{TypeChecker, type_error};
 impl TypeChecker {
     pub(super) fn check_expression(&mut self, expression: &mut Expression) -> Result<DataType> {
         let (line, column) = super::location::expression_location(expression);
@@ -14,6 +14,54 @@ impl TypeChecker {
             self.current_column = column;
         }
         match expression {
+            Expression::Ascription {
+                expr,
+                target,
+                data_type,
+            } => {
+                let inner = self.check_expression(expr)?;
+                if inner != DataType::Unknown && *target != DataType::Unknown {
+                    let literal_ok = match &**expr {
+                        Expression::Literal(Literal::Int(v)) => {
+                            crate::types::unify::validate_int_literal_range(
+                                target, *v, line, column,
+                            )
+                            .is_ok()
+                        }
+                        Expression::Literal(Literal::Float(_)) => {
+                            matches!(target, DataType::F32 | DataType::F64)
+                        }
+                        Expression::Literal(_) => self.is_assignable(target, &inner),
+                        _ => false,
+                    };
+                    if !literal_ok && !self.is_assignable(target, &inner) {
+                        if crate::types::unify::is_numeric(target)
+                            && crate::types::unify::is_numeric(&inner)
+                        {
+                            if let Expression::Literal(Literal::Int(v)) = &**expr {
+                                crate::types::unify::validate_int_literal_range(
+                                    target, *v, line, column,
+                                )?;
+                            }
+                            return Err(crate::types::errors::precision_loss(
+                                line,
+                                column,
+                                target,
+                                &inner,
+                                Some(&format!(
+                                    "(value :{})",
+                                    crate::types::errors::pretty(target)
+                                )),
+                            ));
+                        }
+                        return Err(crate::types::errors::type_mismatch(
+                            line, column, target, &inner, "type ascription",
+                        ));
+                    }
+                }
+                *data_type = target.clone();
+                Ok(target.clone())
+            }
             Expression::Literal(lit) => Ok(Self::literal_type(lit)),
             Expression::Identifier(ident) => {
                 if let Some((resolved, _)) = self.lookup_var(&ident.name) {
@@ -41,7 +89,7 @@ impl TypeChecker {
                     ident.data_type = DataType::Function;
                     return Ok(DataType::Function);
                 }
-                Err(type_error_at(
+                Err(type_error(
                     ident.line,
                     ident.column,
                     format!("Unknown identifier '{}'", ident.name),
@@ -95,6 +143,12 @@ impl TypeChecker {
                 *data_type = resolved.clone();
                 Ok(resolved)
             }
+            Expression::UseMacro { inner } => {
+                self.in_use_macro = true;
+                let result = self.check_expression(inner);
+                self.in_use_macro = false;
+                result
+            }
             Expression::Call {
                 name,
                 args,
@@ -103,6 +157,27 @@ impl TypeChecker {
                 name_column: _,
                 data_type,
             } => {
+                // A qualified call into a `load!`-imported module is only
+                // allowed when wrapped in `use!`. The qualifier may appear
+                // with `::` (source) or `.` (after renaming).
+                if !self.in_use_macro {
+                    let qualifier = name
+                        .split_once("::")
+                        .or_else(|| name.split_once('.'))
+                        .map(|(q, _)| q.to_string());
+                    if let Some(qualifier) = qualifier {
+                        if self.load_local_modules.contains(&qualifier) {
+                            return Err(type_error(
+                                self.current_line,
+                                self.current_column,
+                                format!(
+                                    "calls into module '{qualifier}' require `use!` \
+                                     (e.g. `set x = use! {qualifier}::symbol(...)`)"
+                                ),
+                            ));
+                        }
+                    }
+                }
                 if name == "ireru" && *data_type != DataType::Unknown {
                     *data_type = data_type.clone();
                     return Ok(data_type.clone());

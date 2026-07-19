@@ -9,7 +9,7 @@ enum Status {
 
 pub fn main: () {
     set s = Status.Active
-    
+
     set result = match s {
         Status.Pending { "waiting" }
         Status.Active { "processing" }
@@ -17,6 +17,6 @@ pub fn main: () {
         Status.Failed { "error" }
         _ { "unknown" }
     } :str
-    
+
     use dasu(result)
 }

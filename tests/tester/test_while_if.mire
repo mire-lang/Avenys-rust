@@ -3,13 +3,13 @@ load kioto
 pub fn main: () {
     set n = 0 :i64 mut
     set i = 0 :i64 mut
-    
+
     while i < 10 {
         if i % 2 == 0 {
             set n = n + 1
         }
         set i = i + 1
     }
-    
+
     use dasu(n)
 }

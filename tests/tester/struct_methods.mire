@@ -9,15 +9,15 @@ impl Point {
     fn new: (x :i64 y :i64) :Point {
         return (Point x: x, y: y)
     }
-    
+
     fn get_x: (self) :i64 {
         return self.x
     }
-    
+
     fn get_y: (self) :i64 {
         return self.y
     }
-    
+
     fn sum: (self) :i64 {
         return self.x + self.y
     }
@@ -28,12 +28,12 @@ pub fn main: () {
     use dasu(p1.get_x())
     use dasu(p1.get_y())
     use dasu(p1.sum())
-    
+
     set p2 = Point::new(5, 15)
     use dasu(p2.get_x())
     use dasu(p2.get_y())
     use dasu(p2.sum())
-    
+
     set x = p1.x
     set y = p1.y
     use dasu(x + y)

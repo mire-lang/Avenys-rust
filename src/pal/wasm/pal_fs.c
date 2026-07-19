@@ -21,6 +21,19 @@ int pal_fs_write(const char *path, const char *content) {
     return ok ? 1 : 0;
 }
 
+int64_t pal_fs_write_secure(const char *path, const char *content, int32_t mode) {
+    FILE *fh = fopen(path, "w");
+    if (!fh) return 0;
+    int ok = fputs(content, fh) >= 0;
+    fclose(fh);
+    if (ok) chmod(path, (mode_t)(mode > 0 ? mode : 0600));
+    return ok ? 1 : 0;
+}
+
+int64_t pal_fs_chmod(const char *path, int32_t mode) {
+    return chmod(path, (mode_t)mode) == 0 ? 1 : 0;
+}
+
 int pal_fs_append(const char *path, const char *content) {
     FILE *fh = fopen(path, "a");
     if (!fh) return 0;

@@ -42,4 +42,33 @@ impl Parser {
 
         Ok(Statement::Load { path, alias, items })
     }
+
+    /// Parse `load! math/main` (or `load! /math` for project-root relative).
+    /// The path uses `/`-separated bare identifiers (not `::`). A leading `/`
+    /// marks the path as absolute (resolved from the project root); otherwise
+    /// it is resolved relative to the importing file's directory.
+    pub(super) fn parse_load_bang_statement(&mut self) -> Result<Statement> {
+        if self.function_body_depth > 0 {
+            return Err(self.error("`load!` must be at the top level, not inside a function body"));
+        }
+        self.expect(TokenType::Load)?;
+        self.expect(TokenType::Bang)?;
+
+        let absolute = self.check(TokenType::Slash);
+        if absolute {
+            self.advance();
+        }
+
+        let mut rel_path = vec![self.expect_ident()?];
+        while self.check(TokenType::Slash) {
+            self.advance();
+            rel_path.push(self.expect_ident()?);
+        }
+
+        if rel_path.is_empty() {
+            return Err(self.error("`load!` requires a relative path, e.g. `load! math/main`"));
+        }
+
+        Ok(Statement::LoadLocal { rel_path, absolute })
+    }
 }

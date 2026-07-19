@@ -2,19 +2,19 @@ load kioto
 
 pub fn main: () {
     set x = 10
-    
+
     if x > 0 {
         use dasu("positive")
     }
-    
+
     if x % 2 == 0 {
         use dasu("even")
     }
-    
+
     if x < 100 {
         use dasu("small")
     }
-    
+
     if x > 0 && x % 2 == 0 {
         use dasu("both")
     }

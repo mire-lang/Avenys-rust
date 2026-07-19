@@ -2,7 +2,8 @@ pub mod diagnostic;
 pub mod format;
 pub mod mss;
 
-use diagnostic::{Diagnostic, DiagnosticCode, Label, LabelStyle, Severity};
+use diagnostic::{Diagnostic, Label, LabelStyle, Severity};
+pub use diagnostic::{DiagnosticCode, Diagnostic as Diag, Label as DiagLabel, LabelStyle as DiagLabelStyle, Severity as DiagSeverity};
 use format::format_diagnostic;
 use mss::MssError;
 
@@ -37,6 +38,7 @@ pub enum ErrorKind {
         line: usize,
         column: usize,
         message: String,
+        code: Option<DiagnosticCode>,
     },
     Ownership {
         line: usize,
@@ -63,6 +65,7 @@ impl ErrorKind {
             line,
             column,
             message,
+            code: None,
         }
     }
 
@@ -142,6 +145,13 @@ impl MireError {
     pub fn with_explanation(mut self, explanation: String) -> Self {
         self.context_mut().explanation = Some(explanation.clone());
         self.diagnostic.notes.push(explanation);
+        self
+    }
+
+    pub fn with_suggestion(mut self, message: String, replacement: Option<String>) -> Self {
+        self.diagnostic
+            .suggestions
+            .push(diagnostic::Suggestion { message, replacement });
         self
     }
 
@@ -275,6 +285,23 @@ impl MireError {
             line,
             column,
             message,
+            code: None,
+        })
+    }
+
+    /// Type error with an explicit diagnostic code (e.g. `E0107` for an
+    /// integer literal out of the target range). Falls back to `E0005`.
+    pub fn type_error_code(
+        line: usize,
+        column: usize,
+        code: DiagnosticCode,
+        message: String,
+    ) -> Self {
+        Self::new(ErrorKind::Type {
+            line,
+            column,
+            message,
+            code: Some(code),
         })
     }
 
@@ -287,6 +314,7 @@ impl MireError {
             line: usize::MAX,
             column: usize::MAX,
             message,
+            code: None,
         })
     }
 }
@@ -350,12 +378,13 @@ fn map_kind(kind: &ErrorKind) -> (usize, usize, &'static str, String, Diagnostic
             line,
             column,
             message,
+            code,
         } => (
             *line,
             *column,
             "Type Error",
             message.clone(),
-            DiagnosticCode::E0005,
+            code.unwrap_or(DiagnosticCode::E0005),
         ),
         ErrorKind::Ownership { line, column, kind } => (
             *line,
@@ -374,11 +403,39 @@ fn default_help_for_code(code: DiagnosticCode) -> Option<String> {
             "The frontend accepted this program, but the current Avenys backend cannot lower this construct yet."
                 .to_string(),
         ),
+        DiagnosticCode::E0100
+        | DiagnosticCode::E0101
+        | DiagnosticCode::E0102
+        | DiagnosticCode::E0103
+        | DiagnosticCode::E0104
+        | DiagnosticCode::E0105
+        | DiagnosticCode::E0106
+        | DiagnosticCode::E0107
+        | DiagnosticCode::E0108
+        | DiagnosticCode::E0109
+        | DiagnosticCode::E0110 => Some(
+            "Mire uses real types with exact widths. Use an explicit cast `(value :T)` to convert."
+                .to_string(),
+        ),
         _ => None,
     }
 }
 
 pub type Result<T> = std::result::Result<T, MireError>;
+
+pub fn type_error(line: usize, column: usize, message: String) -> MireError {
+    MireError::type_error_at(line, column, message)
+}
+
+/// Type error carrying an explicit diagnostic code (e.g. `E0107`).
+pub fn type_error_code(
+    line: usize,
+    column: usize,
+    code: DiagnosticCode,
+    message: String,
+) -> MireError {
+    MireError::type_error_code(line, column, code, message)
+}
 
 pub fn format_error_chain(errors: &[MireError], use_color: bool) -> String {
     if errors.is_empty() {

@@ -11,10 +11,10 @@ fn greet: (name :str) :str {
 pub fn main: () {
     set sum = add(5, 3)
     use dasu(sum)
-    
+
     set message = greet("world")
     use dasu(message)
-    
+
     set nested = add(add(1, 2), add(3, 4))
     use dasu(nested)
 }

@@ -1,0 +1,4 @@
+pub fn main: () {
+    set x = 300 :i8
+    use dasu(x)
+}

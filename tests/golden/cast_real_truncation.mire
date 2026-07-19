@@ -1,0 +1,11 @@
+pub fn main: () {
+    use dasu
+
+    set big = 1000 :i64
+    set small = big :i8
+    use dasu(small)
+
+    set fbig = 3.99 :f64
+    set fsmall = fbig :i32
+    use dasu(fsmall)
+}

@@ -2,10 +2,10 @@ load kioto
 
 pub fn main: () {
     set nums = [1 2 3 4 5] :arr[i64 5]
-    
+
     set max = nums at 0 :i64 mut
     set i = 1 :i64 mut
-    
+
     while i < 5 {
         set current = nums at i
         if current > max {
@@ -13,6 +13,6 @@ pub fn main: () {
         }
         set i = i + 1
     }
-    
+
     use dasu(max)
 }

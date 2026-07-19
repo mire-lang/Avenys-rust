@@ -6,6 +6,7 @@ pub mod incremental;
 pub mod lexer;
 pub mod loader;
 pub mod parser;
+pub mod types;
 
 pub use avens::{
     BuildMode, BuildOptions, BuildResult, ImportMode, MireCacheConfig, MireDependencies,

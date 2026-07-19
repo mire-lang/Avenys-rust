@@ -2,12 +2,12 @@ load kioto
 
 pub fn main: () {
     set flag = true :bool
-    
+
     set result = if flag { 100 } else { 200 } :i64
-    
+
     use dasu(result)
-    
+
     set msg = if false { "no" } else { "yes" } :str
-    
+
     use dasu(msg)
 }

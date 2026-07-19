@@ -77,6 +77,7 @@ impl MirLower {
             current_block: 0,
             closure_functions: Vec::new(),
             closure_counter: 0,
+            filename: self.filename.clone(),
         };
         lower.func.noinline = true;
         let entry_id = lower.entry_block_id();

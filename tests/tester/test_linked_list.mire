@@ -9,17 +9,17 @@ pub fn main: () {
     set list1 = List.Empty
     set list2 = List.Cons(1, List.Empty)
     set list3 = List.Cons(1, List.Cons(2, List.Cons(3, List.Empty)))
-    
+
     set len1 = match list1 {
         List.Empty { 0 }
         List.Cons(h t) { 1 }
     } :i64
-    
+
     set len2 = match list2 {
         List.Empty { 0 }
         List.Cons(h t) { 1 }
     } :i64
-    
+
     set len3 = match list3 {
         List.Empty { 0 }
         List.Cons(h t) { match t {
@@ -30,7 +30,7 @@ pub fn main: () {
             } :i64 }
         } :i64 }
     } :i64
-    
+
     use dasu(len1)
     use dasu(len2)
     use dasu(len3)

@@ -6,13 +6,13 @@
 
 ```
 project-root/
-  bin/
-    .cache/
-      incremental.bin       ← single binary blob (index + serialized blobs)
-    debug/
-      <binary>              ← compiled debug binary
-    release/                ← (not created unless --release)
-      <binary>
+ bin/
+ .cache/
+ incremental.bin ← single binary blob (index + serialized blobs)
+ debug/
+ <binary> ← compiled debug binary
+ release/ ← (not created unless --release)
+ <binary>
 ```
 
 ### Cache Format (`MIREINC2`, version 7)
@@ -33,7 +33,7 @@ project-root/
 | Index size | ~20% of file |
 | LRU cost | O(n log n) sort on eviction |
 | Compaction cost | O(n) read + O(m) write (m dead blobs) |
-| Memory mapped | ✅ Read-only, zero-copy |
+| Memory mapped | Read-only, zero-copy |
 | Write strategy | Sync (immediate fsync via `save()`) |
 
 ## Problems
@@ -58,26 +58,26 @@ project-root/
 
 ```
 project-root/
-  bin/
-    .cache/
-      version.txt                  ← schema version + format description
-      index/                       ← per-entry metadata (separate files)
-        files/
-          <path_hash>.meta         ← FileCacheEntry
-        analyses/
-          <source_hash>.meta       ← AnalysisCacheEntry
-        builds/
-          <key_hash>.meta          ← BuildCacheRecord
-      blobs/                       ← content-addressed blob segments
-        <blob_hash>                ← raw blob data (named by content hash)
-      wal/                         ← write-ahead log for crash safety
-        <timestamp>.wal            ← pending writes (applied on restart)
-    debug/
-      <binary>                     ← debug build output
-    release/
-      <binary>                     ← release build output
-    optimized/
-      <binary>                     ← O2/O3 build output (separate from debug/release)
+ bin/
+ .cache/
+ version.txt ← schema version + format description
+ index/ ← per-entry metadata (separate files)
+ files/
+ <path_hash>.meta ← FileCacheEntry
+ analyses/
+ <source_hash>.meta ← AnalysisCacheEntry
+ builds/
+ <key_hash>.meta ← BuildCacheRecord
+ blobs/ ← content-addressed blob segments
+ <blob_hash> ← raw blob data (named by content hash)
+ wal/ ← write-ahead log for crash safety
+ <timestamp>.wal ← pending writes (applied on restart)
+ debug/
+ <binary> ← debug build output
+ release/
+ <binary> ← release build output
+ optimized/
+ <binary> ← O2/O3 build output (separate from debug/release)
 ```
 
 ### New segment-based blob store
@@ -95,11 +95,11 @@ Instead of one contiguous blob store:
 Replace timestamp-sorted eviction:
 
 - **Hot entries**: `LinkedHashMap<K, Entry>` (or `HashMap<K, Node<K>>` + doubly-linked list)
-  - O(1) lookup, O(1) insertion, O(1) eviction
-  - On access: move node to head (O(1))
-  - On eviction: remove from tail (O(1))
+ - O(1) lookup, O(1) insertion, O(1) eviction
+ - On access: move node to head (O(1))
+ - On eviction: remove from tail (O(1))
 - **Cold storage**: Entries evicted from hot set have their blobs mmap'd and index entry serialized to `index/` directory
-  - Reheat: when a cold entry is accessed, its blob is loaded and it returns to hot set
+ - Reheat: when a cold entry is accessed, its blob is loaded and it returns to hot set
 - **Hot/cold threshold**: Configurable (default: keep last N accessed entries hot; evict oldest)
 
 ### Write-Ahead Log (WAL)
@@ -138,7 +138,7 @@ At `-O0`, the optimizer (`optimize()`) must be skipped entirely. The build pipel
 
 ```
 if matches!(options.opt_level, OptLevel::O0) {
-    // skip LLVM opt, skip MIR optimize
+ // skip LLVM opt, skip MIR optimize
 }
 ```
 
@@ -150,7 +150,7 @@ This means at O0, the MIR pipeline only runs lower + codegen (no fixed-point loo
 
 ```
 loop {
-    const_fold + alg_simplify + copy_propagate + fold_brcond + dce + dead_elim + merge_blocks
+ const_fold + alg_simplify + copy_propagate + fold_brcond + dce + dead_elim + merge_blocks
 }
 ```
 
@@ -183,8 +183,8 @@ Each pass iterates over all blocks and all instructions. For small functions thi
 | Cache save | 50ms (full rewrite) | 5ms (WAL append) | 10x |
 | LRU eviction | O(n log n) | O(1) | n/a for small caches |
 | Blob compaction | O(n) | O(live) | proportional to churn |
-| Stale hit (worst case) | ✅ Fixed (hash2 + analysis key) | — | — |
-| Crash recovery | ❌ Data loss | ✅ WAL replay | Reliability |
+| Stale hit (worst case) | Fixed (hash2 + analysis key) | — | — |
+| Crash recovery | Data loss | WAL replay | Reliability |
 
 ## Current State (after Phase 1 refactor)
 
@@ -192,19 +192,19 @@ Each pass iterates over all blocks and all instructions. For small functions thi
 
 ```
 project-root/
-  bin/
-    .cache/
-      version.txt                   ← "MIREINC3\n1\n"
-      index/
-        files/                      ← <key_hash>.meta for file cache entries
-        analyses/                   ← <key_hash>.meta for analysis cache entries
-        builds/                     ← <key_hash>.meta for build cache entries
-      blobs/                        ← content-addressed blob files (<blob_hash>)
-      wal/                          ← write-ahead log files (<timestamp>.wal)
-    debug/
-      <binary>
-    release/
-      <binary>
+ bin/
+ .cache/
+ version.txt ← "MIREINC3\n1\n"
+ index/
+ files/ ← <key_hash>.meta for file cache entries
+ analyses/ ← <key_hash>.meta for analysis cache entries
+ builds/ ← <key_hash>.meta for build cache entries
+ blobs/ ← content-addressed blob files (<blob_hash>)
+ wal/ ← write-ahead log files (<timestamp>.wal)
+ debug/
+ <binary>
+ release/
+ <binary>
 ```
 
 ### Cache Format (`MIREINC3`, version 1)
@@ -266,9 +266,9 @@ The analysis cache now invalidates correctly when dependency files change:
 
 ## Implementation order
 
-1. ✅ **WAL + segment blob store**: Foundation for crash safety and small writes
-2. ✅ **Real LRU**: Replace sort-based eviction with `LinkedHashMap` (VecDeque-based)
-3. ✅ **Per-directory metadata**: Split index from blobs, per-entry `.meta` files
+1. **WAL + segment blob store**: Foundation for crash safety and small writes
+2. **Real LRU**: Replace sort-based eviction with `LinkedHashMap` (VecDeque-based)
+3. **Per-directory metadata**: Split index from blobs, per-entry `.meta` files
 4. **Hot/cold separation**: Keep hot entries in memory, cold on mmap
 5. **Statement-level selective codegen**: Fine-grained rebuild
 6. **Parallel module compilation**: Multi-core scale-out

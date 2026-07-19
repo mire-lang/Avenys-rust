@@ -3,15 +3,15 @@ load kioto
 pub fn main: () {
     set a = true
     set b = false
-    
+
     if a {
         use dasu(a)
     }
-    
+
     if b {
         use dasu(b)
     }
-    
+
     if a && b {
         use dasu("both")
     }

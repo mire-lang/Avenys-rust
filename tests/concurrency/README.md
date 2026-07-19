@@ -12,8 +12,8 @@ Run all tests:
 
 ```bash
 for f in tests/concurrency/*.mire; do
-  echo "=== $f ==="
-  cargo run --bin mire -- run "$f"
+ echo "=== $f ==="
+ cargo run --bin mire -- run "$f"
 done
 ```
 

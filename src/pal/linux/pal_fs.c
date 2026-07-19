@@ -36,6 +36,25 @@ int pal_fs_write(const char *path, const char *content) {
     return ok ? 1 : 0;
 }
 
+// Write content to path with restrictive 0600 permissions (owner read/write only).
+int64_t pal_fs_write_secure(const char *path, const char *content, int32_t mode) {
+    EXPAND_TILDE(path);
+    FILE *fh = fopen(path_real, "w");
+    if (!fh) { EXPAND_TILDE_END(path); return 0; }
+    int ok = fputs(content, fh) >= 0;
+    fclose(fh);
+    if (ok) chmod(path_real, (mode_t)(mode > 0 ? mode : 0600));
+    EXPAND_TILDE_END(path);
+    return ok ? 1 : 0;
+}
+
+int64_t pal_fs_chmod(const char *path, int32_t mode) {
+    EXPAND_TILDE(path);
+    int rc = chmod(path_real, (mode_t)mode);
+    EXPAND_TILDE_END(path);
+    return rc == 0 ? 1 : 0;
+}
+
 int pal_fs_append(const char *path, const char *content) {
     EXPAND_TILDE(path);
     FILE *fh = fopen(path_real, "a");

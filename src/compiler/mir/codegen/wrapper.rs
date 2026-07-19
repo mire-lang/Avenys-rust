@@ -49,9 +49,12 @@ pub(crate) fn collect_used_extern_wrappers(
                     | MirOp::IntToPtr(v, _)
                     | MirOp::BitCast(v, _)
                     | MirOp::ZExt(v, _)
+                    | MirOp::SExt(v, _)
                     | MirOp::Trunc(v, _)
                     | MirOp::Sitofp(v, _)
-                    | MirOp::Fptosi(v, _) => {
+                    | MirOp::Fptosi(v, _)
+                    | MirOp::Fptrunc(v, _)
+                    | MirOp::Fpext(v, _) => {
                         visit_value(v);
                         if let MirOp::Add(_, r)
                         | MirOp::Sub(_, r)

@@ -1,0 +1,7 @@
+load kioto
+
+pub fn main: () {
+    set x = 3.14 :f32
+    set s = str(x)
+    use dasu("s: {s}")
+}

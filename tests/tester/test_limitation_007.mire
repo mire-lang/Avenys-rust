@@ -8,7 +8,7 @@ impl Counter {
     fn new: (initial :i64) :Counter {
         (Counter value: initial)
     }
-    
+
     fn get_value: (self) :i64 {
         self.value
     }

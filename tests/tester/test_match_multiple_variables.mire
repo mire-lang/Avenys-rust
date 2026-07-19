@@ -10,25 +10,25 @@ pub fn main: () {
     set c1 = Color.Red
     set c2 = Color.Green
     set c3 = Color.Blue
-    
+
     set n1 = match c1 {
         Color.Red { "red" }
         Color.Green { "green" }
         Color.Blue { "blue" }
     } :str
-    
+
     set n2 = match c2 {
         Color.Red { "red" }
         Color.Green { "green" }
         Color.Blue { "blue" }
     } :str
-    
+
     set n3 = match c3 {
         Color.Red { "red" }
         Color.Green { "green" }
         Color.Blue { "blue" }
     } :str
-    
+
     use dasu(n1)
     use dasu(n2)
     use dasu(n3)

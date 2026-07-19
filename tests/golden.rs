@@ -76,7 +76,7 @@ fn golden_corpus() {
             persist_ir: false,
             import_mode: ImportMode::Reachable,
             cache: Default::default(),
-            warning_filter: WarningFilter::Default,
+            warning_filter: WarningFilter::Off,
             deny_warnings: HashSet::new(),
             module_paths: vec![],
             test_mode: false,

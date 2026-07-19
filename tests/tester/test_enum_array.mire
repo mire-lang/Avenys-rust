@@ -12,7 +12,7 @@ pub fn main: () {
     set g1 = Grade.A
     set g2 = Grade.C
     set g3 = Grade.F
-    
+
     set s1 = match g1 {
         Grade.A { 100 }
         Grade.B { 85 }
@@ -20,7 +20,7 @@ pub fn main: () {
         Grade.D { 60 }
         Grade.F { 50 }
     } :i64
-    
+
     set s2 = match g2 {
         Grade.A { 100 }
         Grade.B { 85 }
@@ -28,7 +28,7 @@ pub fn main: () {
         Grade.D { 60 }
         Grade.F { 50 }
     } :i64
-    
+
     set s3 = match g3 {
         Grade.A { 100 }
         Grade.B { 85 }
@@ -36,11 +36,11 @@ pub fn main: () {
         Grade.D { 60 }
         Grade.F { 50 }
     } :i64
-    
+
     use dasu(s1)
     use dasu(s2)
     use dasu(s3)
-    
+
     set p1 = match g1 {
         Grade.A { true }
         Grade.B { true }
@@ -48,7 +48,7 @@ pub fn main: () {
         Grade.D { false }
         Grade.F { false }
     } :bool
-    
+
     set p2 = match g3 {
         Grade.A { true }
         Grade.B { true }
@@ -56,7 +56,7 @@ pub fn main: () {
         Grade.D { false }
         Grade.F { false }
     } :bool
-    
+
     use dasu(p1)
     use dasu(p2)
 }

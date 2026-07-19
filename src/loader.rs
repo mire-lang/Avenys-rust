@@ -273,6 +273,35 @@ impl<'a> ImportResolver<'a> {
                         expanded.extend(prefixed);
                     }
                 }
+                Statement::LoadLocal { rel_path, absolute } => {
+                    let current_dir = canonical.parent().unwrap_or_else(|| Path::new("."));
+                    let (target, depth) =
+                        self.resolve_load_local_target(&rel_path, absolute, current_dir)?;
+                    if depth > 2 {
+                        return Err(MireError::new(ErrorKind::Runtime {
+                            line: 0,
+                            column: 0,
+                            message: format!(
+                                "load! can only descend 2 levels below owl.toml, but got {} levels",
+                                depth
+                            ),
+                        }));
+                    }
+                    let namespace = rel_path.last().cloned().unwrap_or_default();
+                    let imported = self.load_file(&target)?;
+                    let prefixed =
+                        prefix_loaded_statements_scoped(imported, &namespace, &target);
+                    if dep_set.insert(target.clone()) {
+                        direct_dependencies.push(target);
+                    }
+                    expanded.extend(prefixed);
+                    // Keep the `load!` declaration in the program so later passes
+                    // (e.g. the mandatory `use!` check) can see the imported module.
+                    expanded.push(ExpandedStatement {
+                        statement: Statement::LoadLocal { rel_path, absolute },
+                        origin: canonical.clone(),
+                    });
+                }
                 other => expanded.push(ExpandedStatement {
                     statement: other,
                     origin: canonical.clone(),
@@ -370,6 +399,52 @@ impl<'a> ImportResolver<'a> {
         );
 
         Ok((canonical_root, entry))
+    }
+
+    /// Resolve a `load!` (LoadLocal) target relative to the project root (absolute)
+    /// or the current file's directory (relative). Tries `<path>/main.mire`,
+    /// `<path>/mod.mire`, then `<path>.mire`. Returns the resolved file and the
+    /// directory depth below the project root (used for the 2-level limit).
+    fn resolve_load_local_target(
+        &self,
+        rel_path: &[String],
+        absolute: bool,
+        current_dir: &Path,
+    ) -> Result<(PathBuf, usize)> {
+        let base = if absolute {
+            self.project_root.clone()
+        } else {
+            current_dir.to_path_buf()
+        };
+        let joined: PathBuf = rel_path.iter().collect();
+        let candidate_dir = base.join(&joined);
+        let candidates = [
+            candidate_dir.join("main.mire"),
+            candidate_dir.join("mod.mire"),
+            candidate_dir.with_extension("mire"),
+        ];
+        let target = candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .ok_or_else(|| {
+                MireError::new(ErrorKind::Runtime {
+                    line: 0,
+                    column: 0,
+                    message: format!("load! target '{}' not found", rel_path.join("/")),
+                })
+            })?;
+        let depth = target
+            .parent()
+            .and_then(|p| p.strip_prefix(&self.project_root).ok())
+            .map(|rel| {
+                rel.components()
+                    .filter(|c| {
+                        !matches!(c, std::path::Component::CurDir | std::path::Component::ParentDir)
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        Ok((target, depth))
     }
 
     fn resolve_load_path(&mut self, segments: &[String]) -> Result<PathBuf> {
@@ -981,6 +1056,7 @@ impl<'a> ModuleRenamer<'a> {
                     .collect(),
             },
             Statement::Load { path, alias, items } => Statement::Load { path, alias, items },
+            Statement::LoadLocal { .. } => statement,
             Statement::Module { name } => Statement::Module {
                 name: self.rename_decl_name(name, scope_stack, top_level),
             },
@@ -1482,6 +1558,8 @@ impl<'a> ModuleRenamer<'a> {
                     .collect(),
                 data_type: self.rename_data_type(data_type, scope_stack),
             },
+            Expression::Ascription { .. } => expression,
+            Expression::UseMacro { .. } => expression,
             Expression::Literal(literal) => Expression::Literal(match literal {
                 Literal::List(elements) => Literal::List(
                     elements

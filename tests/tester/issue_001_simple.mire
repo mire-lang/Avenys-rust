@@ -7,11 +7,11 @@ enum Result {
 
 pub fn main: () {
     set r = Result.Ok(42)
-    
+
     set v = match r {
         Result.Ok(val) { val }
         Result.Err(e) { 0 }
     } :i64
-    
+
     use dasu(v)
 }

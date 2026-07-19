@@ -40,7 +40,7 @@ When Avenys encounters `load kioto`, it follows this resolution path:
 Avenys looks for libraries in these locations (in order):
 
 1. **Current project's `owl.toml` dependencies**: If the current project has
-   `kioto = { path = "../kioto" }` in `[dependencies]`, Avenys follows that path.
+ `kioto = { path = "../kioto" }` in `[dependencies]`, Avenys follows that path.
 
 2. **Global modules directory**: `~/.owl/modules/<name>/`
 
@@ -57,10 +57,10 @@ entry = "mod.mire"
 
 [exports]
 strings = "core/strings"
-lists   = "core/lists"
-dicts   = "core/dicts"
-net     = "core/net"
-ws      = "ext/ws"
+lists = "core/lists"
+dicts = "core/dicts"
+net = "core/net"
+ws = "ext/ws"
 # ...
 ```
 
@@ -94,9 +94,9 @@ filesystem paths (relative to the library root):
 
 ```toml
 [exports]
-strings = "core/strings"    # → core/strings/mod.mire
-net     = "core/net"        # → core/net/mod.mire
-ws      = "ext/ws"          # → ext/ws/mod.mire
+strings = "core/strings" # → core/strings/mod.mire
+net = "core/net" # → core/net/mod.mire
+ws = "ext/ws" # → ext/ws/mod.mire
 ```
 
 Rules:
@@ -104,7 +104,7 @@ Rules:
 - Values are directory paths. Avenys appends `/mod.mire` to find the module file.
 - Paths are relative to the library root (where `owl.toml` lives).
 - Only modules listed in `[exports]` are accessible. Internal modules without
-  an export entry cannot be loaded by external code.
+ an export entry cannot be loaded by external code.
 
 ---
 
@@ -160,8 +160,8 @@ load kioto::net
 load kioto::ws
 
 fn main: () {
-    set r = net::http_get("https://example.com")    # qualified
-    set fd = ws::connect("ws://127.0.0.1:9877/")    # qualified
+ set r = net::http_get("https://example.com") # qualified
+ set fd = ws::connect("ws://127.0.0.1:9877/") # qualified
 }
 ```
 
@@ -171,8 +171,8 @@ fn main: () {
 return value). It is NOT an import mechanism:
 
 ```mire
-use dasu("hello")          # print to stdout
-use proc::exit(1)           # exit the process
+use dasu("hello") # print to stdout
+use proc::exit(1) # exit the process
 use async::spawn("curl ...") # spawn a background task
 ```
 
@@ -199,19 +199,19 @@ LLVM `declare` and link against the C runtime."
 ### The Full Chain
 
 ```
-kioto/core/net/mod.mire  ← extern fn pal_tls_connect: (...) :i64 lib "c"
-     │
-     ▼
-Avenys → src/compiler/mir/codegen/builtins.rs  ← declare i64 @pal_tls_connect(ptr, i64)
-     │
-     ▼
-LLVM IR → clang linker  ← looks for symbol pal_tls_connect
-     │
-     ▼
-pal/linux/pal_tls.c  ← int64_t pal_tls_connect(const char *host, int64_t port)
-     │
-     ▼
-OpenSSL  ← SSL_connect, SSL_read, SSL_write
+kioto/core/net/mod.mire ← extern fn pal_tls_connect: (...) :i64 lib "c"
+ │
+ ▼
+Avenys → src/compiler/mir/codegen/builtins.rs ← declare i64 @pal_tls_connect(ptr, i64)
+ │
+ ▼
+LLVM IR → clang linker ← looks for symbol pal_tls_connect
+ │
+ ▼
+pal/linux/pal_tls.c ← int64_t pal_tls_connect(const char *host, int64_t port)
+ │
+ ▼
+OpenSSL ← SSL_connect, SSL_read, SSL_write
 ```
 
 The PAL C files are compiled into `.o` files by clang and linked with the
@@ -226,10 +226,10 @@ between the LLVM IR `declare` and the C function name.
 
 ```
 myapp/
-  owl.toml
-  mod.mire
-  code/
-    main.mire
+ owl.toml
+ mod.mire
+ code/
+ main.mire
 ```
 
 #### `owl.toml`
@@ -261,7 +261,7 @@ load myapp::mylib
 module mylib
 
 pub fn hello: () {
-    use dasu("Hello from mylib!")
+ use dasu("Hello from mylib!")
 }
 ```
 
@@ -271,9 +271,9 @@ pub fn hello: () {
 load myapp
 
 fn main: () {
-    mylib::hello()
-    set r = net::http_get("https://example.com")
-    use dasu(r)
+ mylib::hello()
+ set r = net::http_get("https://example.com")
+ use dasu(r)
 }
 ```
 
@@ -296,7 +296,7 @@ When you compile `code/main.mire`:
 1. Avenys walks up from `code/main.mire` looking for `owl.toml`
 2. If found, it reads `[project]` (name, version, entry) and `[dependencies]`
 3. For each dependency, it resolves the path, reads that project's `owl.toml`,
-   and loads its `mod.mire` entry point
+ and loads its `mod.mire` entry point
 4. All `load` statements in all modules are resolved recursively
 
 If no `owl.toml` is found, only the file being compiled is processed.
@@ -308,7 +308,7 @@ If no `owl.toml` is found, only the file being compiled is processed.
 
 | Declaration | Visible from | Example |
 |------------|--------------|---------|
-| `pub fn`   | Any module that loads this module | `pub fn http_get: (...) :str` |
-| `fn`       | Only within the same module file | `fn extract_host: (url :str) :str` |
+| `pub fn` | Any module that loads this module | `pub fn http_get: (...) :str` |
+| `fn` | Only within the same module file | `fn extract_host: (url :str) :str` |
 | `pub struct` | Any module that loads this module | `pub struct Point { x: i64, y: i64 }` |
 | `extern fn` | Any module that loads this module (if in `pub` scope) | `extern fn pal_tls_connect: (...) :i64 lib "c"` |

@@ -248,6 +248,7 @@ mod tests {
             line: 1,
             column: 1,
             message: "cached type failure".to_string(),
+            code: None,
         })
         .with_filename(source_path.display().to_string())
         .with_source("pub fn main: () {}\n".to_string());

@@ -3,13 +3,13 @@ load kioto
 pub fn main: () {
     set a = 10 :i64
     set b = 3 :i64
-    
+
     set sum = a + b
     set sub = a - b
     set mul = a * b
     set div = a / b
     set mod = a % b
-    
+
     use dasu("sum: {sum}")
     use dasu("sub: {sub}")
     use dasu("mul: {mul}")

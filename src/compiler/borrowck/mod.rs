@@ -512,6 +512,7 @@ impl<'a> BorrowChecker<'a> {
             | Statement::ExternLib { .. }
             | Statement::ExternFunction { .. }
             | Statement::Load { .. }
+            | Statement::LoadLocal { .. }
             | Statement::Enum { .. }
             | Statement::Module { .. } => {}
         }

@@ -4,7 +4,7 @@ pub fn main: () {
     set x = 10 :i64 mut
     set x = 20
     use dasu("x: {x}")
-    
+
     set y = 5 :i64
     set y = 10
 }

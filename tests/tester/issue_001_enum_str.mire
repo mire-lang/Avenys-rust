@@ -8,17 +8,17 @@ enum Result {
 pub fn main: () {
     set r1 = Result.Ok("success")
     set r2 = Result.Err("error")
-    
+
     set v1 = match r1 {
         Result.Ok(m) { m }
         Result.Err(m) { "default" }
     } :str
-    
+
     set v2 = match r2 {
         Result.Ok(m) { m }
         Result.Err(m) { "default" }
     } :str
-    
+
     use dasu("{v1}")
     use dasu("{v2}")
 }

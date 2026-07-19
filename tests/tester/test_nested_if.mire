@@ -3,13 +3,13 @@ load kioto
 pub fn main: () {
     set x = 5
     set y = 10
-    
+
     if x > 3 {
         if y < 20 {
             use dasu("nested")
         }
     }
-    
+
     set msg = "done"
     use dasu(msg)
 }

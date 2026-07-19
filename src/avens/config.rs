@@ -1,4 +1,4 @@
-use crate::error::diagnostic::{DiagnosticCode, WarningFilter};
+use crate::error::diagnostic::{Diagnostic, DiagnosticCode, WarningFilter};
 use crate::incremental::CacheOverrides;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -76,6 +76,7 @@ pub struct BuildResult {
     pub optimized_ir_path: Option<PathBuf>,
     pub used_optimizations: bool,
     pub warnings: Vec<String>,
+    pub warnings_raw: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

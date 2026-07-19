@@ -4,7 +4,7 @@ pub fn main: () {
     set s = "hello"
     set len = len(s)
     use dasu("len: {len}")
-    
+
     set upper = "HELLO"
     set eq = s == upper
     use dasu("eq: {eq}")

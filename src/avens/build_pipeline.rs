@@ -1,6 +1,7 @@
 use super::*;
 use crate::compiler::check_warnings_with_origins;
-use crate::compiler::mir::{codegen::mir_to_llvm, lower::lower_program, optimize::optimize};
+use crate::compiler::mir::{codegen::mir_to_llvm_with_filename, lower::lower_program_with_filename, optimize::optimize};
+use crate::error::diagnostic::Diagnostic;
 use crate::loader::load_program_with_cache;
 use crate::parser::ast::{DataType, Statement};
 use std::hash::{Hash, Hasher};
@@ -121,24 +122,16 @@ fn generate_runtime_declarations(ir: &str) -> String {
             "declare ptr @rt_dict_to_string(ptr)",
         ),
         (
-            "declare void @rt_panic_division_by_zero(",
-            "declare void @rt_panic_division_by_zero()",
-        ),
-        (
-            "declare void @rt_panic_out_of_bounds(",
-            "declare void @rt_panic_out_of_bounds()",
-        ),
-        (
             "declare i64 @rt_div_i64(",
-            "declare i64 @rt_div_i64(i64, i64)",
+            "declare i64 @rt_div_i64(i64, i64, i64, i64, ptr)",
         ),
         (
             "declare i64 @rt_rem_i64(",
-            "declare i64 @rt_rem_i64(i64, i64)",
+            "declare i64 @rt_rem_i64(i64, i64, i64, i64, ptr)",
         ),
         (
             "declare void @rt_check_bounds_i64(",
-            "declare void @rt_check_bounds_i64(i64, i64)",
+            "declare void @rt_check_bounds_i64(i64, i64, i64, i64, ptr)",
         ),
         (
             "declare ptr @rt_closure_env_alloc(",
@@ -714,6 +707,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             optimized_ir_path,
             used_optimizations: !matches!(options.opt_level, OptLevel::O0),
             warnings: Vec::new(),
+            warnings_raw: Vec::new(),
         });
     }
     cache.record_build_miss();
@@ -803,6 +797,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         source_path,
     );
     let mut warning_strs = Vec::new();
+    let warnings_raw: Vec<Diagnostic> = warnings.clone();
     for diagnostic in &warnings {
         warning_strs.push(format_diagnostic(diagnostic, true));
     }
@@ -816,7 +811,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     }
 
     let (mut ir, extern_libs) = {
-        let mut mir = lower_program(&program);
+        let mut mir = lower_program_with_filename(&program, &source_filename);
 
         // Compute combined hash of all MIR function bodies for caching
         let mir_hash: u64 = {
@@ -856,7 +851,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                     }
                 }
             }
-            let (ir, extern_libs) = mir_to_llvm(&mir);
+            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, &source_filename);
             phase_mir_time = build_start.elapsed().as_millis() as u64;
             progress_phase(
                 "mir",
@@ -1046,6 +1041,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         optimized_ir_path,
         used_optimizations: !matches!(options.opt_level, OptLevel::O0),
         warnings: warning_strs,
+        warnings_raw,
     })
 }
 

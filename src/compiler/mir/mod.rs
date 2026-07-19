@@ -211,6 +211,21 @@ fn hash_op(op: &MirOp, buf: &mut Vec<u8>) {
             hash_value(v, buf);
             hash_data_type(&ty.data_type, buf);
         }
+        MirOp::SExt(v, ty) => {
+            buf.push(23);
+            hash_value(v, buf);
+            hash_data_type(&ty.data_type, buf);
+        }
+        MirOp::Fptrunc(v, ty) => {
+            buf.push(24);
+            hash_value(v, buf);
+            hash_data_type(&ty.data_type, buf);
+        }
+        MirOp::Fpext(v, ty) => {
+            buf.push(25);
+            hash_value(v, buf);
+            hash_data_type(&ty.data_type, buf);
+        }
         MirOp::Phi(pairs, ty) => {
             buf.push(22);
             for (v, bb) in pairs {
@@ -341,9 +356,12 @@ pub enum MirOp {
     IntToPtr(MirValue, MirType),
     BitCast(MirValue, MirType),
     ZExt(MirValue, MirType),
+    SExt(MirValue, MirType),
     Trunc(MirValue, MirType),
     Sitofp(MirValue, MirType),
     Fptosi(MirValue, MirType),
+    Fptrunc(MirValue, MirType),
+    Fpext(MirValue, MirType),
     Phi(Vec<(MirValue, usize)>, MirType),
     Select(MirValue, MirValue, MirValue),
     Copy(MirValue),

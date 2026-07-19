@@ -5,10 +5,10 @@ pub fn main: () {
     set s2 = "world"
     set combined = s1 + " " + s2
     use dasu(combined)
-    
+
     set len = combined => len()
     use dasu(len)
-    
+
     set is_empty = combined => len() == 0
     use dasu(is_empty)
 }

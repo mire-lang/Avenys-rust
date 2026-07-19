@@ -125,7 +125,13 @@ impl Parser {
         }
 
         match self.peek().ttype {
-            TokenType::Load => self.parse_load_statement(),
+            TokenType::Load => {
+                if self.peek_n(1).ttype == TokenType::Bang {
+                    self.parse_load_bang_statement()
+                } else {
+                    self.parse_load_statement()
+                }
+            }
             TokenType::Module => self.parse_module_statement(),
             TokenType::Set => self.parse_set_statement(),
             TokenType::Use => {

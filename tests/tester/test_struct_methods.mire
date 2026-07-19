@@ -8,11 +8,11 @@ impl Counter {
     fn new: (initial :i64) :Counter {
         return (Counter value: initial)
     }
-    
+
     fn increment: (self) :i64 {
         return self.value + 1
     }
-    
+
     fn get: (self) :i64 {
         return self.value
     }
@@ -21,11 +21,11 @@ impl Counter {
 pub fn main: () {
     set c = Counter::new(10)
     set v1 = c.get()
-    
+
     set v2 = c.increment()
     set v3 = c.increment()
     set v4 = c.get()
-    
+
     use dasu(v1)
     use dasu(v2)
     use dasu(v3)

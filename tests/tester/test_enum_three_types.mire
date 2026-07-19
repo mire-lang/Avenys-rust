@@ -10,25 +10,25 @@ pub fn main: () {
     set t1 = Token.Number(42)
     set t2 = Token.String("hello")
     set t3 = Token.Bool(true)
-    
+
     set s1 = match t1 {
         Token.Number(v) { "number" }
         Token.String(v) { "string" }
         Token.Bool(v) { "bool" }
     } :str
-    
+
     set s2 = match t2 {
         Token.Number(v) { "number" }
         Token.String(v) { "string" }
         Token.Bool(v) { "bool" }
     } :str
-    
+
     set s3 = match t3 {
         Token.Number(v) { "number" }
         Token.String(v) { "string" }
         Token.Bool(v) { "bool" }
     } :str
-    
+
     use dasu(s1)
     use dasu(s2)
     use dasu(s3)

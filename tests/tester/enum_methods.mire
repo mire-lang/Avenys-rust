@@ -9,26 +9,26 @@ enum Status {
 pub fn main: () {
     set ok = Status.Ok
     set loading = Status.Loading(75)
-    
+
     set is_ok = match ok {
         Status.Ok { true }
         Status.Error { false }
         Status.Loading { false }
     } :bool
-    
+
     use dasu(is_ok)
-    
+
     match loading {
         Status.Loading(p) { use dasu(p) }
         _ { use dasu(0) }
     }
-    
+
     set result = Status.Error
     set msg = match result {
         Status.Ok { "success" }
         Status.Error { "failed" }
         Status.Loading { "loading" }
     } :str
-    
+
     use dasu(msg)
 }

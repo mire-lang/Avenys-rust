@@ -3,16 +3,16 @@ load kioto
 pub fn main: () {
     set a = 10 :i64
     set b = 20 :i64
-    
+
     set result = a > b
     use dasu("10 > 20: {result}")
-    
+
     set result2 = a < b
     use dasu("10 < 20: {result2}")
-    
+
     set result3 = a == b
     use dasu("10 == 20: {result3}")
-    
+
     set result4 = a != b
     use dasu("10 != 20: {result4}")
 }

@@ -439,6 +439,7 @@ impl SemanticModelBuilder {
             | Statement::ExternLib { .. }
             | Statement::ExternFunction { .. }
             | Statement::Load { .. }
+            | Statement::LoadLocal { .. }
             | Statement::Enum { .. }
             | Statement::Module { .. } => {}
         }
@@ -446,6 +447,9 @@ impl SemanticModelBuilder {
 
     fn visit_expression(&mut self, expression: &Expression) {
         match expression {
+            Expression::Ascription { expr, .. } => {
+                self.visit_expression(expr);
+            }
             Expression::BinaryOp { left, right, .. } => {
                 self.visit_expression(left);
                 self.visit_expression(right);
@@ -559,6 +563,9 @@ impl SemanticModelBuilder {
                 self.visit_expression(value);
             }
             Expression::Literal(_) | Expression::Identifier(_) => {}
+            Expression::UseMacro { inner, .. } => {
+                self.visit_expression(inner);
+            }
         }
     }
 

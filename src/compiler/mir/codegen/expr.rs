@@ -1,8 +1,25 @@
 use super::builtins::{builtin_to_pal, compile_pal_builtin};
 use super::resolve::{coerce_to, coerce_to_bool, resolve_named_call, resolve_typed};
 use super::types::{llvm_type_str, render_struct_llvm_type};
-use super::{sanitize_fn_name, LlvmCtx, tmp_extra, tmp_result};
+use super::{const_str, sanitize_fn_name, LlvmCtx, tmp_extra, tmp_result};
 use crate::compiler::mir::{DataType, MirCmp, MirConst, MirInst, MirOp, MirValue};
+
+/// Resuelve el tipo de resultado flotante común para una operación binaria.
+/// Devuelve `Some("float")` / `Some("double")` si alguno de los operandos es
+/// flotante, o `None` si ambos son enteros (usar "i64" por defecto).
+fn float_result_ty(lt: &str, rt: &str) -> Option<&'static str> {
+    let lf = lt == "float" || lt == "double";
+    let rf = rt == "float" || rt == "double";
+    if lf || rf {
+        if lt == "double" || rt == "double" {
+            Some("double")
+        } else {
+            Some("float")
+        }
+    } else {
+        None
+    }
+}
 
 pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
     let mut extra = Vec::new();
@@ -103,13 +120,16 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     result, lhs, rhs
                 )
             } else {
-                let ty = if lt == "double" || rt == "double" {
-                    "double"
-                } else {
-                    "i64"
+                let ty = match float_result_ty(&lt, &rt) {
+                    Some(f) => f,
+                    None => "i64",
                 };
                 let result = tmp_result(ctx, ty, inst.result);
-                let op = if ty == "double" { "fadd" } else { "add" };
+                let op = match ty {
+                    "double" => "fadd",
+                    "float" => "fadd",
+                    _ => "add",
+                };
                 let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
                 let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
                 format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
@@ -118,13 +138,16 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::Sub(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let ty = if lt == "double" || rt == "double" {
-                "double"
-            } else {
-                "i64"
+            let ty = match float_result_ty(&lt, &rt) {
+                Some(f) => f,
+                None => "i64",
             };
             let result = tmp_result(ctx, ty, inst.result);
-            let op = if ty == "double" { "fsub" } else { "sub" };
+            let op = match ty {
+                "double" => "fsub",
+                "float" => "fsub",
+                _ => "sub",
+            };
             let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
             let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
@@ -132,13 +155,16 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::Mul(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let ty = if lt == "double" || rt == "double" {
-                "double"
-            } else {
-                "i64"
+            let ty = match float_result_ty(&lt, &rt) {
+                Some(f) => f,
+                None => "i64",
             };
             let result = tmp_result(ctx, ty, inst.result);
-            let op = if ty == "double" { "fmul" } else { "mul" };
+            let op = match ty {
+                "double" => "fmul",
+                "float" => "fmul",
+                _ => "mul",
+            };
             let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
             let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
             format!("%t{} = {} {} {}, {}", result, op, ty, l_final, r_final)
@@ -146,34 +172,40 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::SDiv(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let is_double = lt == "double" || rt == "double";
-            let ty = if is_double { "double" } else { "i64" };
+            let is_float = float_result_ty(&lt, &rt).is_some();
+            let ty = if is_float { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
             let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
             let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
-            if is_double {
+            if is_float {
                 format!("%t{} = fdiv double {}, {}", result, l_final, r_final)
             } else {
+                let line = inst.loc.0 as i64;
+                let col = inst.loc.1 as i64;
+                let file = const_str(&MirConst::Str(ctx.source_filename.clone()), ctx);
                 format!(
-                    "%t{} = call i64 @rt_div_i64(i64 {}, i64 {})",
-                    result, l_final, r_final
+                    "%t{} = call i64 @rt_div_i64(i64 {}, i64 {}, i64 {}, i64 {}, ptr {})",
+                    result, l_final, r_final, line, col, file
                 )
             }
         }
         MirOp::SRem(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let is_double = lt == "double" || rt == "double";
-            let ty = if is_double { "double" } else { "i64" };
+            let is_float = float_result_ty(&lt, &rt).is_some();
+            let ty = if is_float { "double" } else { "i64" };
             let result = tmp_result(ctx, ty, inst.result);
             let l_final = coerce_to(&l_str, &lt, ty, ctx, &mut extra);
             let r_final = coerce_to(&r_str, &rt, ty, ctx, &mut extra);
-            if is_double {
+            if is_float {
                 format!("%t{} = frem double {}, {}", result, l_final, r_final)
             } else {
+                let line = inst.loc.0 as i64;
+                let col = inst.loc.1 as i64;
+                let file = const_str(&MirConst::Str(ctx.source_filename.clone()), ctx);
                 format!(
-                    "%t{} = call i64 @rt_rem_i64(i64 {}, i64 {})",
-                    result, l_final, r_final
+                    "%t{} = call i64 @rt_rem_i64(i64 {}, i64 {}, i64 {}, i64 {}, ptr {})",
+                    result, l_final, r_final, line, col, file
                 )
             }
         }
@@ -333,8 +365,21 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     "double" => {
                         format!("%t{} = call ptr @rt_f64_to_string(double {})", result, v)
                     }
+                    "float" => {
+                        format!("%t{} = call ptr @rt_f32_to_string(float {})", result, v)
+                    }
+                    "i128" | "u128" => {
+                        let rt = if t == "u128" {
+                            "rt_u128_to_string"
+                        } else {
+                            "rt_i128_to_string"
+                        };
+                        format!("%t{} = call ptr @{}(i128 {})", result, rt, v)
+                    }
                     _ => {
-                        format!("%t{} = call ptr @rt_i64_to_string(i64 {})", result, v)
+                        // All integer widths coerce losslessly up to i64.
+                        let cv = coerce_to(&v, &t, "i64", ctx, &mut extra);
+                        format!("%t{} = call ptr @rt_i64_to_string(i64 {})", result, cv)
                     }
                 }
             } else if name_opt == Some("dasu") || name_opt == Some("print") {
@@ -370,10 +415,32 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                             printf_tmp, v
                         )
                     }
-                    _ => {
+                    "float" => {
                         format!(
-                            "{} = call i32 (ptr, ...) @printf(ptr @.fmt_i64, {} {})",
-                            printf_tmp, t, v
+                            "{} = call i32 (ptr, ...) @printf(ptr @.fmt_f64, double {})",
+                            printf_tmp,
+                            coerce_to(&v, &t, "double", ctx, &mut extra)
+                        )
+                    }
+                    "i128" | "u128" => {
+                        let s_tmp = tmp_extra(ctx, "ptr");
+                        let rt = if t == "u128" {
+                            "rt_u128_to_string"
+                        } else {
+                            "rt_i128_to_string"
+                        };
+                        extra.push(format!("{} = call ptr @{}(i128 {})", s_tmp, rt, v));
+                        format!(
+                            "{} = call i32 (ptr, ...) @printf(ptr @.fmt_str, ptr {})",
+                            printf_tmp, s_tmp
+                        )
+                    }
+                    _ => {
+                        // All integer widths coerce losslessly up to i64 for %lld.
+                        let cv = coerce_to(&v, &t, "i64", ctx, &mut extra);
+                        format!(
+                            "{} = call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 {})",
+                            printf_tmp, cv
                         )
                     }
                 };
@@ -690,10 +757,16 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             )
         }
         MirOp::ZExt(val, ty) => {
-            let (v, _) = resolve_typed(val, ctx);
+            let (v, src_t) = resolve_typed(val, ctx);
             let llty = llvm_type_str(&ty.data_type);
             let result = tmp_result(ctx, &llty, inst.result);
-            format!("%t{} = zext i1 {} to {}", result, v, llty)
+            format!("%t{} = zext {} {} to {}", result, src_t, v, llty)
+        }
+        MirOp::SExt(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let llty = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &llty, inst.result);
+            format!("%t{} = sext {} {} to {}", result, src_t, v, llty)
         }
         MirOp::Trunc(val, ty) => {
             let (v, src_t) = resolve_typed(val, ctx);
@@ -738,6 +811,18 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             } else {
                 format!("%t{} = fptosi {} {} to {}", result, src_t, v, dst_t)
             }
+        }
+        MirOp::Fptrunc(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = fptrunc {} {} to {}", result, src_t, v, dst_t)
+        }
+        MirOp::Fpext(val, ty) => {
+            let (v, src_t) = resolve_typed(val, ctx);
+            let dst_t = llvm_type_str(&ty.data_type);
+            let result = tmp_result(ctx, &dst_t, inst.result);
+            format!("%t{} = fpext {} {} to {}", result, src_t, v, dst_t)
         }
         MirOp::PtrToInt(val, ty) => {
             let (v, src_t) = resolve_typed(val, ctx);

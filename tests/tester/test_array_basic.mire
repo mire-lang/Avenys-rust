@@ -2,13 +2,13 @@ load kioto
 
 pub fn main: () {
     set nums = [1 2 3 4 5] :arr[i64 5]
-    
+
     set len = nums => len()
     use dasu(len)
-    
+
     set first = nums at 0
     use dasu(first)
-    
+
     set third = nums at 2
     use dasu(third)
 }

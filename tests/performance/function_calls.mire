@@ -1,9 +1,9 @@
 fn add: (a: i64, b: i64) :i64 { return a + b }
 fn sub: (a: i64, b: i64) :i64 { return a - b }
 fn mul: (a: i64, b: i64) :i64 { return a * b }
-fn div: (a: i64, b: i64) :i64 { 
-  if b == 0 { return 0 } 
-  return a / b 
+fn div: (a: i64, b: i64) :i64 {
+  if b == 0 { return 0 }
+  return a / b
 }
 
 set r1 = add(1 2) :i64 mut

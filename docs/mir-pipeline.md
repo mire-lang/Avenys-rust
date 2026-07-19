@@ -131,14 +131,14 @@ Fixed-point loop per function — iterates until no changes:
 
 ```
 loop {
-    constant_fold_function    // const-const binops (incl. Shl)
-    + algebraic_simplify      // x+0→x, 0+x→x, x*1→x, 1*x→x, x*0→0, 0*x→x, x-0→x, x-x→0, x/1→x, ICmp(Eq, x,x)→true
-    + strength_reduce         // x*2^k → x<<k
-    + copy_propagate          // t1=Copy(v) → replace all Temp(t1) uses with v (transitive)
-    + fold_constant_branches  // BrCond(Const(true), L1, L2) → Br(L1); BrCond(Const(false), L1, L2) → Br(L2)
-    + dce_function            // remove unused instructions without side effects (stores/calls preserved)
-    + dead_block_elim         // remove blocks with 0 predecessors (entry block always kept)
-    + merge_blocks            // merge Br→single-predecessor chains
+ constant_fold_function // const-const binops (incl. Shl)
+ + algebraic_simplify // x+0→x, 0+x→x, x*1→x, 1*x→x, x*0→0, 0*x→x, x-0→x, x-x→0, x/1→x, ICmp(Eq, x,x)→true
+ + strength_reduce // x*2^k → x<<k
+ + copy_propagate // t1=Copy(v) → replace all Temp(t1) uses with v (transitive)
+ + fold_constant_branches // BrCond(Const(true), L1, L2) → Br(L1); BrCond(Const(false), L1, L2) → Br(L2)
+ + dce_function // remove unused instructions without side effects (stores/calls preserved)
+ + dead_block_elim // remove blocks with 0 predecessors (entry block always kept)
+ + merge_blocks // merge Br→single-predecessor chains
 }
 ```
 
@@ -199,16 +199,16 @@ define i64 @fn_name(ptr %env_ptr, i64 %arg_0, ...) { ... }
 ```
 
 - `env_ptr` is currently always `ptr null` for direct calls and non-capturing
-  closures.
+ closures.
 - `extern fn` declarations referenced as function values get a generated LLVM
-  wrapper `@fn_<name>_wrapper(ptr %env_ptr, ...)` that forwards to the real C
-  symbol. Wrappers are generated on demand to avoid bloating the module for
-  externs that are only called directly.
+ wrapper `@fn_<name>_wrapper(ptr %env_ptr, ...)` that forwards to the real C
+ symbol. Wrappers are generated on demand to avoid bloating the module for
+ externs that are only called directly.
 - `FunctionRef` stores the environment value alongside the function name, and
-  `EnvPtr` allows closure bodies to read the implicit environment pointer.
+ `EnvPtr` allows closure bodies to read the implicit environment pointer.
 - The `call(...)` builtin in MIR codegen resolves the callee as a
-  `FunctionRef`, bitcasts the function pointer to the call-site signature, and
-  passes `ptr null` as the first argument.
+ `FunctionRef`, bitcasts the function pointer to the call-site signature, and
+ passes `ptr null` as the first argument.
 
 ## Architecture Notes
 

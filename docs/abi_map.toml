@@ -14,7 +14,7 @@
 
 [meta]
 generated_from = "src/compiler/mir/codegen/builtins.rs"
-symbol_count = 54
+symbol_count = 64
 
 [symbol.ireru]
 target = "ireru"
@@ -83,6 +83,18 @@ wasm = true
 
 [symbol.pal_fs_ext]
 target = "pal_fs_ext"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_write_secure]
+target = "pal_fs_write_secure"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_chmod]
+target = "pal_fs_chmod"
 category = "pal"
 impl = "src/pal/linux/pal_fs.c"
 wasm = true
@@ -213,8 +225,38 @@ category = "pal"
 impl = "src/pal/linux/pal_proc.c"
 wasm = true
 
+[symbol.pal_proc_spawn_argv]
+target = "pal_proc_spawn_argv"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_last_signal]
+target = "pal_proc_last_signal"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_net_bind]
+target = "pal_net_bind"
+category = "pal"
+impl = "src/pal/linux/pal_net.c"
+wasm = true
+
+[symbol.pal_net_accept]
+target = "pal_net_accept"
+category = "pal"
+impl = "src/pal/linux/pal_net.c"
+wasm = true
+
 [symbol.pal_thread_join]
 target = "pal_thread_join"
+category = "pal"
+impl = "src/pal/linux/pal_thread.c"
+wasm = true
+
+[symbol.pal_thread_detach]
+target = "pal_thread_detach"
 category = "pal"
 impl = "src/pal/linux/pal_thread.c"
 wasm = true
@@ -289,6 +331,21 @@ impl = "src/runtime/strings.c"
 
 [symbol.rt_managed_from_cstr]
 target = "rt_managed_from_cstr"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_f32_to_string]
+target = "rt_f32_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_i128_to_string]
+target = "rt_i128_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_u128_to_string]
+target = "rt_u128_to_string"
 category = "runtime"
 impl = "src/runtime/strings.c"
 

@@ -7,6 +7,10 @@ use crate::compiler::location::{NO_POSITION, expression_location};
 use crate::compiler::mir::*;
 use crate::parser::ast::{DataType, Expression, Literal, Statement};
 
+fn is_float_dt(t: &DataType) -> bool {
+    matches!(t, DataType::F32 | DataType::F64)
+}
+
 impl MirLower {
     pub(crate) fn lower_call_args(&mut self, name: &str, args: &[Expression]) -> Vec<MirValue> {
         let needs_wrap = name == "dasu" || name == "print" || name == "str";
@@ -40,7 +44,27 @@ impl MirLower {
     pub(crate) fn lower_expression(&mut self, expr: &Expression) -> MirValue {
         let loc = expression_location(expr);
         match expr {
-            Expression::Literal(lit) => self.lower_literal(lit),
+            Expression::Ascription {
+                expr: inner,
+                target,
+                ..
+            } => {
+                let val = self.lower_expression(inner);
+                let inner_ty = extract_data_type(inner);
+                if inner_ty != DataType::Unknown && inner_ty != *target {
+                    return self.emit_convert(val, &inner_ty, target, loc);
+                }
+                val
+            }
+            Expression::Literal(lit) => {
+                let val = self.lower_literal(lit);
+                let natural = crate::types::unify::literal_type(lit);
+                let expr_ty = extract_data_type(expr);
+                if expr_ty != DataType::Unknown && expr_ty != natural {
+                    return self.emit_convert(val, &natural, &expr_ty, loc);
+                }
+                val
+            }
             Expression::Identifier(id) => {
                 if let Some(&ptr) = self.vars.get(&id.name) {
                     let ty = self
@@ -91,6 +115,7 @@ impl MirLower {
                 operator,
                 left,
                 right,
+                data_type,
                 ..
             } => {
                 let l = self.lower_expression(left);
@@ -119,7 +144,26 @@ impl MirLower {
                 };
                 let last = self.current_block;
                 self.func.blocks[last].push(Some(result), mir_op, loc);
-                MirValue::temp(result)
+                let mut out = MirValue::temp(result);
+                // Arithmetic ops are computed in a promoted width (i64 / float);
+                // narrow the result back to the binary op's declared type.
+                if matches!(operator.as_str(), "+" | "-" | "*" | "/" | "%") {
+                    let left_ty = extract_data_type(left);
+                    let right_ty = extract_data_type(right);
+                    let natural = if is_float_dt(&left_ty) || is_float_dt(&right_ty) {
+                        if left_ty == DataType::F64 || right_ty == DataType::F64 {
+                            DataType::F64
+                        } else {
+                            DataType::F32
+                        }
+                    } else {
+                        DataType::I64
+                    };
+                    if *data_type != DataType::Unknown && super::stmt::needs_convert(&natural, data_type) {
+                        out = self.emit_convert(out, &natural, data_type, loc);
+                    }
+                }
+                out
             }
             Expression::Call {
                 name,
@@ -372,6 +416,7 @@ impl MirLower {
                     MirValue::temp(result)
                 }
             }
+            Expression::UseMacro { inner } => self.lower_expression(inner),
             Expression::Closure {
                 params,
                 body,
@@ -615,6 +660,9 @@ impl MirLower {
                                 vec![
                                     index_val.clone(),
                                     MirValue::Const(MirConst::Int(*size as i64)),
+                                    MirValue::Const(MirConst::Int(loc.0 as i64)),
+                                    MirValue::Const(MirConst::Int(loc.1 as i64)),
+                                    MirValue::Const(MirConst::Str(self.filename.clone())),
                                 ],
                                 MirType {
                                     data_type: DataType::None,
@@ -640,7 +688,13 @@ impl MirLower {
                             None,
                             MirOp::Call(
                                 MirValue::Global("rt_check_bounds_i64".to_string()),
-                                vec![index_val.clone(), MirValue::temp(len_val)],
+                                vec![
+                                    index_val.clone(),
+                                    MirValue::temp(len_val),
+                                    MirValue::Const(MirConst::Int(loc.0 as i64)),
+                                    MirValue::Const(MirConst::Int(loc.1 as i64)),
+                                    MirValue::Const(MirConst::Str(self.filename.clone())),
+                                ],
                                 MirType {
                                     data_type: DataType::None,
                                 },
@@ -1620,35 +1674,77 @@ impl MirLower {
         if src_type == target_type || *target_type == DataType::Unknown {
             return src_val;
         }
+        use DataType::*;
         let op = match (src_type, target_type) {
+            // Entero -> Flotante (con signo)
             (
-                DataType::I64 | DataType::I128 | DataType::I32 | DataType::I16 | DataType::I8,
-                DataType::F64 | DataType::F32,
-            ) => MirOp::Sitofp(
-                src_val,
-                MirType {
-                    data_type: target_type.clone(),
-                },
-            ),
+                I64 | I128 | I32 | I16 | I8 | Char,
+                F64 | F32,
+            ) => MirOp::Sitofp(src_val, MirType { data_type: target_type.clone() }),
+            // Flotante -> Entero (truncamiento de fracción)
             (
-                DataType::F64 | DataType::F32,
-                DataType::I64 | DataType::I128 | DataType::I32 | DataType::I16 | DataType::I8,
-            ) => MirOp::Fptosi(
-                src_val,
-                MirType {
-                    data_type: target_type.clone(),
-                },
-            ),
-            _ => MirOp::Sitofp(
-                src_val,
-                MirType {
-                    data_type: target_type.clone(),
-                },
-            ),
+                F64 | F32,
+                I64 | I128 | I32 | I16 | I8 | U64 | U128 | U32 | U16 | U8 | Char,
+            ) => MirOp::Fptosi(src_val, MirType { data_type: target_type.clone() }),
+            // Flotante -> Flotante (cambio de ancho)
+            (F64, F32) => MirOp::Fptrunc(src_val, MirType { data_type: target_type.clone() }),
+            (F32, F64) => MirOp::Fpext(src_val, MirType { data_type: target_type.clone() }),
+            // Entero -> Entero de distinto ancho / signo
+            (s, t) if is_int_or_char(s) && is_int_or_char(t) => {
+                let s_w = int_width(s);
+                let t_w = int_width(t);
+                if t_w >= s_w {
+                    // Extensión: con signo para tipos signed, sin signo para unsigned.
+                    if is_signed_int(s) {
+                        MirOp::SExt(src_val, MirType { data_type: target_type.clone() })
+                    } else {
+                        MirOp::ZExt(src_val, MirType { data_type: target_type.clone() })
+                    }
+                } else {
+                    MirOp::Trunc(src_val, MirType { data_type: target_type.clone() })
+                }
+            }
+            _ => MirOp::Sitofp(src_val, MirType { data_type: target_type.clone() }),
         };
         let result = self.new_temp();
         let last = self.current_block;
         self.func.blocks[last].push(Some(result), op, loc);
         MirValue::temp(result)
+    }
+}
+
+fn is_int_or_char(t: &DataType) -> bool {
+    matches!(
+        t,
+        DataType::I8
+            | DataType::I16
+            | DataType::I32
+            | DataType::I64
+            | DataType::I128
+            | DataType::U8
+            | DataType::U16
+            | DataType::U32
+            | DataType::U64
+            | DataType::U128
+            | DataType::Char
+    )
+}
+
+fn is_signed_int(t: &DataType) -> bool {
+    matches!(
+        t,
+        DataType::I8 | DataType::I16 | DataType::I32 | DataType::I64 | DataType::I128 | DataType::Char
+    )
+}
+
+fn int_width(t: &DataType) -> u32 {
+    match t {
+        DataType::I8 | DataType::U8 => 8,
+        DataType::I16 | DataType::U16 => 16,
+        DataType::I32 | DataType::U32 => 32,
+        DataType::I64 | DataType::U64 => 64,
+        DataType::I128 | DataType::U128 => 128,
+        DataType::Char => 32,
+        _ => 64,
     }
 }

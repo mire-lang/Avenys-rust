@@ -9,7 +9,7 @@ pub fn main: () {
     set c = (Config enabled: true, count: 42)
     use dasu(c.enabled)
     use dasu(c.count)
-    
+
     set is_enabled = c.enabled
     set doubled = c.count * 2
     use dasu(is_enabled)

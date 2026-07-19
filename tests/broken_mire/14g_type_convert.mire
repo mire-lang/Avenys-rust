@@ -4,11 +4,11 @@ pub fn main: () {
     set x = 10 :u8
     set s = str(x)
     use dasu("s: {s}")
-    
+
     set y = 10 :u16
     set s2 = str(y)
     use dasu("s2: {s2}")
-    
+
     set z = 10 :u32
     set s3 = str(z)
     use dasu("s3: {s3}")

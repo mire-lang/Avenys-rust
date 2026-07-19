@@ -3,7 +3,7 @@ load kioto
 pub fn main: () {
     set x = 10 :i64
     set y = "hello" :str
-    
+
     use dasu("x: {x}")
     use dasu("y: {y}")
 }

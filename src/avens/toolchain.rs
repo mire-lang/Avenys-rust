@@ -38,7 +38,8 @@ pub(super) fn optimize_ir(ir: &str, opt_level: OptLevel, source_filename: &str) 
             line: 0,
             column: 0,
             message: format!(
-                "opt failed with status {}.\nstderr:\n{}",
+                "opt failed for `{}` with status {}.\nstderr:\n{}",
+                source_filename,
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim()
             ),
@@ -137,7 +138,9 @@ pub(super) fn compile_binary_from_ir(
             line: 0,
             column: 0,
             message: format!(
-                "clang failed with status {}.\nstdout:\n{}\nstderr:\n{}",
+                "clang failed building `{}` (source: {}) with status {}.\nstdout:\n{}\nstderr:\n{}",
+                binary_path.display(),
+                source_filename,
                 output.status,
                 String::from_utf8_lossy(&output.stdout).trim(),
                 String::from_utf8_lossy(&output.stderr).trim()

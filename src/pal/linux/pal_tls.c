@@ -33,20 +33,30 @@ static SSL_CTX *create_ssl_context(void) {
 int64_t pal_tls_connect(const char *host, int64_t port) {
     init_ssl();
 
-    struct hostent *he = gethostbyname(host);
-    if (!he) return -1;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
 
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
+        return -1;
+    }
 
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
         close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+
+    if (fd < 0) {
         return -1;
     }
 

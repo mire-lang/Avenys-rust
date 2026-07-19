@@ -24,3 +24,7 @@ void pal_thread_exit(void *result) {
 int64_t pal_thread_self(void) {
     return (int64_t)pthread_self();
 }
+
+void pal_thread_detach(int64_t tid) {
+    pthread_detach((pthread_t)tid);
+}

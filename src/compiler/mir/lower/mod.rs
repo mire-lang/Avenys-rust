@@ -26,6 +26,7 @@ struct MirLower {
     current_block: usize,
     closure_functions: Vec<MirFunction>,
     closure_counter: usize,
+    filename: String,
 }
 
 fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataType)>> {
@@ -164,6 +165,10 @@ fn infer_literal_type(expr: &Expression) -> Option<DataType> {
 }
 
 pub fn lower_program(program: &Program) -> MirProgram {
+    lower_program_with_filename(program, "")
+}
+
+pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProgram {
     let mut functions = Vec::new();
     let mut entry_point = None;
     let mut extern_functions = Vec::new();
@@ -307,6 +312,7 @@ pub fn lower_program(program: &Program) -> MirProgram {
                     current_block: 0,
                     closure_functions: Vec::new(),
                     closure_counter: 0,
+                    filename: filename.to_string(),
                 };
 
                 let body_with_top_level = if name == "main" && !top_level_binding_stmts.is_empty() {
@@ -373,6 +379,7 @@ pub fn lower_program(program: &Program) -> MirProgram {
                             current_block: 0,
                             closure_functions: Vec::new(),
                             closure_counter: 0,
+                            filename: filename.to_string(),
                         };
 
                         lower.lower_function_body(body);

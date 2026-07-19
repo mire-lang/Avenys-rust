@@ -2,16 +2,16 @@ load kioto
 
 pub fn main: () {
     set x = 10 :i64 mut
-    
+
     set x += 5
     use dasu("x += 5: {x}")
-    
+
     set x -= 3
     use dasu("x -= 3: {x}")
-    
+
     set x *= 2
     use dasu("x *= 2: {x}")
-    
+
     set x /= 4
     use dasu("x /= 4: {x}")
 }

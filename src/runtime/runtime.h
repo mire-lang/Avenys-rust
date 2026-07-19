@@ -234,11 +234,10 @@ void   *rt_math_range_between_i64(int64_t start, int64_t end);
 void   *rt_math_range_step_i64(int64_t start, int64_t end, int64_t step);
 
 // ── Runtime safety panics ────────────────────────────────────────────
-void rt_panic_division_by_zero(void);
-void rt_panic_out_of_bounds(void);
-int64_t rt_div_i64(int64_t a, int64_t b);
-int64_t rt_rem_i64(int64_t a, int64_t b);
-void rt_check_bounds_i64(int64_t index, int64_t len);
+void rt_panic_loc(const char *msg, int64_t line, int64_t col, const char *file);
+int64_t rt_div_i64(int64_t a, int64_t b, int64_t line, int64_t col, const char *file);
+int64_t rt_rem_i64(int64_t a, int64_t b, int64_t line, int64_t col, const char *file);
+void rt_check_bounds_i64(int64_t index, int64_t len, int64_t line, int64_t col, const char *file);
 void *rt_closure_env_alloc(int64_t size);
 void  rt_closure_env_free(void *env);
 int64_t rt_thread_spawn_closure(void *fn_ptr, void *env_ptr);

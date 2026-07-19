@@ -7,17 +7,17 @@ enum Flag {
 
 pub fn main: () {
     set f = Flag.On
-    
+
     set is_on = match f {
         Flag.On { true }
         Flag.Off { false }
     } :bool
-    
+
     set num = match f {
         Flag.On { 1 }
         Flag.Off { 0 }
     } :i64
-    
+
     use dasu(is_on)
     use dasu(num)
 }

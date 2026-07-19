@@ -6,7 +6,8 @@ pub(crate) fn resolve_typed(val: &MirValue, ctx: &mut LlvmCtx) -> (String, Strin
         MirValue::Const(c) => {
             let v = const_str(c, ctx);
             let t = match c {
-                MirConst::Int(_) | MirConst::Char(_) | MirConst::None => "i64",
+                MirConst::Int(_) | MirConst::None => "i64",
+                MirConst::Char(_) => "i32",
                 MirConst::Float(_) => "double",
                 MirConst::Bool(_) => "i1",
                 MirConst::Str(_) => "ptr",
@@ -197,10 +198,51 @@ pub(crate) fn coerce_to(
     if from_ty == to_ty {
         return operand.to_string();
     }
+    // bool (i1) <-> enteros: el resto del codegen ya zexta bool a i64 antes de llamar.
     if to_ty == "double" && from_ty == "i64" {
-        let conv = tmp_extra(ctx, "i64");
+        let conv = tmp_extra(ctx, "double");
         extra.push(format!("{} = sitofp i64 {} to double", conv, operand));
         return conv;
+    }
+    if to_ty == "float" && from_ty == "i64" {
+        let conv = tmp_extra(ctx, "float");
+        extra.push(format!("{} = sitofp i64 {} to float", conv, operand));
+        return conv;
+    }
+    if to_ty == "double" && from_ty == "float" {
+        let conv = tmp_extra(ctx, "double");
+        extra.push(format!("{} = fpext float {} to double", conv, operand));
+        return conv;
+    }
+    if to_ty == "float" && from_ty == "double" {
+        let conv = tmp_extra(ctx, "float");
+        extra.push(format!("{} = fptrunc double {} to float", conv, operand));
+        return conv;
+    }
+    // Entero -> entero de distinto ancho (extensiones/truncamientos explícitos).
+    let int_width = |t: &str| match t {
+        "i1" => 1,
+        "i8" => 8,
+        "i16" => 16,
+        "i32" => 32,
+        "i64" => 64,
+        "i128" => 128,
+        _ => 0,
+    };
+    let from_w = int_width(from_ty);
+    let to_w = int_width(to_ty);
+    if from_w > 0 && to_w > 0 {
+        if to_w > from_w {
+            // Asumimos extensión con signo para los casos de coerción en llamadas;
+            // los literales con ascripción ya emiten zext/sext explicitos en el lower.
+            let conv = tmp_extra(ctx, to_ty);
+            extra.push(format!("{} = sext {} {} to {}", conv, from_ty, operand, to_ty));
+            return conv;
+        } else if to_w < from_w {
+            let conv = tmp_extra(ctx, to_ty);
+            extra.push(format!("{} = trunc {} {} to {}", conv, from_ty, operand, to_ty));
+            return conv;
+        }
     }
     operand.to_string()
 }

@@ -10,25 +10,25 @@ pub fn main: () {
     set e1 = Event.Click(100, 200)
     set e2 = Event.KeyPress("a")
     set e3 = Event.None
-    
+
     set e1_type = match e1 {
         Event.Click { "click" }
         Event.KeyPress { "key" }
         Event.None { "none" }
     } :str
-    
+
     set e2_type = match e2 {
         Event.Click { "click" }
         Event.KeyPress { "key" }
         Event.None { "none" }
     } :str
-    
+
     set e3_type = match e3 {
         Event.Click { "click" }
         Event.KeyPress { "key" }
         Event.None { "none" }
     } :str
-    
+
     use dasu(e1_type)
     use dasu(e2_type)
     use dasu(e3_type)

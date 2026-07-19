@@ -33,6 +33,8 @@ pub(crate) fn builtin_to_pal(name: &str) -> Option<&'static str> {
         "fs.dir" | "fs_dir" => Some("pal_fs_dir"),
         "fs.name" | "fs_name" => Some("pal_fs_name"),
         "fs.ext" | "fs_ext" => Some("pal_fs_ext"),
+        "fs.write_secure" => Some("pal_fs_write_secure"),
+        "fs.chmod" => Some("pal_fs_chmod"),
         // Process
         "proc.run" | "proc_run" => Some("pal_proc_run"),
         "proc.exec" | "proc_exec" => Some("pal_proc_exec"),
@@ -42,6 +44,8 @@ pub(crate) fn builtin_to_pal(name: &str) -> Option<&'static str> {
         "proc.exit" | "proc_exit" => Some("pal_proc_exit"),
         "proc.exists" | "proc_exists" => Some("pal_proc_exists"),
         "proc.on" => Some("pal_proc_on"),
+        "proc.spawn_argv" => Some("pal_proc_spawn_argv"),
+        "proc.last_signal" => Some("pal_proc_last_signal"),
         // Environment
         "env.get" | "env_get" => Some("pal_env_get"),
         "env.set" => Some("pal_env_set"),
@@ -54,6 +58,11 @@ pub(crate) fn builtin_to_pal(name: &str) -> Option<&'static str> {
         "mem.used" | "mem_used" => Some("pal_mem_used"),
         // CPU
         "cpu.count" | "cpu_count" => Some("pal_cpu_count"),
+        // Networking
+        "net.bind" => Some("pal_net_bind"),
+        "net.accept" => Some("pal_net_accept"),
+        // Threads
+        "thread.detach" => Some("pal_thread_detach"),
         _ => None,
     }
 }
@@ -120,7 +129,10 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         "declare void @free(ptr)".to_string(),
         "declare ptr @malloc(i64)".to_string(),
         "declare ptr @rt_f64_to_string(double)".to_string(),
+        "declare ptr @rt_f32_to_string(float)".to_string(),
         "declare ptr @rt_i64_to_string(i64)".to_string(),
+        "declare ptr @rt_i128_to_string(i128)".to_string(),
+        "declare ptr @rt_u128_to_string(i128)".to_string(),
         "declare i32 @fflush(ptr)".to_string(),
         "declare i64 @abs(i64)".to_string(),
         "declare double @rt_math_sqrt(double)".to_string(),
@@ -170,5 +182,12 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         "declare i64 @pal_time_unix_ns()".to_string(),
         "declare i64 @pal_mem_used()".to_string(),
         "declare i64 @pal_cpu_count()".to_string(),
+        "declare i64 @pal_proc_spawn_argv(ptr)".to_string(),
+        "declare i64 @pal_proc_last_signal()".to_string(),
+        "declare i64 @pal_net_bind(i64)".to_string(),
+        "declare i64 @pal_net_accept(i64)".to_string(),
+        "declare void @pal_thread_detach(i64)".to_string(),
+        "declare i64 @pal_fs_write_secure(ptr, ptr, i32)".to_string(),
+        "declare i64 @pal_fs_chmod(ptr, i32)".to_string(),
     ]
 }

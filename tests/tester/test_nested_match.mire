@@ -8,17 +8,17 @@ enum Inner {
 pub fn main: () {
     set i1 = Inner.A
     set i2 = Inner.B
-    
+
     set r1 = match i1 {
         Inner.A { 1 }
         Inner.B { 2 }
     } :i64
-    
+
     set r2 = match i2 {
         Inner.A { 10 }
         Inner.B { 20 }
     } :i64
-    
+
     set nested = match i1 {
         Inner.A { match i2 {
             Inner.A { 100 }
@@ -29,7 +29,7 @@ pub fn main: () {
             Inner.B { 400 }
         } :i64 }
     } :i64
-    
+
     use dasu(r1)
     use dasu(r2)
     use dasu(nested)

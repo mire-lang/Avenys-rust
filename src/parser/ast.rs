@@ -336,6 +336,20 @@ pub enum Expression {
         payloads: Vec<Expression>,
         data_type: DataType,
     },
+    /// Explicit type ascription `(expr :T)`. Carries the target type and the
+    /// resolved type of the whole expression (equal to `target`). The typechecker
+    /// validates assignability / emits the required conversion; the lower emits a
+    /// real `Trunc`/`ZExt`/`SExt`/`Sitofp`/`Fptosi`/`Fptrunc`/`Fpext` when the
+    /// inner type differs from `target`.
+    Ascription {
+        expr: Box<Expression>,
+        target: DataType,
+        data_type: DataType,
+    },
+    /// `use!` wrapper required around calls into `load!`-imported modules.
+    UseMacro {
+        inner: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -672,6 +686,10 @@ pub enum Statement {
         ops: Vec<QueryOp>,
         joins: Vec<QueryJoin>,
         group_by: Option<QueryGroup>,
+    },
+    LoadLocal {
+        rel_path: Vec<String>,
+        absolute: bool,
     },
 }
 

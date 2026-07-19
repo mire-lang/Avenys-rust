@@ -9,6 +9,9 @@ impl BorrowChecker<'_> {
         self.current_line = line;
         self.current_column = column;
         match expression {
+            Expression::Ascription { expr, .. } => {
+                self.check_expression(expr)?;
+            }
             Expression::Literal(_) => {}
             Expression::Identifier(ident) => {
                 self.ensure_binding_available(&ident.name)?;
@@ -150,6 +153,9 @@ impl BorrowChecker<'_> {
                 for payload in payloads {
                     self.check_expression(payload)?;
                 }
+            }
+            Expression::UseMacro { inner } => {
+                self.check_expression(inner)?;
             }
         }
         Ok(())

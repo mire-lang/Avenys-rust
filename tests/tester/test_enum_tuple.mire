@@ -8,17 +8,17 @@ enum Point2D {
 pub fn main: () {
     set p1 = Point2D.Origin
     set p2 = Point2D.Coord(3, 4)
-    
+
     set d1 = match p1 {
         Point2D.Origin { 0 }
         Point2D.Coord(x y) { x * x + y * y }
     } :i64
-    
+
     set d2 = match p2 {
         Point2D.Origin { 0 }
         Point2D.Coord(x y) { x * x + y * y }
     } :i64
-    
+
     use dasu(d1)
     use dasu(d2)
 }

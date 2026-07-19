@@ -18,7 +18,7 @@ impl TypeChecker {
         if let Some(expr) = value
             && let Expression::Literal(Literal::Int(int_val)) = expr
         {
-            Self::validate_int_literal_range(data_type, *int_val)?;
+            Self::validate_int_literal_range(data_type, *int_val, self.current_line, self.current_column)?;
         }
         let inferred = if let Some(expr) = value {
             self.check_expression(expr)?
@@ -30,13 +30,23 @@ impl TypeChecker {
             inferred
         } else {
             if inferred != DataType::Unknown && !self.is_assignable(data_type, &inferred) {
-                return Err(type_error(
+                if crate::types::unify::is_numeric(data_type)
+                    && crate::types::unify::is_numeric(&inferred)
+                {
+                    return Err(crate::types::errors::precision_loss(
+                        self.current_line,
+                        self.current_column,
+                        data_type,
+                        &inferred,
+                        Some(&format!("(value :{})", crate::types::errors::pretty(data_type))),
+                    ));
+                }
+                return Err(crate::types::errors::type_mismatch(
                     self.current_line,
                     self.current_column,
-                    format!(
-                        "Type mismatch in let '{}': expected {:?}, got {:?}",
-                        name, data_type, inferred
-                    ),
+                    data_type,
+                    &inferred,
+                    "let binding",
                 ));
             }
             if let Some(expr) = value.as_ref() {

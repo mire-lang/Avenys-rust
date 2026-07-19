@@ -14,7 +14,7 @@ strings, collections, math, filesystem, processes, and more.
 ```
 $ cat hello.mire
 pub fn main: () {
-    use dasu("Hello, world!")
+ use dasu("Hello, world!")
 }
 
 $ mire run hello.mire
@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/
 ```bash
 # Owl only (package manager + kioto stdlib)
 curl -fsSL ... | sh
-curl -fsSL ... | sh -s --        # same as above, defaults to owl
+curl -fsSL ... | sh -s -- # same as above, defaults to owl
 
 # Owl + Mire compiler
 curl -fsSL ... | sh -s -- --compiler
@@ -96,7 +96,7 @@ sudo dnf install curl tar clang llvm-devel openssl-devel SDL2-devel
 
 ```bash
 # Restart your shell or source your profile
-source ~/.bashrc   # or ~/.zshrc
+source ~/.bashrc # or ~/.zshrc
 
 # Verify installation
 owl --version
@@ -129,16 +129,16 @@ Every Mire program passes through five stages:
 
 ```
 Source (.mire)
-    │
-    ▼
-  Lexer ──► Parser ──► Type checker ──► Borrow checker
-                                            │
-    ┌───────────────────────────────────────┘
-    ▼
-  MIR lowering ──► MIR optimization (9 passes to fixed point)
-    │
-    ▼
-  LLVM IR generation ──► opt (O1-O3) ──► clang ──► Native binary
+ │
+ ▼
+ Lexer ──► Parser ──► Type checker ──► Borrow checker
+ │
+ ┌───────────────────────────────────────┘
+ ▼
+ MIR lowering ──► MIR optimization (9 passes to fixed point)
+ │
+ ▼
+ LLVM IR generation ──► opt (O1-O3) ──► clang ──► Native binary
 ```
 
 **Stage 1 — Frontend:** The lexer tokenizes, the parser builds an AST. The type
@@ -165,26 +165,26 @@ changed. On partial changes, only the affected units are re-analyzed.
 ```mire
 # Functions with inferred or explicit return types
 fn fib: (n: i64) :i64 {
-    if n <= 1 { return n }
-    return fib(n - 1) + fib(n - 2)
+ if n <= 1 { return n }
+ return fib(n - 1) + fib(n - 2)
 }
 
 # Structs and methods
 struct Point { x: i64, y: i64 }
 
 impl Point {
-    fn dist: (self) :f64 {
-        return sqrt((self.x * self.x + self.y * self.y) :f64)
-    }
+ fn dist: (self) :f64 {
+ return sqrt((self.x * self.x + self.y * self.y) :f64)
+ }
 }
 
 # Enums with pattern matching
 enum Option[T] { None, Some(value: T) }
 
 pub fn main: () {
-    set p = Point::new(3, 4)
-    set d = p.dist()
-    use dasu("Distance: {d}")
+ set p = Point::new(3, 4)
+ set d = p.dist()
+ use dasu("Distance: {d}")
 }
 ```
 
@@ -197,17 +197,17 @@ pub fn main: () {
 ```
 avenys/
 ├── src/
-│   ├── parser/          # Lexer + recursive descent parser
-│   ├── compiler/        # Type checker, borrow checker, semantic analysis
-│   │   └── mir/         # MIR lowering, optimization, and LLVM codegen
-│   ├── avens/           # Build pipeline, codegen, CLI integration
-│   ├── incremental/     # Incremental cache (LRU, WAL, fingerprinting)
-│   ├── loader.rs        # Module resolution (packages, imports, exports)
-│   └── pal/             # Platform Abstraction Layer (Linux C backend)
-├── install/             # Installation script
-├── tests/               # Integration tests + compiler benchmarks
-├── docs/                # CHANGELOG, error codes, architecture docs
-└── SYNTAX.md            # Complete language reference
+│ ├── parser/ # Lexer + recursive descent parser
+│ ├── compiler/ # Type checker, borrow checker, semantic analysis
+│ │ └── mir/ # MIR lowering, optimization, and LLVM codegen
+│ ├── avens/ # Build pipeline, codegen, CLI integration
+│ ├── incremental/ # Incremental cache (LRU, WAL, fingerprinting)
+│ ├── loader.rs # Module resolution (packages, imports, exports)
+│ └── pal/ # Platform Abstraction Layer (Linux C backend)
+├── install/ # Installation script
+├── tests/ # Integration tests + compiler benchmarks
+├── docs/ # CHANGELOG, error codes, architecture docs
+└── SYNTAX.md # Complete language reference
 ```
 
 ---
@@ -235,11 +235,11 @@ Kioto lives at `~/.owl/modules/kioto/` and provides:
 ## CLI
 
 ```bash
-mire run    [file] [--release] [-O<0-3|s|z>] [-- args...]
-mire build  [file] [--release] [-O<0-3|s|z>]
-mire check  [file] [--warn-all] [--deny <code>]
-mire debug  [file] [--tokens] [--ast] [--ir]
-mire test   [paths...] [--no-run] [--verbose] [-O<0-3|s|z>] [-r] [-d]
+mire run [file] [--release] [-O<0-3|s|z>] [-- args...]
+mire build [file] [--release] [-O<0-3|s|z>]
+mire check [file] [--warn-all] [--deny <code>]
+mire debug [file] [--tokens] [--ast] [--ir]
+mire test [paths...] [--no-run] [--verbose] [-O<0-3|s|z>] [-r] [-d]
 ```
 
 ---

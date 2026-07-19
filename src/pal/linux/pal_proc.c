@@ -89,6 +89,19 @@ int64_t pal_proc_spawn(const char *cmd) {
     return (int64_t)pid;
 }
 
+// Spawn a process using execvp — no shell interpretation.
+// argv must be NULL-terminated: { "cmd", "arg1", "arg2", NULL }.
+int64_t pal_proc_spawn_argv(const char **argv) {
+    if (!argv || !argv[0]) return -1;
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);  // exec failed
+    }
+    return (int64_t)pid;
+}
+
 int64_t pal_proc_wait(int64_t pid) {
     int status;
     if (waitpid((pid_t)pid, &status, 0) < 0) return -1;
@@ -125,4 +138,8 @@ void pal_proc_on(const char *signal_name) {
     else if (strcmp(signal_name, "USR2") == 0 || strcmp(signal_name, "SIGUSR2") == 0) sig = SIGUSR2;
     else if (strcmp(signal_name, "CHLD") == 0 || strcmp(signal_name, "SIGCHLD") == 0) sig = SIGCHLD;
     if (sig) signal(sig, pal_signal_handler);
+}
+
+int pal_proc_last_signal(void) {
+    return pal_last_signal;
 }

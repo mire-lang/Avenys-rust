@@ -10,3 +10,8 @@ int64_t pal_thread_join(int64_t tid, void **result) {
     }
     return -1;
 }
+
+void pal_thread_detach(int64_t tid) {
+    (void)tid;
+    // Thread detachment is not supported under WASI.
+}

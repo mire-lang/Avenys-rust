@@ -4,7 +4,7 @@ pub fn main: () {
     set x = 10 :i16
     set s = str(x)
     use dasu("s: {s}")
-    
+
     set y = 10 :u64
     set s2 = str(y)
     use dasu("s2: {s2}")

@@ -60,7 +60,10 @@ fn collect_uses(op: &MirOp, used: &mut HashSet<usize>) {
         | MirOp::ZExt(v, _)
         | MirOp::Trunc(v, _)
         | MirOp::Sitofp(v, _)
-        | MirOp::Fptosi(v, _) => collect_val(v, used),
+        | MirOp::Fptosi(v, _)
+        | MirOp::SExt(v, _)
+        | MirOp::Fptrunc(v, _)
+        | MirOp::Fpext(v, _) => collect_val(v, used),
         MirOp::Store(dst, src) => {
             collect_val(dst, used);
             collect_val(src, used);

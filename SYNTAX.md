@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.15.0** · 55 examples
+Version: **3.18.0** · 55 examples
 
 ---
 
@@ -8,7 +8,7 @@ Version: **3.15.0** · 55 examples
 
 ```mire
 pub fn main: () {
-    use dasu("Hello, Mire!")
+ use dasu("Hello, Mire!")
 }
 ```
 
@@ -22,8 +22,8 @@ Save as `hello.mire` and run: `mire run hello.mire`
 // Line comment — runs to end of line
 
 /! Block comment
-   spanning multiple lines
-   with !/ delimiter !/
+ spanning multiple lines
+ with !/ delimiter !/
 ```
 
 Mire uses `//` for single-line comments and `/! ... !/` for block comments.
@@ -36,12 +36,12 @@ The older `#` and `//! ... !//` syntaxes were removed in v3.11.38.
 Attributes are metadata annotations placed before function declarations:
 
 ```mire
-@[test]                          // single attribute
-@[test][section("math")]         // chained brackets
-@[test, section("math")]         // comma-separated
+@[test] // single attribute
+@[test][section("math")] // chained brackets
+@[test, section("math")] // comma-separated
 @[deprecated("use bar instead")] // with string argument
-@[allow(dead_code)]              // lint suppression
-@[deny(unsafe)]                  // deny specific patterns
+@[allow(dead_code)] // lint suppression
+@[deny(unsafe)] // deny specific patterns
 ```
 
 Supported on: `fn` declarations. Multiple `@[...]` lines before the same
@@ -54,12 +54,12 @@ declaration are automatically accumulated.
 ```mire
 @[test]
 pub fn my_test: () :bool {
-    return true
+ return true
 }
 
 @[test][section("math")]
 pub fn test_add: () :bool {
-    return 1 + 1 == 2
+ return 1 + 1 == 2
 }
 
 @[test][ignore]
@@ -118,7 +118,74 @@ any reassignment to `x`.
 
 **Compound assignment:** `set x += 1`, `set x -= 1`
 
-**Types:** `str`, `i64`, `bool`, `f64`, `vec[str]`, `vec[i64]`
+**Types:** `str`, `bool`, `char`, `i8`, `i16`, `i32`, `i64`, `i128`,
+`u8`, `u16`, `u32`, `u64`, `u128`, `f32`, `f64`, `vec[T]`, `map[K V]`,
+`arr[T N]`, `result[T E]`, `option[T]`.
+
+Mire uses **real, fixed-width scalar types** up to 128 bits. Integer literals
+infer `i64`; floating-point literals infer `f64`. A narrower or differently
+signed type is selected with a type ascription (see §3.1).
+
+### 3.1 Type ascription and real widths
+
+A type ascription `:T` placed after an expression converts its value to the
+named type. Ascriptions are **not silent**: the compiler checks that the
+conversion is valid and rejects lossy casts without an explicit narrowing
+ascription.
+
+```mire
+set a = 200 :u8 // literal 200 fits in u8 → ok
+set b = 100 :u8
+set c = a + b // u8 + u8 → u8 (wraps mod 256: 300 → 44)
+set x = 120 :i8
+set y = 10 :i8
+set z = x - y // i8 - i8 → i8 (110)
+
+set f = 1.5 :f32 // 1.5 stored as 32-bit float
+set g = 2.0 :f32
+set h = f * g // f32 * f32 → f32 (3.0)
+
+set big = 1000 :i64
+set small = big :i8 // ERROR: i64 → i8 would lose precision
+set pi = 3.14 :f32 // ERROR if 3.14 does not fit f32 precisely enough
+ // (use an explicit narrowing target only when the
+ // value actually fits)
+```
+
+**Supported scalar types (real widths):**
+
+| Category | Types |
+|----------|-------|
+| Signed integers | `i8`, `i16`, `i32`, `i64`, `i128` |
+| Unsigned integers | `u8`, `u16`, `u32`, `u64`, `u128` |
+| Floating point | `f32`, `f64` |
+| Boolean | `bool` |
+| Character | `char` (32-bit UTF-32 code point) |
+| String | `str` |
+
+**Conversion rules:**
+
+- Integer → wider integer of the same or larger width: zero-extended
+ (`u*`) or sign-extended (`i*`); never loses information.
+- Integer → narrower integer: only allowed when the **literal value fits**
+ the target range, otherwise a compile error (no silent truncation).
+- Integer → float (`f32`/`f64`): allowed (value preserved exactly for
+ integers up to the float's mantissa precision).
+- Float → integer: **requires an explicit ascription** and discards the
+ fractional part; the compiler rejects implicit float→int coercion.
+- Float → float: `f64 → f32` truncates; `f32 → f64` extends without loss.
+
+**Out-of-range example (compile error, not runtime wrap):**
+
+```mire
+set x = 300 :i8 // ERROR E0107: 300 does not fit i8 (-128..127)
+set y = 3.99 :f64
+set z = y :i32 // ERROR: cannot convert f64 → i32 implicitly
+```
+
+Arithmetic operators (`+ - * / %`) compute in a promoted width (`i64` for
+integers, `f32`/`f64` for floats) and narrow the result back to the operands'
+declared type, so `u8 + u8` yields a `u8` and `f32 * f32` yields an `f32`.
 
 ---
 
@@ -132,8 +199,8 @@ the value is freed.
 
 ```mire
 fn consume: (data :str) {
-    use dasu(data)
-    // data is freed here — the function took ownership
+ use dasu(data)
+ // data is freed here — the function took ownership
 }
 ```
 
@@ -141,9 +208,9 @@ When you pass an owned `str` to a function, the caller **loses access** to it:
 
 ```mire
 pub fn main: () {
-    set x = "hello" :str mut
-    use consume(x) // x is MOVED into consume
-    use dasu(x) // ❌ ERROR: use after move
+ set x = "hello" :str mut
+ use consume(x) // x is MOVED into consume
+ use dasu(x) // ERROR: use after move
 }
 ```
 
@@ -153,7 +220,7 @@ The compiler catches this and reports `MSS Error: Use after move`.
 
 ```mire
 fn print: (msg :&str) {
-    use dasu(*msg) // dereference with * to get the str inside
+ use dasu(*msg) // dereference with * to get the str inside
 }
 ```
 
@@ -162,9 +229,9 @@ The caller keeps the value after the call:
 
 ```mire
 pub fn main: () {
-    set x = "hello" :str mut
-    use print(x) // x is borrowed, not moved
-    use dasu(x) // ✅ still works
+ set x = "hello" :str mut
+ use print(x) // x is borrowed, not moved
+ use dasu(x) // still works
 }
 ```
 
@@ -175,20 +242,20 @@ pub fn main: () {
 This is why all kioto helper functions use borrows:
 
 ```mire
-// ✅ Good — reusable
+// Good — reusable
 fn helper: (s :&str) :str { return *s + "!" }
 
-// ❌ Bad — consumes the caller's value
+// Bad — consumes the caller's value
 fn helper: (s :str) :str { return s + "!" }
 ```
 
 ### 4.4 Mutable variables and fields
 
 ```mire
-set count = 0 :i64 mut               // :type mut on a variable
+set count = 0 :i64 mut // :type mut on a variable
 
 struct Counter {
-    value :i64 mut               // mut on a struct field
+ value :i64 mut // mut on a struct field
 }
 ```
 
@@ -201,18 +268,18 @@ struct Counter {
 ```mire
 // Public function
 pub fn greet: (name :&str) {
-    use dasu("Hello, " + *name)
+ use dasu("Hello, " + *name)
 }
 
 // Private function (default — omit `pub`)
 fn add: (a :i64, b :i64) :i64 {
-    return a + b
+ return a + b
 }
 
 // No parameters, no return
 pub fn main: () {
-    set result = add(5 3)
-    use dasu(result)
+ set result = add(5 3)
+ use dasu(result)
 }
 ```
 
@@ -223,8 +290,8 @@ The return type goes after the closing paren: `fn name: (params) :return_type { 
 In Mire, arguments at call sites are **separated by spaces**, not commas:
 
 ```mire
-add(5 3) // ✅ two arguments
-strings::split(s "\n") // ✅ two arguments
+add(5 3) // two arguments
+strings::split(s "\n") // two arguments
 ```
 
 **Commas also work** — the parser accepts both `foo(a b)` and `foo(a, b)`.
@@ -241,7 +308,7 @@ not the canonical idiom.
 
 ```mire
 return value
-return               // void return (allowed but optional)
+return // void return (allowed but optional)
 ```
 
 ### 5.4 Closures (anonymous functions)
@@ -257,8 +324,8 @@ use dasu(sum(3 4)) // "7"
 
 // With block body
 set greet = (name :str) => {
-    set msg = "Hello, " + name
-    use dasu(msg)
+ set msg = "Hello, " + name
+ use dasu(msg)
 }
 greet("Mire")
 
@@ -285,10 +352,10 @@ capture variables from their enclosing scope without explicit syntax.
 
 ```mire
 impl Point {
-    // Associated (static) method — no self
-    fn new: (x :i64, y :i64) :Point {
-        return (Point x: x, y: y)
-    }
+ // Associated (static) method — no self
+ fn new: (x :i64, y :i64) :Point {
+ return (Point x: x, y: y)
+ }
 }
 
 set origin = Point::new(0 0)
@@ -305,27 +372,27 @@ module-qualified calls work: `strings::split(...)`.
 ```mire
 // If/else
 if x > 0 {
-    use dasu("positive")
+ use dasu("positive")
 } else {
-    use dasu("non-positive")
+ use dasu("non-positive")
 }
 
 // While
 set i = 0 :i64 mut
 while i < 5 {
-    use dasu(i)
-    set i = i + 1
+ use dasu(i)
+ set i = i + 1
 }
 
 // For
 for item in items {
-    use dasu(item)
+ use dasu(item)
 }
 
 // Match
 match status {
-    Status.Ok(v)  { use dasu("ok: " + strings::from_i64(v)) }
-    Status.Err(m) { use dasu("error: " + *m) }
+ Status.Ok(v) { use dasu("ok: " + strings::from_i64(v)) }
+ Status.Err(m) { use dasu("error: " + *m) }
 }
 ```
 
@@ -335,9 +402,9 @@ Match arms can have a `when` condition:
 
 ```mire
 match value {
-    x when x > 10 { use dasu("big") }
-    x when x > 0  { use dasu("positive") }
-    _             { use dasu("non-positive") }
+ x when x > 10 { use dasu("big") }
+ x when x > 0 { use dasu("positive") }
+ _ { use dasu("non-positive") }
 }
 ```
 
@@ -345,9 +412,9 @@ match value {
 
 ```mire
 match value {
-    1 | 2 | 3 { use dasu("small") }
-    4..10     { use dasu("medium") }
-    _         { use dasu("large") }
+ 1 | 2 | 3 { use dasu("small") }
+ 4..10 { use dasu("medium") }
+ _ { use dasu("large") }
 }
 ```
 
@@ -371,8 +438,8 @@ is not used, the value is passed as the last argument. Pipelines compose:
 
 ```mire
 set result = strings::split(data "\n")
-    => lists::filter(self (s :&str) => strings::len(*s) > 0)
-    => lists::len(self)
+ => lists::filter(self (s :&str) => strings::len(*s) > 0)
+ => lists::len(self)
 ```
 
 ### 6.4 `} else {` rule
@@ -380,19 +447,19 @@ set result = strings::split(data "\n")
 **`} else {` must be on the SAME line.** Mire does not allow `else` on a new line:
 
 ```mire
-// ✅ Correct
+// Correct
 if cond {
-    body
+ body
 } else {
-    other
+ other
 }
 
-// ❌ Wrong — `else` on new line
+// Wrong — `else` on new line
 if cond {
-    body
+ body
 }
 else {
-    other
+ other
 }
 ```
 
@@ -404,7 +471,7 @@ else {
 
 ```mire
 fn identity[T]: (x :T) :T {
-    return x
+ return x
 }
 
 // Explicit type argument
@@ -414,7 +481,7 @@ set a = identity[i64](42)
 set b = identity("hello")
 
 fn pair[T U]: (a :T, b :U) :vec[T] {
-    return [a]
+ return [a]
 }
 ```
 
@@ -425,12 +492,12 @@ Type parameters are declared in square brackets before the parameter list:
 
 ```mire
 type Box[T] {
-    value :T
+ value :T
 }
 
 enum Option[T] {
-    Some(value :T)
-    None
+ Some(value :T)
+ None
 }
 
 // Construction
@@ -442,13 +509,13 @@ set v = Option[i64].Some(10)
 
 ```mire
 impl[T] Box[T] {
-    fn get: (self) :T {
-        return self.value
-    }
+ fn get: (self) :T {
+ return self.value
+ }
 
-    fn set: (self, val :T) {
-        set self.value = val
-    }
+ fn set: (self, val :T) {
+ set self.value = val
+ }
 }
 
 set b = (Box[i64] value: 42)
@@ -459,11 +526,11 @@ use dasu(b.get()) // "42"
 
 ```mire
 skill Printable {
-    fn print: (self) :str
+ fn print: (self) :str
 }
 
 fn show[T: Printable]: (v :T) {
-    use dasu(v.print())
+ use dasu(v.print())
 }
 
 // Multiple bounds
@@ -477,7 +544,7 @@ required skills. The compiler validates bounds at call sites.
 
 ```mire
 fn first[T]: (items :vec[T]) :T {
-    return lists::get(items 0)
+ return lists::get(items 0)
 }
 
 set nums = [10 20 30]
@@ -494,7 +561,7 @@ set s = "hello" :str mut
 // Transformation
 set upper = strings::upper(s)
 set lower = strings::lower(s)
-set trimmed = strings::trim("  ok  ")
+set trimmed = strings::trim(" ok ")
 set replaced = strings::replace(s "hello" "hi")
 
 // Splitting and joining
@@ -572,7 +639,9 @@ set byte = (word >> 16) & 0xFF
 ```
 
 **Caveats:**
-- All operations produce `i64` results; mask with `& 0xFFFFFFFF` for 32-bit wrapping
+- Bitwise operations on operands of a declared integer width compute in a
+ promoted width (`i64`) and narrow the result back to the operands' declared
+ type. Use a narrowing ascription (e.g. `:u32`) when you need a specific width.
 - Right shift (`>>`) is always logical (unsigned), filling with zeros
 - `&` at the start of an expression is parsed as **address-of** (reference), not bitwise AND. Use parentheses: `(0xFF & x)`
 - `^` between bools is logical XOR; between integers is bitwise XOR
@@ -586,23 +655,23 @@ the same expression:
 ```mire
 // Boolean chains
 return lists::get(bytes, 0) == 0xDE &&
-       lists::get(bytes, 1) == 0xAD &&
-       lists::get(bytes, 2) == 0xBE
+ lists::get(bytes, 1) == 0xAD &&
+ lists::get(bytes, 2) == 0xBE
 
 // Arithmetic
 set total = 100 +
-            200 +
-            300
+ 200 +
+ 300
 
 // Bitwise chains
 set word = ((lists::get(bytes, off) & 0xFF) << 24) |
-           ((lists::get(bytes, off + 1) & 0xFF) << 16) |
-           ((lists::get(bytes, off + 2) & 0xFF) << 8)
+ ((lists::get(bytes, off + 1) & 0xFF) << 16) |
+ ((lists::get(bytes, off + 2) & 0xFF) << 8)
 
 // String concatenation
 set path = folder +
-           "/" +
-           filename
+ "/" +
+ filename
 ```
 
 **Rules:**
@@ -645,9 +714,9 @@ set b = box(some_large_value) :Box[i64]
 
 // Box[T] in structs
 type TreeNode {
-    value :i64
-    left  :Box[TreeNode]
-    right :Box[TreeNode]
+ value :i64
+ left :Box[TreeNode]
+ right :Box[TreeNode]
 }
 ```
 
@@ -659,8 +728,8 @@ type TreeNode {
 
 ```mire
 pub struct Point {
-    x :i64
-    y :i64
+ x :i64
+ y :i64
 }
 
 set p = (Point x: 10, y: 20)
@@ -668,7 +737,7 @@ set q = (Point x: 3, y: 4)
 
 // Generic struct
 type Box[T] {
-    value :T
+ value :T
 }
 set b = (Box[i64] value: 42)
 ```
@@ -679,18 +748,18 @@ Struct construction syntax is `(TypeName field: value, ...)` with mandatory
 parentheses. This is a deliberate design choice for parser consistency:
 
 - Without parentheses, `Point x: 10` would be ambiguous — is it a variable
-  declaration `set Point = ...`? A named argument? A type annotation?
+ declaration `set Point = ...`? A named argument? A type annotation?
 - Mire uses `(...)` as the **universal grouping token**: function parameters,
-  expression grouping, tuple-like values, AND struct construction all share
-  the same delimiter.
+ expression grouping, tuple-like values, AND struct construction all share
+ the same delimiter.
 - The parser sees `(TypeName ...)` and unambiguously knows it's a struct
-  literal. No new syntax token needed.
+ literal. No new syntax token needed.
 
 ```mire
-// ✅ Struct construction inside parentheses
+// Struct construction inside parentheses
 set p = (Point x: 1, y: 2)
 
-// ❌ Ambiguous without parentheses
+// Ambiguous without parentheses
 set p = Point x: 1, y: 2
 ```
 
@@ -698,14 +767,14 @@ set p = Point x: 1, y: 2
 
 ```mire
 impl Point {
-    fn sum: (self) :i64 {
-        return self.x + self.y
-    }
+ fn sum: (self) :i64 {
+ return self.x + self.y
+ }
 
-    fn translate: (self, dx :i64, dy :i64) {
-        set self.x = self.x + dx
-        set self.y = self.y + dy
-    }
+ fn translate: (self, dx :i64, dy :i64) {
+ set self.x = self.x + dx
+ set self.y = self.y + dy
+ }
 }
 
 set total = p.sum()
@@ -715,9 +784,9 @@ set total = p.sum()
 
 ```mire
 impl Point {
-    fn new: (x :i64, y :i64) :Point {
-        return (Point x: x, y: y)
-    }
+ fn new: (x :i64, y :i64) :Point {
+ return (Point x: x, y: y)
+ }
 }
 
 set p = Point::new(10 20)
@@ -730,22 +799,22 @@ set p = Point::new(10 20)
 ```mire
 // Definition — simple variants
 pub enum Status {
-    Pending
-    Active
-    Done
-    Failed
+ Pending
+ Active
+ Done
+ Failed
 }
 
 // Definition — variants with payloads
 pub enum Result {
-    Ok(value :i64)
-    Err(msg :str)
+ Ok(value :i64)
+ Err(msg :str)
 }
 
 // Generic enum
 enum Option[T] {
-    Some(value :T)
-    None
+ Some(value :T)
+ None
 }
 
 // Construction
@@ -756,10 +825,10 @@ set v = Option[i64].Some(10)
 
 // Pattern matching
 match s {
-    Status.Pending { use dasu("waiting") }
-    Status.Active  { use dasu("running") }
-    Status.Done    { use dasu("complete") }
-    Status.Failed  { use dasu("error") }
+ Status.Pending { use dasu("waiting") }
+ Status.Active { use dasu("running") }
+ Status.Done { use dasu("complete") }
+ Status.Failed { use dasu("error") }
 }
 ```
 
@@ -771,11 +840,11 @@ match s {
 
 ```mire
 pub skill Printable {
-    fn print: (self) :str
+ fn print: (self) :str
 }
 
 pub skill Sized {
-    fn size: (self) :i64
+ fn size: (self) :i64
 }
 ```
 
@@ -783,11 +852,11 @@ pub skill Sized {
 
 ```mire
 impl Printable for Point {
-    fn print: (self) :str {
-        set x = strings::from_i64(self.x)
-        set y = strings::from_i64(self.y)
-        return "(" + x + ", " + y + ")"
-    }
+ fn print: (self) :str {
+ set x = strings::from_i64(self.x)
+ set y = strings::from_i64(self.y)
+ return "(" + x + ", " + y + ")"
+ }
 }
 ```
 
@@ -795,11 +864,11 @@ impl Printable for Point {
 
 ```mire
 fn show[T: Printable]: (v :T) {
-    use dasu(v.print())
+ use dasu(v.print())
 }
 
 fn process[T: Printable + Sized]: (v :T) {
-    // T must implement both Printable and Sized
+ // T must implement both Printable and Sized
 }
 ```
 
@@ -807,13 +876,13 @@ fn process[T: Printable + Sized]: (v :T) {
 
 ```mire
 skill Default {
-    fn default: () :Self
+ fn default: () :Self
 }
 
 impl[T: Default] Box[T] {
-    fn new_default: () :Box[T] {
-        return (Box[T] value: T::default())
-    }
+ fn new_default: () :Box[T] {
+ return (Box[T] value: T::default())
+ }
 }
 ```
 
@@ -827,16 +896,16 @@ impl[T: Default] Box[T] {
 module mylib
 
 pub fn version: () :str {
-    return "1.0"
+ return "1.0"
 }
 ```
 
 ### 13.2 Loading modules
 
 ```mire
-load kioto               // the standard library
-load mylib               // a user library
-load kioto::json               // a specific submodule
+load kioto // the standard library
+load mylib // a user library
+load kioto::json // a specific submodule
 ```
 
 ### 13.3 Namespace access
@@ -856,9 +925,9 @@ version = "0.1.0"
 entry = "mod.mire"
 
 [exports]
-strings  = "core/strings"
-net      = "core/net"
-json     = "ext/json"
+strings = "core/strings"
+net = "core/net"
+json = "ext/json"
 ```
 
 **Each intermediate directory needs its own `owl.toml`** to expose submodules
@@ -866,15 +935,46 @@ to deeper nesting:
 
 ```
 mylib/
-  owl.toml           ← exports "net" = "core/net"
-  core/
-    net/
-      owl.toml       ← exports "http" = "http/mod.mire"
-      http/
-        mod.mire     ← contains pub fn get, pub fn post
+ owl.toml ← exports "net" = "core/net"
+ core/
+ net/
+ owl.toml ← exports "http" = "http/mod.mire"
+ http/
+ mod.mire ← contains pub fn get, pub fn post
 ```
 
 Without `core/net/owl.toml`, the path `mylib::net::http` cannot resolve.
+
+### 13.5 Local `load!` — files without owl.toml
+
+`load!` (with a bang) exposes nearly all `pub` content of a **relative
+`.mire` file or directory** as a namespace, without needing an `owl.toml`
+manifest. It is the lightweight counterpart to the package-level `load`.
+
+```mire
+load! math // loads ./math/main.mire (fallback ./math/mod.mire)
+load! math/main // loads ./math/main.mire explicitly
+load! /utils/string // leading '/' → resolved from the project root (owl.toml dir)
+```
+
+The namespace is the **last path segment** — `load! math/main` exposes its
+symbols under `main`, *not* `math`. There is no alias.
+
+**Calls into a `load!` module MUST be wrapped in `use!`:**
+
+```mire
+set r = use! math::suma(2 3) // correct
+set r = math::suma(2 3) // ERROR: require `use!`
+```
+
+`use!` is **always mandatory** to call any symbol exposed by `load!`. It is
+the simple import form that needs no `owl.toml`, `module` declaration, or
+`exports` table. Package `load` (kioto) uses the separate `load` mechanism
+and is therefore unaffected by this rule — but for `load!` modules, every
+qualified call must go through `use!`.
+
+`load!` only searches up to **2 levels below the project root**; a deeper
+path fails with a note explaining the limit.
 
 ---
 
@@ -895,9 +995,21 @@ extern fn puts: (msg :*mut i8) :i32 lib "c"
 
 | Mire type | C type | Notes |
 |-----------|--------|-------|
+| `i8` | `int8_t` | 8-bit signed integer |
+| `i16` | `int16_t` | 16-bit signed integer |
+| `i32` | `int32_t` | 32-bit signed integer |
 | `i64` | `int64_t` / `long` | 64-bit signed integer |
-| `str` | `char*` | Null-terminated string |
+| `i128` | `__int128` | 128-bit signed integer |
+| `u8` | `uint8_t` | 8-bit unsigned integer |
+| `u16` | `uint16_t` | 16-bit unsigned integer |
+| `u32` | `uint32_t` | 32-bit unsigned integer |
+| `u64` | `uint64_t` | 64-bit unsigned integer |
+| `u128` | `unsigned __int128` | 128-bit unsigned integer |
+| `f32` | `float` | 32-bit IEEE float |
+| `f64` | `double` | 64-bit IEEE float |
 | `bool` | `int` (0/1) | Boolean |
+| `char` | `uint32_t` | UTF-32 code point |
+| `str` | `char*` | Null-terminated string |
 | `*mut i8` | `void*` / `char*` | Raw mutable pointer |
 | `*const i8` | `const void*` | Raw const pointer |
 
@@ -911,11 +1023,11 @@ extern fn SDL_Init: (flags :i64) :i64 lib "SDL2"
 extern fn SDL_GetError: () :str lib "SDL2"
 
 pub fn init_video: () :bool {
-    return SDL_Init(0x00000020) == 0
+ return SDL_Init(0x00000020) == 0
 }
 
 pub fn error_message: () :str {
-    return SDL_GetError()
+ return SDL_GetError()
 }
 ```
 
@@ -961,21 +1073,21 @@ function.
 
 ```mire
 fn read_config: (path :&str) :result[str str] {
-    set raw = fs::read(path) ? // returns early on error
-    return ok(parse_config(raw))
+ set raw = fs::read(path) ? // returns early on error
+ return ok(parse_config(raw))
 }
 
 // The function return type must be a result type
 fn safe_divide: (a :i64, b :i64) :result[i64 str] {
-    if b == 0 {
-        return err("division by zero")
-    }
-    return ok(a / b)
+ if b == 0 {
+ return err("division by zero")
+ }
+ return ok(a / b)
 }
 
 fn main: () {
-    set r = safe_divide(10 2) ?
-    use dasu(r) // "5"
+ set r = safe_divide(10 2) ?
+ use dasu(r) // "5"
 }
 ```
 
@@ -983,15 +1095,15 @@ fn main: () {
 
 ```mire
 type Result[T E] {
-    Ok(value :T)
-    Err(msg :E)
+ Ok(value :T)
+ Err(msg :E)
 }
 
 fn safe_get[T]: (items :vec[T], index :i64) :result[T str] {
-    if index < 0 {
-        return err("negative index")
-    }
-    return ok(lists::get(items index))
+ if index < 0 {
+ return err("negative index")
+ }
+ return ok(lists::get(items index))
 }
 ```
 
@@ -1035,39 +1147,39 @@ The rest of the standard library (kioto) uses English names: `log::info`,
 load kioto
 
 pub fn main: () {
-    // ── File I/O ──
-    set content = fs::read("input.txt")
-    use fs::write("output.txt" content)
+ // ── File I/O ──
+ set content = fs::read("input.txt")
+ use fs::write("output.txt" content)
 
-    // ── JSON ──
-    set data = "{\"user\":{\"name\":\"Alice\",\"age\":30}}"
-    set name = json::get(data "user.name") // "Alice"
-    if json::is_valid(data) { ... }
+ // ── JSON ──
+ set data = "{\"user\":{\"name\":\"Alice\",\"age\":30}}"
+ set name = json::get(data "user.name") // "Alice"
+ if json::is_valid(data) { ... }
 
-    // ── String manipulation ──
-    set parts = strings::split("a,b,c" ",")
-    set trimmed = strings::trim("  ok  ")
-    set has = strings::contains("hello world" "world")
+ // ── String manipulation ──
+ set parts = strings::split("a,b,c" ",")
+ set trimmed = strings::trim(" ok ")
+ set has = strings::contains("hello world" "world")
 
-    // ── Maybe (Option) ──
-    set m = maybe::some("value")
-    set v = maybe::unwrap_or(m "default")
-    if maybe::is_some(m) { use dasu(maybe::unwrap(m)) }
+ // ── Maybe (Option) ──
+ set m = maybe::some("value")
+ set v = maybe::unwrap_or(m "default")
+ if maybe::is_some(m) { use dasu(maybe::unwrap(m)) }
 
-    // ── Result ──
-    set r = result::ok("success")
-    if result::is_ok(r) { use dasu(result::unwrap(r)) }
-    set v2 = result::unwrap_or(result::err("fail") "fallback")
+ // ── Result ──
+ set r = result::ok("success")
+ if result::is_ok(r) { use dasu(result::unwrap(r)) }
+ set v2 = result::unwrap_or(result::err("fail") "fallback")
 
-    // ── Logging ──
-    use log::info("server started")
-    use log::warn("low memory")
-    use log::error("connection lost")
+ // ── Logging ──
+ use log::info("server started")
+ use log::warn("low memory")
+ use log::error("connection lost")
 
-    // ── Iteration ──
-    set range = iter::range(0 5) // "0\n1\n2\n3\n4"
-    set rparts = strings::split(range "\n")
-    set count = iter::count(rparts) // 5
+ // ── Iteration ──
+ set range = iter::range(0 5) // "0\n1\n2\n3\n4"
+ set rparts = strings::split(range "\n")
+ set count = iter::count(rparts) // 5
 }
 ```
 
@@ -1079,39 +1191,39 @@ pub fn main: () {
 load kioto
 
 pub fn main: () {
-    // ── HTTP client ──
-    set body = net::http::get("https://api.example.com/data")
-    set resp = net::http::post("https://api.example.com/create" body_json "application/json")
+ // ── HTTP client ──
+ set body = net::http::get("https://api.example.com/data")
+ set resp = net::http::post("https://api.example.com/create" body_json "application/json")
 
-    // ── HTTP server ──
-    set method = net::http::req_method(raw_request)
-    set path = net::http::req_path(raw_request)
-    set host = net::http::req_header(raw_request "Host")
-    set qs = net::http::req_query(raw_request)
-    set ct = net::http::server_mime("style.css")
-    set response = net::http::resp_200(data ct)
+ // ── HTTP server ──
+ set method = net::http::req_method(raw_request)
+ set path = net::http::req_path(raw_request)
+ set host = net::http::req_header(raw_request "Host")
+ set qs = net::http::req_query(raw_request)
+ set ct = net::http::server_mime("style.css")
+ set response = net::http::resp_200(data ct)
 
-    // ── WebSocket client ──
-    set fd = ws::connect("ws://echo.example.com/")
-    use ws::send::text(fd "hello")
-    set msg = ws::recv::all(fd)
-    use ws::close(fd)
+ // ── WebSocket client ──
+ set fd = ws::connect("ws://echo.example.com/")
+ use ws::send::text(fd "hello")
+ set msg = ws::recv::all(fd)
+ use ws::close(fd)
 
-    // ── SDL2 (graphics) ──
-    if sdl2::init_video() {
-        set win = sdl2::create_window("Demo" 800 600)
-        sdl2::delay(2000)
-        sdl2::destroy_window(win)
-        sdl2::quit()
-    }
+ // ── SDL2 (graphics) ──
+ if sdl2::init_video() {
+ set win = sdl2::create_window("Demo" 800 600)
+ sdl2::delay(2000)
+ sdl2::destroy_window(win)
+ sdl2::quit()
+ }
 
-    // ── Pipeline ──
-    set result = strings::split(data "\n")
-        => lists::filter(self (s :&str) => strings::len(*s) > 0)
-        => lists::len(self)
+ // ── Pipeline ──
+ set result = strings::split(data "\n")
+ => lists::filter(self (s :&str) => strings::len(*s) > 0)
+ => lists::len(self)
 
-    // ── Closures ──
-    set doubled = lists::map(nums (x :i64) => x * 2)
-    set sum = lists::fold(0 (acc elem :i64) => acc + elem, nums)
+ // ── Closures ──
+ set doubled = lists::map(nums (x :i64) => x * 2)
+ set sum = lists::fold(0 (acc elem :i64) => acc + elem, nums)
 }
 ```

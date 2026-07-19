@@ -41,6 +41,17 @@ pub enum DiagnosticCode {
     E0014,
     E0015,
     E0016,
+    E0100,
+    E0101,
+    E0102,
+    E0103,
+    E0104,
+    E0105,
+    E0106,
+    E0107,
+    E0108,
+    E0109,
+    E0110,
     W0001,
     W0002,
     W0003,
@@ -93,6 +104,17 @@ impl DiagnosticCode {
             DiagnosticCode::E0014 => "E0014",
             DiagnosticCode::E0015 => "E0015",
             DiagnosticCode::E0016 => "E0016",
+            DiagnosticCode::E0100 => "E0100",
+            DiagnosticCode::E0101 => "E0101",
+            DiagnosticCode::E0102 => "E0102",
+            DiagnosticCode::E0103 => "E0103",
+            DiagnosticCode::E0104 => "E0104",
+            DiagnosticCode::E0105 => "E0105",
+            DiagnosticCode::E0106 => "E0106",
+            DiagnosticCode::E0107 => "E0107",
+            DiagnosticCode::E0108 => "E0108",
+            DiagnosticCode::E0109 => "E0109",
+            DiagnosticCode::E0110 => "E0110",
             DiagnosticCode::W0001 => "W0001",
             DiagnosticCode::W0002 => "W0002",
             DiagnosticCode::W0003 => "W0003",
@@ -207,6 +229,17 @@ impl DiagnosticCode {
             DiagnosticCode::W0045 => "redundant_bool_compare",
             DiagnosticCode::W0046 => "simplifiable_if_return_bool",
             DiagnosticCode::W0047 => "string_concat_in_loop",
+            DiagnosticCode::E0100 => "precision_loss",
+            DiagnosticCode::E0101 => "unsigned_precision_loss",
+            DiagnosticCode::E0102 => "float_precision_loss",
+            DiagnosticCode::E0103 => "int_to_float_requires_cast",
+            DiagnosticCode::E0104 => "float_to_int_requires_cast",
+            DiagnosticCode::E0105 => "sign_mismatch",
+            DiagnosticCode::E0106 => "type_mismatch",
+            DiagnosticCode::E0107 => "literal_out_of_range",
+            DiagnosticCode::E0108 => "invalid_char",
+            DiagnosticCode::E0109 => "str_bytes_mismatch",
+            DiagnosticCode::E0110 => "numeric_kind_mismatch",
             _ => self.as_str(),
         }
     }
@@ -272,28 +305,15 @@ impl Diagnostic {
 #[derive(Debug, Clone, Default)]
 pub enum WarningFilter {
     #[default]
-    Default,
+    Off,
     All,
     Codes(HashSet<DiagnosticCode>),
 }
 
 impl WarningFilter {
-    pub fn default_codes() -> HashSet<DiagnosticCode> {
-        [
-            DiagnosticCode::W0001,
-            DiagnosticCode::W0002,
-            DiagnosticCode::W0003,
-            DiagnosticCode::W0004,
-            DiagnosticCode::W0005,
-            DiagnosticCode::W0034,
-        ]
-        .into_iter()
-        .collect()
-    }
-
     pub fn matches(&self, code: DiagnosticCode) -> bool {
         match self {
-            WarningFilter::Default => Self::default_codes().contains(&code),
+            WarningFilter::Off => false,
             WarningFilter::All => code.is_warning(),
             WarningFilter::Codes(codes) => codes.contains(&code),
         }

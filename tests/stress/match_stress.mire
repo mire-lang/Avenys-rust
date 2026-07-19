@@ -1,7 +1,7 @@
 fn classify: (n: i64) :i64 {
   set mod3 = n % 3 :i64 mut
   set mod5 = n % 5 :i64 mut
-  
+
   if mod3 == 0 {
     if mod5 == 0 {
       return 15

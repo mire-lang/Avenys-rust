@@ -1,4 +1,5 @@
 use crate::parser::ast::{DataType, Expression, Literal};
+pub(crate) use crate::types::codegen::llvm_elem_type_str;
 
 pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
     match expr {
@@ -34,6 +35,8 @@ pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
         Expression::Match { data_type, .. } => data_type.clone(),
         Expression::EnumVariantPath { data_type, .. } => data_type.clone(),
         Expression::EnumVariant { data_type, .. } => data_type.clone(),
+        Expression::Ascription { data_type, .. } => data_type.clone(),
+        Expression::UseMacro { inner } => extract_data_type(inner),
     }
 }
 
@@ -102,21 +105,5 @@ pub(crate) fn data_type_to_kind(dt: &DataType) -> i64 {
         | DataType::RefMut { .. }
         | DataType::Box => 5,
         _ => 1,
-    }
-}
-
-pub(crate) fn llvm_elem_type_str(dt: &DataType) -> String {
-    match dt {
-        DataType::I64 | DataType::Char | DataType::U64 => "i64".to_string(),
-        DataType::I128 | DataType::U128 => "i128".to_string(),
-        DataType::I32 | DataType::U32 => "i32".to_string(),
-        DataType::I16 | DataType::U16 => "i16".to_string(),
-        DataType::I8 | DataType::U8 => "i8".to_string(),
-        DataType::F32 => "float".to_string(),
-        DataType::F64 => "double".to_string(),
-        DataType::Bool => "i1".to_string(),
-        DataType::None => "i64".to_string(),
-        DataType::StructNamed(name) => format!("struct:{}", name),
-        _ => "i64".to_string(),
     }
 }

@@ -6,6 +6,7 @@ use crate::parser::helpers::identifier_expr_with_pos;
 
 pub(super) fn contains_self_placeholder(expr: &Expression) -> bool {
     match expr {
+        Expression::Ascription { expr: inner, .. } => contains_self_placeholder(inner),
         Expression::Identifier(Identifier { name, .. }) => name == "self",
         Expression::BinaryOp { left, right, .. } => {
             contains_self_placeholder(left) || contains_self_placeholder(right)
@@ -48,6 +49,7 @@ pub(super) fn contains_self_placeholder(expr: &Expression) -> bool {
         Expression::Ok { value, .. } | Expression::Err { value, .. } => {
             contains_self_placeholder(value)
         }
+        Expression::UseMacro { inner } => contains_self_placeholder(inner),
     }
 }
 
@@ -110,6 +112,7 @@ fn statement_contains_self_placeholder(statement: &Statement) -> bool {
         | Statement::ExternLib { .. }
         | Statement::ExternFunction { .. }
         | Statement::Load { .. }
+        | Statement::LoadLocal { .. }
         | Statement::Enum { .. }
         | Statement::Module { .. } => false,
     }

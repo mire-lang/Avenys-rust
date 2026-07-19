@@ -2,15 +2,15 @@ load kioto
 
 pub fn main: () {
     set numbers = [10 20 30 40 50] :arr[i64 5]
-    
+
     set i = 0 :i64 mut
     set sum = 0 :i64 mut
-    
+
     while i < 5 {
         set current = numbers at i
         set sum = sum + current
         set i = i + 1
     }
-    
+
     use dasu(sum)
 }

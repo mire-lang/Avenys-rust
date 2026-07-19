@@ -50,3 +50,14 @@ char *pal_net_resolve(const char *host) {
     (void)host;
     return NULL;
 }
+
+int64_t pal_net_bind(int64_t port) {
+    (void)port;
+    // Listening sockets are not supported under WASI.
+    return -1;
+}
+
+int64_t pal_net_accept(int64_t fd) {
+    (void)fd;
+    return -1;
+}

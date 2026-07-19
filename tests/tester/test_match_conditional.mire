@@ -8,29 +8,29 @@ enum Status {
 
 pub fn main: () {
     set s = Status.Active
-    
+
     set is_active = match s {
         Status.Pending { false }
         Status.Active { true }
         Status.Done { false }
     } :bool
-    
+
     if is_active {
         use dasu("active")
     }
-    
+
     set label = match s {
         Status.Pending { "pending" }
         Status.Active { "active" }
         Status.Done { "done" }
     } :str
-    
+
     set count = match s {
         Status.Pending { 0 }
         Status.Active { 1 }
         Status.Done { 2 }
     } :i64
-    
+
     use dasu(label)
     use dasu(count)
 }

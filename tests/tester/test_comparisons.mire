@@ -3,14 +3,14 @@ load kioto
 pub fn main: () {
     set a = 10
     set b = 20
-    
+
     set eq = a == b
     set ne = a != b
     set lt = a < b
     set gt = a > b
     set le = a <= b
     set ge = a >= b
-    
+
     use dasu(eq)
     use dasu(ne)
     use dasu(lt)

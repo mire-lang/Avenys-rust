@@ -19,7 +19,7 @@ fn fibonacci: (n :i64) :i64 {
 pub fn main: () {
     set f5 = factorial(5)
     use dasu(f5)
-    
+
     set fib6 = fibonacci(6)
     use dasu(fib6)
 }

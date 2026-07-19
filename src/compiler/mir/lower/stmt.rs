@@ -5,6 +5,18 @@ use crate::compiler::location::statement_location;
 use crate::compiler::mir::*;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Statement};
 
+/// True when `emit_convert` can safely lower a value of `from` into `to`
+/// (both are integer/float/char kinds). Avoids the `Sitofp` fallback that
+/// would corrupt non-numeric values such as structs or pointers.
+pub(crate) fn needs_convert(from: &DataType, to: &DataType) -> bool {
+    use DataType::*;
+    let numeric = |t: &DataType| matches!(
+        t,
+        I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128 | Char | F32 | F64
+    );
+    from != to && *to != DataType::Unknown && numeric(from) && numeric(to)
+}
+
 impl MirLower {
     pub(crate) fn lower_statement(&mut self, stmt: &Statement) {
         let loc = statement_location(stmt);
@@ -20,7 +32,11 @@ impl MirLower {
                         self.func.push_block("entry".to_string());
                     }
                     if let Some(val) = value {
-                        let v = self.lower_expression(val);
+                        let val_ty = extract_data_type(val);
+                        let mut v = self.lower_expression(val);
+                        if needs_convert(&val_ty, data_type) {
+                            v = self.emit_convert(v, &val_ty, data_type, loc);
+                        }
                         let last = self.current_block;
                         self.func.blocks[last].push(
                             None,
@@ -71,16 +87,26 @@ impl MirLower {
                         }
                         return;
                     }
-                    let v = self.lower_expression(val);
+                    let val_ty = extract_data_type(val);
+                    let mut v = self.lower_expression(val);
+                    if needs_convert(&val_ty, data_type) {
+                        v = self.emit_convert(v, &val_ty, data_type, loc);
+                    }
                     let last = self.current_block;
                     self.func.blocks[last].push(None, MirOp::Store(MirValue::temp(ptr), v), loc);
                 }
             }
             Statement::Assignment { target, value, .. } => {
-                let v = self.lower_expression(value);
+                let val_ty = extract_data_type(value);
+                let mut v = self.lower_expression(value);
                 let last = self.current_block;
                 match target {
                     AssignmentTarget::Variable(name) => {
+                        if let Some(target_ty) = self.var_types.get(name).cloned() {
+                            if needs_convert(&val_ty, &target_ty) {
+                                v = self.emit_convert(v, &val_ty, &target_ty, loc);
+                            }
+                        }
                         if self.globals.contains_key(name) {
                             self.func.blocks[last].push(
                                 None,
@@ -115,6 +141,9 @@ impl MirLower {
                                         vec![
                                             index_val.clone(),
                                             MirValue::Const(MirConst::Int(*size as i64)),
+                                            MirValue::Const(MirConst::Int(loc.0 as i64)),
+                                            MirValue::Const(MirConst::Int(loc.1 as i64)),
+                                            MirValue::Const(MirConst::Str(self.filename.clone())),
                                         ],
                                         MirType {
                                             data_type: DataType::None,
@@ -140,7 +169,13 @@ impl MirLower {
                                     None,
                                     MirOp::Call(
                                         MirValue::Global("rt_check_bounds_i64".to_string()),
-                                        vec![index_val.clone(), MirValue::temp(len_val)],
+                                        vec![
+                                            index_val.clone(),
+                                            MirValue::temp(len_val),
+                                            MirValue::Const(MirConst::Int(loc.0 as i64)),
+                                            MirValue::Const(MirConst::Int(loc.1 as i64)),
+                                            MirValue::Const(MirConst::Str(self.filename.clone())),
+                                        ],
                                         MirType {
                                             data_type: DataType::None,
                                         },

@@ -2,6 +2,10 @@ use super::*;
 
 pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
     match expr {
+        Expression::Ascription { expr: inner, .. } => {
+            hasher.write_u8(99);
+            hash_expression(inner, hasher);
+        }
         Expression::Literal(lit) => {
             hasher.write_u8(0);
             hash_literal(lit, hasher);
@@ -214,6 +218,10 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             hasher.write_u8(21);
             hash_expression(value, hasher);
             hash_data_type(data_type, hasher);
+        }
+        Expression::UseMacro { inner } => {
+            hasher.write_u8(22);
+            hash_expression(inner, hasher);
         }
     }
 }

@@ -384,6 +384,14 @@ impl WarningAnalyzer {
                     column: 0,
                 });
             }
+            Statement::LoadLocal { rel_path, .. } => {
+                self.imported_modules.push(Identifier {
+                    name: rel_path.join("::"),
+                    data_type: DataType::Unknown,
+                    line: 0,
+                    column: 0,
+                });
+            }
             Statement::If {
                 then_branch,
                 else_branch,
@@ -598,6 +606,9 @@ impl WarningAnalyzer {
             Statement::Break | Statement::Continue => {}
             Statement::Load { path, .. } => {
                 self.used_imports.insert(path.join("::"));
+            }
+            Statement::LoadLocal { rel_path, .. } => {
+                self.used_imports.insert(rel_path.join("::"));
             }
             Statement::Function { body, .. } => {
                 for s in body {

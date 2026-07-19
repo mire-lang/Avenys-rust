@@ -182,6 +182,9 @@ pub(crate) fn collect_statement_dependencies(statement: &Statement, deps: &mut V
                 deps.extend(items.iter().cloned());
             }
         }
+        Statement::LoadLocal { rel_path, .. } => {
+            deps.extend(rel_path.iter().cloned());
+        }
         Statement::ExternLib { name, path } => {
             deps.push(name.clone());
             deps.push(path.clone());
@@ -269,6 +272,9 @@ pub(crate) fn collect_statement_bindings(statement: &Statement, bindings: &mut V
 
 fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<String>) {
     match expression {
+        Expression::Ascription { expr, .. } => {
+            collect_expression_bindings(expr, bindings);
+        }
         Expression::Match { cases, default, .. } => {
             for (_, expr) in cases {
                 collect_expression_bindings(expr, bindings);
@@ -325,6 +331,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
                 collect_expression_bindings(payload, bindings);
             }
         }
+        Expression::UseMacro { inner } => {
+            collect_expression_bindings(inner, bindings);
+        }
         Expression::EnumVariantPath { .. }
         | Expression::Identifier { .. }
         | Expression::Literal { .. } => {}
@@ -333,6 +342,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
 
 fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<String>) {
     match expression {
+        Expression::Ascription { expr, .. } => {
+            collect_expression_dependencies(expr, deps);
+        }
         Expression::Identifier(ident) => deps.push(ident.name.clone()),
         Expression::Call { name, args, .. } => {
             deps.push(name.clone());
@@ -431,11 +443,17 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
         Expression::Ok { value, .. } | Expression::Err { value, .. } => {
             collect_expression_dependencies(value, deps);
         }
+        Expression::UseMacro { inner } => {
+            collect_expression_dependencies(inner, deps);
+        }
         Expression::Literal(_) => {}
     }
 }
 
-fn collect_type_dependencies(data_type: &crate::parser::ast::DataType, deps: &mut Vec<String>) {
+fn collect_type_dependencies(
+    data_type: &crate::parser::ast::DataType,
+    deps: &mut Vec<String>,
+) {
     match data_type {
         crate::parser::ast::DataType::StructNamed(name)
         | crate::parser::ast::DataType::EnumNamed(name) => deps.push(name.clone()),

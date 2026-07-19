@@ -29,9 +29,14 @@ pub(crate) struct LlvmCtx<'a> {
     /// Temp IDs that own heap-allocated strings (results of rt_string_concat, pal calls, etc.).
     /// Freed when consumed by another concat or stored to a variable.
     pub(crate) owned_string_temps: HashSet<usize>,
+    pub(crate) source_filename: String,
 }
 
 pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
+    mir_to_llvm_with_filename(program, "")
+}
+
+pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) -> (String, Vec<(String, String)>) {
     let mut extern_decls = Vec::new();
     let mut declared = std::collections::HashSet::new();
     for ext in &program.extern_functions {
@@ -80,6 +85,7 @@ pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
         extern_wrapper_names,
         struct_types: &program.struct_types,
         owned_string_temps: HashSet::new(),
+        source_filename: source_filename.to_string(),
     };
     for func in &program.functions {
         let func_ir = compile_function_to_llvm(func, &mut ctx);

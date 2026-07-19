@@ -65,6 +65,7 @@ enum MethodKind {
 
 pub fn check_program_types(program: &mut Program, source: &str) -> Result<()> {
     let mut checker = TypeChecker::new(source);
+    checker.collect_load_local_modules(&program.statements);
     checker
         .collect_function_signatures(&program.statements)
         .map_err(|err| checker.attach_current_context(err))?;
@@ -97,6 +98,7 @@ pub fn check_program_types_partial_with_origins(
     selection: &AnalysisSelection,
 ) -> Result<()> {
     let mut checker = TypeChecker::new(source);
+    checker.collect_load_local_modules(&program.statements);
     checker.statement_origins = statement_origins
         .iter()
         .map(|path| path.display().to_string())
@@ -140,6 +142,8 @@ struct TypeChecker {
     current_top_level_index: Option<usize>,
     current_top_level_key: Option<String>,
     nested_statement_masks: HashMap<String, Vec<bool>>,
+    load_local_modules: HashSet<String>,
+    in_use_macro: bool,
 }
 
 impl TypeChecker {
@@ -169,6 +173,18 @@ impl TypeChecker {
             current_top_level_index: None,
             current_top_level_key: None,
             nested_statement_masks: HashMap::new(),
+            load_local_modules: HashSet::new(),
+            in_use_macro: false,
+        }
+    }
+
+    fn collect_load_local_modules(&mut self, statements: &[Statement]) {
+        for statement in statements {
+            if let Statement::LoadLocal { rel_path, .. } = statement {
+                if let Some(prefix) = rel_path.last() {
+                    self.load_local_modules.insert(prefix.clone());
+                }
+            }
         }
     }
 
@@ -387,17 +403,14 @@ impl TypeChecker {
             | Statement::Enum { .. }
             | Statement::Module { .. } => Ok(()),
             Statement::Load { .. } => Ok(()),
+            Statement::LoadLocal { .. } => Ok(()),
         };
         result.map_err(|err| self.attach_current_context(err))
     }
 }
 
 fn type_error(line: usize, column: usize, message: String) -> MireError {
-    type_error_at(line, column, message)
-}
-
-fn type_error_at(line: usize, column: usize, message: String) -> MireError {
-    MireError::type_error_at(line, column, message)
+    crate::error::type_error(line, column, message)
 }
 
 #[cfg(test)]
@@ -1046,7 +1059,11 @@ mod tests {
         };
 
         let err = check_program_types(&mut program, "").expect_err("must reject vec -> map");
-        assert!(err.to_string().contains("Type mismatch in let 'm'"));
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("vec") && msg.to_lowercase().contains("map"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]

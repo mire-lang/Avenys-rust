@@ -215,23 +215,38 @@ static char *ws_read_frame(int fd, int64_t max_bytes, int *out_opcode) {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-int64_t pal_ws_connect(const char *host, int64_t port, const char *path) {
-    struct hostent *he = gethostbyname(host);
-    if (!he) return -1;
+// Resolve `host:port` (IPv4/IPv6) via getaddrinfo and connect a TCP socket.
+// Returns the connected fd, or -1 on failure. Avoids the obsolete,
+// non-reentrant resolver.
+static int ws_resolve_connect(const char *host, int64_t port) {
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
 
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
-
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd);
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
         return -1;
     }
+
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    return fd;
+}
+
+int64_t pal_ws_connect(const char *host, int64_t port, const char *path) {
+    int fd = ws_resolve_connect(host, port);
+    if (fd < 0) return -1;
 
     if (!ws_do_handshake(fd, host, path)) {
         close(fd);
@@ -448,22 +463,8 @@ static char *wss_read_frame(SSL *ssl, int64_t max_bytes, int *out_opcode) {
 int64_t pal_wss_connect(const char *host, int64_t port, const char *path) {
     wss_init_ssl();
 
-    struct hostent *he = gethostbyname(host);
-    if (!he) return -1;
-
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = ws_resolve_connect(host, port);
     if (fd < 0) return -1;
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
-
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd);
-        return -1;
-    }
 
     SSL_CTX *ctx = wss_create_ctx();
     if (!ctx) { close(fd); return -1; }

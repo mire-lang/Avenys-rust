@@ -10,25 +10,25 @@ pub fn main: () {
     set r1 = Result.Success(42)
     set r2 = Result.Failure("not found")
     set r3 = Result.Empty
-    
+
     set v1 = match r1 {
         Result.Success(d) { d }
         Result.Failure(m) { 0 }
         Result.Empty { -1 }
     } :i64
-    
+
     set v2 = match r2 {
         Result.Success(d) { d }
         Result.Failure(m) { 0 }
         Result.Empty { -1 }
     } :i64
-    
+
     set v3 = match r3 {
         Result.Success(d) { d }
         Result.Failure(m) { 0 }
         Result.Empty { -1 }
     } :i64
-    
+
     use dasu(v1)
     use dasu(v2)
     use dasu(v3)

@@ -321,6 +321,7 @@ impl From<&ErrorKind> for StoredErrorKind {
                 line,
                 column,
                 message,
+                ..
             } => Self::Type {
                 line: *line,
                 column: *column,
@@ -383,6 +384,7 @@ impl From<StoredErrorKind> for ErrorKind {
                 line,
                 column,
                 message,
+                code: None,
             },
             StoredErrorKind::Ownership { line, column, kind } => Self::Ownership {
                 line,
