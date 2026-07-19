@@ -134,22 +134,22 @@ conversion is valid and rejects lossy casts without an explicit narrowing
 ascription.
 
 ```mire
-set a = 200 :u8          // literal 200 fits in u8  → ok
+set a = 200 :u8 // literal 200 fits in u8 → ok
 set b = 100 :u8
-set c = a + b            // u8 + u8 → u8 (wraps mod 256: 300 → 44)
+set c = a + b // u8 + u8 → u8 (wraps mod 256: 300 → 44)
 set x = 120 :i8
-set y = 10  :i8
-set z = x - y            // i8 - i8 → i8 (110)
+set y = 10 :i8
+set z = x - y // i8 - i8 → i8 (110)
 
-set f = 1.5 :f32         // 1.5 stored as 32-bit float
+set f = 1.5 :f32 // 1.5 stored as 32-bit float
 set g = 2.0 :f32
-set h = f * g            // f32 * f32 → f32 (3.0)
+set h = f * g // f32 * f32 → f32 (3.0)
 
 set big = 1000 :i64
-set small = big :i8      // ❌ ERROR: i64 → i8 would lose precision
-set pi = 3.14 :f32       // ❌ ERROR if 3.14 does not fit f32 precisely enough
-                         //    (use an explicit narrowing target only when the
-                         //     value actually fits)
+set small = big :i8 // ERROR: i64 → i8 would lose precision
+set pi = 3.14 :f32 // ERROR if 3.14 does not fit f32 precisely enough
+ // (use an explicit narrowing target only when the
+ // value actually fits)
 ```
 
 **Supported scalar types (real widths):**
@@ -166,21 +166,21 @@ set pi = 3.14 :f32       // ❌ ERROR if 3.14 does not fit f32 precisely enough
 **Conversion rules:**
 
 - Integer → wider integer of the same or larger width: zero-extended
-  (`u*`) or sign-extended (`i*`); never loses information.
+ (`u*`) or sign-extended (`i*`); never loses information.
 - Integer → narrower integer: only allowed when the **literal value fits**
-  the target range, otherwise a compile error (no silent truncation).
+ the target range, otherwise a compile error (no silent truncation).
 - Integer → float (`f32`/`f64`): allowed (value preserved exactly for
-  integers up to the float's mantissa precision).
+ integers up to the float's mantissa precision).
 - Float → integer: **requires an explicit ascription** and discards the
-  fractional part; the compiler rejects implicit float→int coercion.
+ fractional part; the compiler rejects implicit float→int coercion.
 - Float → float: `f64 → f32` truncates; `f32 → f64` extends without loss.
 
 **Out-of-range example (compile error, not runtime wrap):**
 
 ```mire
-set x = 300 :i8    // ❌ ERROR E0107: 300 does not fit i8 (-128..127)
+set x = 300 :i8 // ERROR E0107: 300 does not fit i8 (-128..127)
 set y = 3.99 :f64
-set z = y :i32     // ❌ ERROR: cannot convert f64 → i32 implicitly
+set z = y :i32 // ERROR: cannot convert f64 → i32 implicitly
 ```
 
 Arithmetic operators (`+ - * / %`) compute in a promoted width (`i64` for
@@ -640,8 +640,8 @@ set byte = (word >> 16) & 0xFF
 
 **Caveats:**
 - Bitwise operations on operands of a declared integer width compute in a
-  promoted width (`i64`) and narrow the result back to the operands' declared
-  type. Use a narrowing ascription (e.g. `:u32`) when you need a specific width.
+ promoted width (`i64`) and narrow the result back to the operands' declared
+ type. Use a narrowing ascription (e.g. `:u32`) when you need a specific width.
 - Right shift (`>>`) is always logical (unsigned), filling with zeros
 - `&` at the start of an expression is parsed as **address-of** (reference), not bitwise AND. Use parentheses: `(0xFF & x)`
 - `^` between bools is logical XOR; between integers is bitwise XOR
@@ -952,9 +952,9 @@ Without `core/net/owl.toml`, the path `mylib::net::http` cannot resolve.
 manifest. It is the lightweight counterpart to the package-level `load`.
 
 ```mire
-load! math            // loads ./math/main.mire (fallback ./math/mod.mire)
-load! math/main       // loads ./math/main.mire explicitly
-load! /utils/string   // leading '/' → resolved from the project root (owl.toml dir)
+load! math // loads ./math/main.mire (fallback ./math/mod.mire)
+load! math/main // loads ./math/main.mire explicitly
+load! /utils/string // leading '/' → resolved from the project root (owl.toml dir)
 ```
 
 The namespace is the **last path segment** — `load! math/main` exposes its
@@ -963,8 +963,8 @@ symbols under `main`, *not* `math`. There is no alias.
 **Calls into a `load!` module MUST be wrapped in `use!`:**
 
 ```mire
-set r = use! math::suma(2 3)   // ✅ correct
-set r = math::suma(2 3)        // ❌ ERROR: require `use!`
+set r = use! math::suma(2 3) // correct
+set r = math::suma(2 3) // ERROR: require `use!`
 ```
 
 `use!` is **always mandatory** to call any symbol exposed by `load!`. It is
