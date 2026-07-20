@@ -162,12 +162,12 @@ pub fn load_program_with_cache(
     })
 }
 
-fn owl_home_modules() -> PathBuf {
+fn owl_home_libs() -> PathBuf {
     if let Some(home) = std::env::var_os("MIRE_OWL_HOME") {
         return PathBuf::from(home);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
-    PathBuf::from(home).join(".owl").join("modules")
+    PathBuf::from(home).join(".owl").join("libs")
 }
 
 struct ImportResolver<'a> {
@@ -336,10 +336,10 @@ impl<'a> ImportResolver<'a> {
                         self.project_root.join(p)
                     }
                 }
-                MireDependency::Simple { .. } => owl_home_modules().join(name),
+                MireDependency::Simple { .. } => owl_home_libs().join(name),
             }
         } else if name == "kioto" {
-            let home_path = owl_home_modules().join("kioto");
+            let home_path = owl_home_libs().join("kioto");
             if home_path.exists() {
                 home_path
             } else {

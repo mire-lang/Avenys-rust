@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn rejects_local_load_with_parent_segments() {
-        let source = "load ./../modules/fs_ops\n";
+        let source = "load ./../libs/fs_ops\n";
         let program = parse(source);
         assert!(program.is_err(), "local paths should be rejected");
     }
