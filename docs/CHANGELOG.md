@@ -2,6 +2,18 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.18.1] - 2026-07-21 (F0)
+
+### Added
+
+- `docs/ROADMAP.md`: ecosystem roadmap and versioning scheme (target 4.0.0,
+  phases F0–F5 with documentation sub-phases).
+
+### Changed
+
+- Removed `docs/VEC_INDEXED_ASSIGN_BUG.md`; the vec indexed-assignment bug is
+  now tracked as part of the F0.3 compiler work in the roadmap.
+
 ## [3.18.0] - 2026-07-19
 
 ### Fixed
