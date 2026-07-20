@@ -518,6 +518,7 @@ impl Parser {
             if self.check(TokenType::Lbracket) && self.bracket_followed_by_lparen() {
                 let call_target = match &expr {
                     Expression::Identifier(Identifier { name, .. }) => Some(name.clone()),
+                    Expression::MemberAccess { .. } => Self::member_access_name(&expr),
                     _ => None,
                 };
                 if let Some(name) = call_target {

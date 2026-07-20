@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.18.2] - 2026-07-21 (F0.1)
+
+### Added
+
+- Parse qualified generic calls, e.g. `helper::push[i64](v 5)`. `parse_postfix`
+  now accepts `Expression::MemberAccess` as a call target with type arguments
+  (via `member_access_name`), not just `Expression::Identifier`.
+
 ## [3.18.1] - 2026-07-21 (F0)
 
 ### Added
