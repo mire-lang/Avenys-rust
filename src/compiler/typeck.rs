@@ -15,6 +15,8 @@ mod typeck_validate;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::load_project_manifest;
+
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
 use crate::compiler::{AnalysisSelection, location};
 use crate::error::{MireError, Result};
@@ -144,6 +146,7 @@ struct TypeChecker {
     nested_statement_masks: HashMap<String, Vec<bool>>,
     load_local_modules: HashSet<String>,
     in_use_macro: bool,
+    allowed_builtins: Option<HashSet<String>>,
 }
 
 impl TypeChecker {
@@ -175,7 +178,25 @@ impl TypeChecker {
             nested_statement_masks: HashMap::new(),
             load_local_modules: HashSet::new(),
             in_use_macro: false,
+            allowed_builtins: Self::load_allowed_builtins(),
         }
+    }
+
+    /// Loads the `[builtins]` allowlist from the project's owl.toml.
+    /// When `enabled = true` and `allow` is set, only those builtins are
+    /// permitted; everything else is rejected at call sites. When the section
+    /// is absent the behavior is unchanged (all builtins allowed).
+    fn load_allowed_builtins() -> Option<HashSet<String>> {
+        let cwd = std::env::current_dir().ok()?;
+        let manifest = load_project_manifest(&cwd).ok()??;
+        let builtins = manifest.builtins?;
+        if !builtins.enabled {
+            return None;
+        }
+        if builtins.allow.is_empty() {
+            return None;
+        }
+        Some(builtins.allow.into_iter().collect())
     }
 
     fn collect_load_local_modules(&mut self, statements: &[Statement]) {

@@ -2,6 +2,22 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.18.5] - 2026-07-21
+
+### Changed
+
+- Resolve owl dependencies from `~/.owl/libs` instead of `~/.owl/modules`,
+  matching the package layout produced by owl.
+
+## [3.18.4] - 2026-07-21 (F0.4)
+
+### Added
+
+- Built-ins allowlist enforced from the manifest. `MireManifest.builtins`
+  (`enabled`, `allow`) lets a project restrict privileged built-ins; the type
+  checker rejects calls to built-ins not present in `allow` when enabled. With
+  no `[builtins]` section all built-ins remain allowed.
+
 ## [3.18.3] - 2026-07-21 (F0.2)
 
 ### Added

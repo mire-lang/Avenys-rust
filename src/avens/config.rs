@@ -93,6 +93,8 @@ pub struct MireManifest {
     pub exports: Option<ExportsSection>,
     #[serde(default)]
     pub bootstrap: Option<BootstrapConfig>,
+    #[serde(default)]
+    pub builtins: Option<MireBuiltins>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -106,6 +108,14 @@ pub struct BootstrapConfig {
     #[serde(default = "default_std_package")]
     pub std_package: String,
     pub std_entry: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MireBuiltins {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 fn default_std_package() -> String {

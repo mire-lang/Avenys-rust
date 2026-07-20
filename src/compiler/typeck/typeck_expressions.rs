@@ -241,6 +241,16 @@ impl TypeChecker {
         }
 
         if let Some(ret) = self.builtin_returns.get(name).cloned() {
+            if !self.is_builtin_allowed(name) {
+                return Err(type_error(
+                    self.current_line,
+                    self.current_column,
+                    format!(
+                        "builtin '{}' is not enabled in owl.toml [builtins].allow",
+                        name
+                    ),
+                ));
+            }
             *data_type = ret.clone();
             return Ok(Some(ret));
         }
@@ -248,11 +258,41 @@ impl TypeChecker {
         if let Some(rest) = name.strip_prefix("std.")
             && let Some(ret) = self.builtin_returns.get(rest).cloned()
         {
+            if !self.is_builtin_allowed(rest) {
+                return Err(type_error(
+                    self.current_line,
+                    self.current_column,
+                    format!(
+                        "builtin '{}' is not enabled in owl.toml [builtins].allow",
+                        name
+                    ),
+                ));
+            }
             *data_type = ret.clone();
             return Ok(Some(ret));
         }
 
         Ok(None)
+    }
+
+    /// Returns true when a builtin call is permitted by the project's
+    /// `[builtins]` allowlist. When no allowlist is configured (the common
+    /// case) every builtin is allowed, preserving existing behavior.
+    fn is_builtin_allowed(&self, name: &str) -> bool {
+        match &self.allowed_builtins {
+            None => true,
+            Some(allow) => {
+                if allow.contains(name) {
+                    return true;
+                }
+                // Also accept the bare name (after the last '.') so users can
+                // list either `lists.len` or just `len`.
+                match name.rsplit_once('.') {
+                    Some((_, bare)) => allow.contains(bare),
+                    None => false,
+                }
+            }
+        }
     }
 
     fn resolve_function_call(
