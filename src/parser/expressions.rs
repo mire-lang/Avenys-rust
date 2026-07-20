@@ -1506,7 +1506,11 @@ impl Parser {
 
             let data_type = if self.check(TokenType::Colon) {
                 self.advance();
-                self.parse_type()?
+                let data_type = self.parse_type()?;
+                if self.check(TokenType::Mut) {
+                    self.advance();
+                }
+                data_type
             } else {
                 DataType::Unknown
             };

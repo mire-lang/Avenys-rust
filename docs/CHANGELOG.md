@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.18.3] - 2026-07-21 (F0.2)
+
+### Added
+
+- Accept `:Type mut` parameter syntax. The `mut` token after a parameter type
+  is now parsed and consumed; it exposes the existing capability of treating
+  parameters as mutable internally.
+
 ## [3.18.2] - 2026-07-21 (F0.1)
 
 ### Added
