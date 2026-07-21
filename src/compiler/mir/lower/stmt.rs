@@ -19,7 +19,7 @@ pub(crate) fn needs_convert(from: &DataType, to: &DataType) -> bool {
 
 impl MirLower {
     pub(crate) fn lower_statement(&mut self, stmt: &Statement) {
-        let loc = statement_location(stmt);
+        let loc = statement_location(stmt).to_tuple();
         match stmt {
             Statement::Let {
                 name,

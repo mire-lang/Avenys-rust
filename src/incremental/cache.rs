@@ -114,31 +114,27 @@ fn write_wal(base_dir: &Path, records: &[WalRecord]) -> Result<()> {
     let wal_dir = base_dir.join(WAL_DIR);
     fs::create_dir_all(&wal_dir).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot create WAL dir: {e}"),
         })
     })?;
     let path = wal_dir.join(format!("{}.wal", timestamp_ms()));
     let mut file = fs::File::create(&path).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot create WAL file: {e}"),
         })
     })?;
     for rec in records {
         let line = serde_json::to_string(rec).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot serialize WAL record: {e}"),
             })
         })?;
         writeln!(file, "{line}").map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot write WAL record: {e}"),
             })
         })?;
@@ -155,8 +151,7 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
     let mut entries: Vec<_> = fs::read_dir(&wal_dir)
         .map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot read WAL dir: {e}"),
             })
         })?
@@ -201,8 +196,7 @@ fn store_blob(base_dir: &Path, blob: &[u8]) -> Result<String> {
     let blob_dir = base_dir.join(BLOBS_DIR);
     fs::create_dir_all(&blob_dir).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot create blobs dir: {e}"),
         })
     })?;
@@ -210,8 +204,7 @@ fn store_blob(base_dir: &Path, blob: &[u8]) -> Result<String> {
     if !path.exists() {
         fs::write(&path, blob).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot write blob: {e}"),
             })
         })?;
@@ -284,15 +277,13 @@ fn write_file_meta(base_dir: &Path, key: &str, meta: &FileMeta) -> Result<()> {
     }
     let json = serde_json::to_string(meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot serialize file meta: {e}"),
         })
     })?;
     fs::write(&path, &json).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot write file meta: {e}"),
         })
     })
@@ -311,15 +302,13 @@ fn write_analysis_meta(base_dir: &Path, key: &str, meta: &AnalysisMeta) -> Resul
     }
     let json = serde_json::to_string(meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot serialize analysis meta: {e}"),
         })
     })?;
     fs::write(&path, &json).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot write analysis meta: {e}"),
         })
     })
@@ -338,15 +327,13 @@ fn write_build_meta(base_dir: &Path, key: &str, meta: &BuildMeta) -> Result<()> 
     }
     let json = serde_json::to_string(meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot serialize build meta: {e}"),
         })
     })?;
     fs::write(&path, &json).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot write build meta: {e}"),
         })
     })
@@ -359,15 +346,13 @@ fn write_mir_meta(base_dir: &Path, key: &str, meta: &MirMeta) -> Result<()> {
     }
     let json = serde_json::to_string(meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot serialize mir meta: {e}"),
         })
     })?;
     fs::write(&path, &json).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Cannot write mir meta: {e}"),
         })
     })
@@ -635,8 +620,7 @@ impl IncrementalCache {
         };
         let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot serialize cached parsed file: {e}"),
             })
         })?;
@@ -719,8 +703,7 @@ impl IncrementalCache {
         };
         let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot serialize analysis cache entry: {e}"),
             })
         })?;
@@ -785,8 +768,7 @@ impl IncrementalCache {
         };
         let blob = bincode::serialize(&stored).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot serialize analysis error cache entry: {e}"),
             })
         })?;
@@ -961,8 +943,7 @@ impl IncrementalCache {
 
         let blob = bincode::serialize(llvm_ir).map_err(|e| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Cannot serialize MIR fn IR: {e}"),
             })
         })?;

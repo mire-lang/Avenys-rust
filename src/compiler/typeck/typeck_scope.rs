@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn push_scope(&mut self) {
@@ -223,9 +224,8 @@ impl TypeChecker {
                 };
 
                 let (mut current_type, is_mutable) = self.lookup_var(owner).ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Assignment to undefined variable '{}'", owner),
                     )
                 })?;
@@ -235,8 +235,8 @@ impl TypeChecker {
                         DataType::StructNamed(name) => name.clone(),
                         other => {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Cannot assign field '{}' on non-struct target '{}': {:?}",
                                     field_name, owner, other
@@ -247,8 +247,8 @@ impl TypeChecker {
 
                     let class_sig = self.classes.get(&struct_name).ok_or_else(|| {
                         type_error(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!(
                                 "Struct '{}' has no field metadata for assignment '{}'",
                                 struct_name, path
@@ -261,8 +261,8 @@ impl TypeChecker {
                         .find(|field| field.name == field_name)
                         .ok_or_else(|| {
                             type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!("Struct '{}' has no field '{}'", struct_name, field_name),
                             )
                         })?;
@@ -276,16 +276,14 @@ impl TypeChecker {
                 index,
             } => {
                 let owner_name = target.binding_name().ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         "Indexed assignment requires an identifier-backed target".to_string(),
                     )
                 })?;
                 let (_, is_mutable) = self.lookup_var(owner_name).ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Assignment to undefined variable '{}'", owner_name),
                     )
                 })?;
@@ -300,8 +298,8 @@ impl TypeChecker {
                     | DataType::Vector { element_type, .. } => {
                         if !Self::is_numeric(&index_type) && index_type != DataType::Unknown {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Index must be numeric for indexed assignment, got {:?}",
                                     index_type
@@ -318,8 +316,8 @@ impl TypeChecker {
                             && !self.is_assignable(&key_type, &index_type)
                         {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Index type {:?} is not assignable to map key type {:?}",
                                     index_type, key_type
@@ -332,8 +330,8 @@ impl TypeChecker {
                     DataType::Unknown => DataType::Unknown,
                     other => {
                         return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!("Type {:?} does not support indexed assignment", other),
                         ));
                     }

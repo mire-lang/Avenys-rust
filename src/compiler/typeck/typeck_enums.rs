@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn check_enum_variant_call(
@@ -8,9 +9,8 @@ impl TypeChecker {
         arg_types: &[DataType],
     ) -> Result<()> {
         if variant_sig.payload_types.len() != arg_types.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Enum variant '{}' expects {} values, got {}",
                     variant_name,
@@ -27,9 +27,8 @@ impl TypeChecker {
             .enumerate()
         {
             if !self.is_assignable(expected, actual) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Enum variant '{}' value {} expects {:?}, got {:?}",
                         variant_name,
@@ -52,9 +51,8 @@ impl TypeChecker {
         arg_types: &[DataType],
     ) -> Result<()> {
         if variant_sig.payload_types.len() != arg_types.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Enum variant '{}' expects {} values, got {}",
                     variant_name,
@@ -71,9 +69,8 @@ impl TypeChecker {
             .enumerate()
         {
             if !self.is_assignable(&expected, actual) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Enum variant '{}' value {} expects {:?}, got {:?}",
                         variant_name,
@@ -101,9 +98,8 @@ impl TypeChecker {
             .any(|arg| !matches!(arg, Expression::NamedArg { .. }));
 
         if has_named && has_positional {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Enum variant '{}' cannot mix named and positional arguments",
                     variant_name
@@ -129,9 +125,8 @@ impl TypeChecker {
             };
 
             if !seen.insert(name.clone()) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Enum variant '{}' received duplicate field '{}'",
                         variant_name, name
@@ -140,9 +135,8 @@ impl TypeChecker {
             }
 
             if !variant_sig.payload_names.iter().any(|field| field == &name) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!("Enum variant '{}' has no field '{}'", variant_name, name),
                 ));
             }
@@ -152,9 +146,8 @@ impl TypeChecker {
 
         for field in &variant_sig.payload_names {
             if !named_values.contains_key(field) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Enum variant '{}' is missing required field '{}'",
                         variant_name, field
@@ -183,18 +176,16 @@ impl TypeChecker {
         match pattern {
             Expression::Call { name, args, .. } if name == "__match_guard" => {
                 if args.len() != 2 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "__match_guard expects pattern and guard".to_string(),
                     ));
                 }
                 let pattern_type = self.check_match_pattern(&mut args[0])?;
                 let guard_type = self.check_expression(&mut args[1])?;
                 if guard_type != DataType::Bool && guard_type != DataType::Unknown {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("match guard must be bool, got {:?}", guard_type),
                     ));
                 }
@@ -202,9 +193,8 @@ impl TypeChecker {
             }
             Expression::Call { name, args, .. } if name == "__match_or" => {
                 if args.len() != 2 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "__match_or expects two patterns".to_string(),
                     ));
                 }
@@ -214,18 +204,16 @@ impl TypeChecker {
             }
             Expression::Call { name, args, .. } if name == "__match_range" => {
                 if args.len() != 2 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "__match_range expects start and end".to_string(),
                     ));
                 }
                 let start_ty = self.check_expression(&mut args[0])?;
                 let end_ty = self.check_expression(&mut args[1])?;
                 if !Self::is_numeric(&start_ty) || !Self::is_numeric(&end_ty) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "match range bounds must be numeric, got {:?} and {:?}",
                             start_ty, end_ty
@@ -241,9 +229,8 @@ impl TypeChecker {
             } => {
                 let full_name = format!("{}.{}", enum_name, variant_name);
                 if !self.enum_variants.contains_key(&full_name) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("Unknown enum variant '{}'", full_name),
                     ));
                 }
@@ -259,9 +246,8 @@ impl TypeChecker {
                 let full_name =
                     Self::canonical_enum_variant_name(&format!("{}.{}", enum_name, variant_name));
                 let variant_sig = self.enum_variants.get(&full_name).cloned().ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Unknown enum variant '{}'", full_name),
                     )
                 })?;

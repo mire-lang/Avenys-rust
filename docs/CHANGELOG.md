@@ -2,6 +2,39 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.20.0] - 2026-07-22 (Span refactor)
+
+### Added
+
+- **`Span` type**: New `error::Span { line, column }` struct as the single source of
+  truth for source locations in errors and warnings. Every `MireError` and `Diagnostic`
+  now carries a `Span` — no more `(0, 0)` or `(usize::MAX, usize::MAX)` sentinels.
+- **Guaranteed location display**: All formatted errors and warnings always show a
+  position header (`╭─[ file:line:col ]`). The old `<backend/toolchain error; no source
+  position captured>` message is eliminated.
+- **`type_error_at_span()`**: New convenience function for creating type errors from a
+  `Span` directly, without passing `line`/`column` separately.
+- **`type_error_code_at_span()`**: Same for errors with explicit diagnostic codes.
+- **Warning codes W0048–W0049**: Reserved for future use (`unused_mutable_binding`,
+  `empty_match_body`).
+
+### Changed
+
+- **`ErrorKind` variants** now use `span: Span` instead of separate `line`/`column`
+  fields. All error creation sites across the codebase updated.
+- **`Diagnostic.labels`** use `Label.span` instead of separate `line`/`column` fields.
+- **`location.rs`** functions return `Span` instead of `(usize, usize)` tuples.
+- **`WarningAnalyzer`** tracks `current_span: Span` instead of `current_line`/`current_column`.
+- **`attach_current_context()`** in typeck simplified — only patches `Span::unknown()`
+  to `current_span`, no more `(0, 0)` / `(1, 1)` special cases.
+
+### Removed
+
+- **`NO_POSITION`** and **`UNKNOWN_POSITION`** sentinel constants (replaced by
+  `Span::unknown()`).
+- **`<backend/toolchain error; no source position captured>`** format message — all
+  errors now show their recorded position.
+
 ## [3.19.1] - 2026-07-21 (F1.2)
 
 ### Changed

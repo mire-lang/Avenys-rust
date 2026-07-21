@@ -209,8 +209,7 @@ impl<'a> Lexer<'a> {
         loop {
             if self.pos >= self.len {
                 return Err(MireError::new(ErrorKind::Lexer {
-                    line: self.line,
-                    column: self.column,
+                    span: crate::error::Span::new(self.line, self.column),
                     message: "Unterminated block comment".to_string(),
                 }));
             }
@@ -264,8 +263,7 @@ impl<'a> Lexer<'a> {
             'x' | 'X' => (16, "hexadecimal"),
             _ => {
                 return Err(MireError::new(ErrorKind::Lexer {
-                    line: start_line,
-                    column: start_col,
+                    span: crate::error::Span::new(start_line, start_col),
                     message: "Invalid integer base prefix".to_string(),
                 }));
             }
@@ -282,8 +280,7 @@ impl<'a> Lexer<'a> {
 
         if digits.is_empty() {
             return Err(MireError::new(ErrorKind::Lexer {
-                line: start_line,
-                column: start_col,
+                span: crate::error::Span::new(start_line, start_col),
                 message: format!("Expected digits after {} prefix", kind),
             }));
         }
@@ -292,8 +289,7 @@ impl<'a> Lexer<'a> {
             .map(|value| value.to_string())
             .map_err(|_| {
                 MireError::new(ErrorKind::Lexer {
-                    line: start_line,
-                    column: start_col,
+                    span: crate::error::Span::new(start_line, start_col),
                     message: format!("Invalid {} literal '{}'", kind, digits),
                 })
             })
@@ -355,8 +351,7 @@ impl<'a> Lexer<'a> {
 
             if c == '\n' {
                 return Err(MireError::new(ErrorKind::Lexer {
-                    line: self.line,
-                    column: self.column,
+                    span: crate::error::Span::new(self.line, self.column),
                     message: "Unterminated string".to_string(),
                 }));
             }
@@ -365,8 +360,7 @@ impl<'a> Lexer<'a> {
         }
 
         Err(MireError::new(ErrorKind::Lexer {
-            line: self.line,
-            column: self.column,
+            span: crate::error::Span::new(self.line, self.column),
             message: "Unterminated string".to_string(),
         }))
     }
@@ -384,8 +378,7 @@ impl<'a> Lexer<'a> {
 
         if self.peek(0) != Some('"') {
             return Err(MireError::new(ErrorKind::Lexer {
-                line: start_line,
-                column: start_col,
+                span: crate::error::Span::new(start_line, start_col),
                 message: "Invalid raw string prefix".to_string(),
             }));
         }
@@ -414,8 +407,7 @@ impl<'a> Lexer<'a> {
         }
 
         Err(MireError::new(ErrorKind::Lexer {
-            line: start_line,
-            column: start_col,
+            span: crate::error::Span::new(start_line, start_col),
             message: "Unterminated raw string".to_string(),
         }))
     }
@@ -455,15 +447,13 @@ impl<'a> Lexer<'a> {
                     }
                     Some(other) => {
                         return Err(MireError::new(ErrorKind::Lexer {
-                            line: start_line,
-                            column: start_col,
+                            span: crate::error::Span::new(start_line, start_col),
                             message: format!("Invalid char escape '\\{}'", other),
                         }));
                     }
                     None => {
                         return Err(MireError::new(ErrorKind::Lexer {
-                            line: start_line,
-                            column: start_col,
+                            span: crate::error::Span::new(start_line, start_col),
                             message: "Unterminated char literal".to_string(),
                         }));
                     }
@@ -471,8 +461,7 @@ impl<'a> Lexer<'a> {
             }
             Some('\n') | None => {
                 return Err(MireError::new(ErrorKind::Lexer {
-                    line: start_line,
-                    column: start_col,
+                    span: crate::error::Span::new(start_line, start_col),
                     message: "Unterminated char literal".to_string(),
                 }));
             }
@@ -484,8 +473,7 @@ impl<'a> Lexer<'a> {
 
         if self.peek(0) != Some('\'') {
             return Err(MireError::new(ErrorKind::Lexer {
-                line: start_line,
-                column: start_col,
+                span: crate::error::Span::new(start_line, start_col),
                 message: "Char literal must contain exactly one Unicode scalar".to_string(),
             }));
         }
@@ -827,8 +815,7 @@ impl<'a> Lexer<'a> {
                 }
                 _ => {
                     return Err(MireError::new(ErrorKind::Lexer {
-                        line: self.line,
-                        column: self.column,
+                        span: crate::error::Span::new(self.line, self.column),
                         message: format!("Unexpected character '{}'", c),
                     }));
                 }

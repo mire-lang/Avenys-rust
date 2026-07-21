@@ -71,8 +71,7 @@ fn unknown_identifier_error_for_removed_keyword_add() {
 #[test]
 fn backend_limitation_errors_render_with_backend_kind() {
     let rendered = MireError::new(ErrorKind::Backend {
-        line: 0,
-        column: 0,
+        span: mire::error::Span::unknown(),
         message: "Avenys does not yet lower expression Tuple(...)".to_string(),
     })
     .to_string();

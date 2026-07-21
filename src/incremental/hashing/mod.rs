@@ -245,8 +245,7 @@ mod tests {
         let mut cache =
             IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
         let error = MireError::new(ErrorKind::Type {
-            line: 1,
-            column: 1,
+            span: crate::error::Span::new(1, 1),
             message: "cached type failure".to_string(),
             code: None,
         })

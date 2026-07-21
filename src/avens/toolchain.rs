@@ -9,8 +9,7 @@ pub(super) fn optimize_ir(ir: &str, opt_level: OptLevel, source_filename: &str) 
         .stdout(Stdio::piped());
     let mut child = command.spawn().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Failed to run opt: {}", err),
         })
         .with_filename(source_filename.to_string())
@@ -18,8 +17,7 @@ pub(super) fn optimize_ir(ir: &str, opt_level: OptLevel, source_filename: &str) 
     if let Some(stdin) = child.stdin.as_mut() {
         stdin.write_all(ir.as_bytes()).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Failed to stream IR into opt: {}", err),
             })
             .with_filename(source_filename.to_string())
@@ -27,16 +25,14 @@ pub(super) fn optimize_ir(ir: &str, opt_level: OptLevel, source_filename: &str) 
     }
     let output = child.wait_with_output().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Failed to wait for opt: {}", err),
         })
         .with_filename(source_filename.to_string())
     })?;
     if !output.status.success() {
         return Err(MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!(
                 "opt failed for `{}` with status {}.\nstderr:\n{}",
                 source_filename,
@@ -108,8 +104,7 @@ pub(super) fn compile_binary_from_ir(
 
     let mut child = clang.spawn().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Failed to run clang: {}", err),
         })
         .with_filename(source_filename.to_string())
@@ -117,8 +112,7 @@ pub(super) fn compile_binary_from_ir(
     if let Some(stdin) = child.stdin.as_mut() {
         stdin.write_all(ir.as_bytes()).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Failed to stream IR into clang: {}", err),
             })
             .with_filename(source_filename.to_string())
@@ -127,16 +121,14 @@ pub(super) fn compile_binary_from_ir(
     drop(child.stdin.take());
     let output = child.wait_with_output().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Failed to wait for clang: {}", err),
         })
         .with_filename(source_filename.to_string())
     })?;
     if !output.status.success() {
         return Err(MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!(
                 "clang failed building `{}` (source: {}) with status {}.\nstdout:\n{}\nstderr:\n{}",
                 binary_path.display(),
@@ -158,15 +150,13 @@ pub(super) fn llvm_version() -> Result<String> {
         .output()
         .map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Failed to run llvm-config: {}", err),
             })
         })?;
     if !output.status.success() {
         return Err(MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: "llvm-config --version failed".to_string(),
         }));
     }

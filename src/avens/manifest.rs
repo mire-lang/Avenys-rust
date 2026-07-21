@@ -22,16 +22,14 @@ fn load_manifest_file(manifest_path: &Path) -> Result<Option<MireManifest>> {
 
     let raw = fs::read_to_string(manifest_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not read '{}': {}", manifest_path.display(), err),
         })
     })?;
 
     let manifest: MireManifest = toml::from_str(&raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Invalid Mire.toml: {}", err),
         })
     })?;
@@ -61,16 +59,14 @@ pub fn write_lock_file(cwd: &Path, manifest: &MireManifest, mode: BuildMode) -> 
 
     let raw = toml::to_string_pretty(&lock).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not serialize Mire.lock: {}", err),
         })
     })?;
 
     fs::write(project_lock_path(cwd), raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not write project.lock: {}", err),
         })
     })?;
@@ -112,15 +108,13 @@ pub fn project_lock_path(cwd: &Path) -> PathBuf {
 pub fn write_manifest(manifest: &MireManifest, path: &Path) -> Result<()> {
     let raw = toml::to_string_pretty(manifest).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not serialize manifest: {}", err),
         })
     })?;
     fs::write(path, raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not write manifest '{}': {}", path.display(), err),
         })
     })?;

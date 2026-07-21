@@ -86,6 +86,8 @@ pub enum DiagnosticCode {
     W0045,
     W0046,
     W0047,
+    W0048,
+    W0049,
 }
 
 impl DiagnosticCode {
@@ -149,6 +151,8 @@ impl DiagnosticCode {
             DiagnosticCode::W0045 => "W0045",
             DiagnosticCode::W0046 => "W0046",
             DiagnosticCode::W0047 => "W0047",
+            DiagnosticCode::W0048 => "W0048",
+            DiagnosticCode::W0049 => "W0049",
         }
     }
 
@@ -179,6 +183,8 @@ impl DiagnosticCode {
             | DiagnosticCode::W0045
             | DiagnosticCode::W0046
             | DiagnosticCode::W0047 => Some(WarningCategory::Complexity),
+            DiagnosticCode::W0048 => Some(WarningCategory::Style),
+            DiagnosticCode::W0049 => Some(WarningCategory::Logic),
             DiagnosticCode::W0025 => Some(WarningCategory::Memory),
             DiagnosticCode::W0010 => Some(WarningCategory::Deprecated),
             DiagnosticCode::W0034 | DiagnosticCode::W0035 | DiagnosticCode::W0037 => {
@@ -229,6 +235,8 @@ impl DiagnosticCode {
             DiagnosticCode::W0045 => "redundant_bool_compare",
             DiagnosticCode::W0046 => "simplifiable_if_return_bool",
             DiagnosticCode::W0047 => "string_concat_in_loop",
+            DiagnosticCode::W0048 => "unused_mutable_binding",
+            DiagnosticCode::W0049 => "empty_match_body",
             DiagnosticCode::E0100 => "precision_loss",
             DiagnosticCode::E0101 => "unsigned_precision_loss",
             DiagnosticCode::E0102 => "float_precision_loss",
@@ -245,10 +253,11 @@ impl DiagnosticCode {
     }
 }
 
+use crate::error::Span;
+
 #[derive(Debug, Clone)]
 pub struct Label {
-    pub line: usize,
-    pub column: usize,
+    pub span: Span,
     pub length: usize,
     pub message: String,
     pub style: LabelStyle,
@@ -266,8 +275,7 @@ pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub message: String,
     pub title: String,
-    pub line: usize,
-    pub column: usize,
+    pub span: Span,
     pub labels: Vec<Label>,
     pub notes: Vec<String>,
     pub help: Option<String>,
@@ -282,16 +290,14 @@ impl Diagnostic {
         code: DiagnosticCode,
         title: impl Into<String>,
         message: impl Into<String>,
-        line: usize,
-        column: usize,
+        span: Span,
     ) -> Self {
         Self {
             severity,
             code,
             title: title.into(),
             message: message.into(),
-            line,
-            column,
+            span,
             labels: Vec::new(),
             notes: Vec::new(),
             help: None,

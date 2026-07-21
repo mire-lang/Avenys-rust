@@ -92,6 +92,8 @@ These warnings are NOT in default_codes. Enable with `WarningFilter::All` or `Wa
 | W0045 | Redundant Bool Compare | Comparing a value to `true`/`false` with `==` | Use the value directly or negate with `!` |
 | W0046 | Simplifiable If-Return-Bool | `if cond { return true } else { return false }` | Use `return cond` directly |
 | W0047 | String Concat in Loop | `set x = x + ...` inside a loop (quadratic) | Collect in vec[str] and use join() after loop |
+| W0048 | Unused Mutable Binding | Reserved for future use | — |
+| W0049 | Empty Match Body | Reserved for future use | — |
 
 ### Logic (W0015–W0017, W0019, W0028–W0032, W0036, W0038, W0040)
 

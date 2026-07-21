@@ -22,7 +22,7 @@ impl MirLower {
                 if needs_wrap && is_map_or_dict_type(&arg_type) {
                     let str_result = self.new_temp();
                     let last = self.current_block;
-                    let a_loc = expression_location(a);
+                    let a_loc = expression_location(a).to_tuple();
                     self.func.blocks[last].push(
                         Some(str_result),
                         MirOp::Call(
@@ -43,7 +43,7 @@ impl MirLower {
     }
 
     pub(crate) fn lower_expression(&mut self, expr: &Expression) -> MirValue {
-        let loc = expression_location(expr);
+        let loc = expression_location(expr).to_tuple();
         match expr {
             Expression::Ascription {
                 expr: inner,
@@ -1058,7 +1058,7 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_map(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(expression_location).unwrap_or(NO_POSITION);
+        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
         let closure_val = self.lower_expression(&args[0]);
         let list_val = self.lower_expression(&args[1]);
 
@@ -1252,7 +1252,7 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_filter(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(expression_location).unwrap_or(NO_POSITION);
+        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
         let closure_val = self.lower_expression(&args[0]);
         let list_val = self.lower_expression(&args[1]);
 
@@ -1479,7 +1479,7 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_fold(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(expression_location).unwrap_or(NO_POSITION);
+        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
         let acc_init = self.lower_expression(&args[0]);
         let closure_val = self.lower_expression(&args[1]);
         let list_val = self.lower_expression(&args[2]);

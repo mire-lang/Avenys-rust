@@ -77,8 +77,7 @@ struct BorrowChecker<'a> {
     statement_origins: Vec<String>,
     sources_by_filename: HashMap<String, String>,
     current_filename: Option<String>,
-    current_line: usize,
-    current_column: usize,
+    current_span: crate::error::Span,
     current_top_level_index: Option<usize>,
     current_top_level_key: Option<String>,
     nested_statement_masks: HashMap<String, Vec<bool>>,
@@ -101,8 +100,7 @@ impl<'a> BorrowChecker<'a> {
             statement_origins: Vec::new(),
             sources_by_filename: HashMap::new(),
             current_filename: None,
-            current_line: 1,
-            current_column: 1,
+            current_span: crate::error::Span::new(1, 1),
             current_top_level_index: None,
             current_top_level_key: None,
             nested_statement_masks: HashMap::new(),
@@ -130,8 +128,7 @@ impl<'a> BorrowChecker<'a> {
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
             return Err(MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!(
                     "Borrow check mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -195,9 +192,8 @@ impl<'a> BorrowChecker<'a> {
     }
 
     fn check_statement(&mut self, statement: &Statement) -> Result<()> {
-        let (line, column) = Self::statement_location(statement);
-        self.current_line = line;
-        self.current_column = column;
+        let loc = Self::statement_location(statement);
+        self.current_span = loc;
         let result = self.check_statement_inner(statement);
 
         let temps = std::mem::take(&mut self.temporary_borrows);
@@ -891,8 +887,8 @@ impl<'a> BorrowChecker<'a> {
                 if let Some((target, is_mutable)) = Self::reference_target(Some(arg)) {
                     if !is_mutable {
                         return Err(MireError::type_error_at(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!(
                                 "Function '{}' argument {} requires a mutable reference",
                                 callee,
@@ -961,10 +957,10 @@ impl<'a> BorrowChecker<'a> {
     }
 
     fn ownership_error(&self, kind: MssError) -> MireError {
-        MireError::ownership_error(self.current_line, self.current_column, kind)
+        MireError::ownership_error(self.current_span.line, self.current_span.column, kind)
     }
 
-    fn statement_location(statement: &Statement) -> (usize, usize) {
+    fn statement_location(statement: &Statement) -> crate::error::Span {
         location::statement_location(statement)
     }
 
@@ -1140,8 +1136,8 @@ mod tests {
         let semantic_model = semantic::analyze_program(&program);
         let err = check_program(&program, &semantic_model).unwrap_err();
         assert!(format!("{}", err).contains("Use after move"));
-        assert_eq!(err.line, 12);
-        assert_eq!(err.column, 8);
+        assert_eq!(err.line(), 12);
+        assert_eq!(err.column(), 8);
     }
 
     #[test]

@@ -81,8 +81,7 @@ impl Parser {
 
     pub(super) fn error_at(&self, line: usize, column: usize, message: &str) -> MireError {
         MireError::new(ErrorKind::Parser {
-            line,
-            column,
+            span: crate::error::Span::new(line, column),
             message: message.to_string(),
         })
     }

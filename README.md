@@ -237,10 +237,18 @@ Kioto lives at `~/.owl/modules/kioto/` and provides:
 ```bash
 mire run [file] [--release] [-O<0-3|s|z>] [-- args...]
 mire build [file] [--release] [-O<0-3|s|z>]
-mire check [file] [--warn-all] [--deny <code>]
+mire check [file] [--show-warn] [-W <code>] [--deny <code>]
 mire debug [file] [--tokens] [--ast] [--ir]
-mire test [paths...] [--no-run] [--verbose] [-O<0-3|s|z>] [-r] [-d]
+mire test [paths...] [--no-run] [--verbose] [--show-warn] [-O<0-3|s|z>] [-r] [-d]
 ```
+
+Warnings are **off by default**. Enable with:
+- `--show-warn` — show all warnings (summary)
+- `--position` — show per-file warning locations
+- `-W <code>` — promote a specific warning to error (e.g. `-W W0001`)
+- `--deny <code>` — deny a specific warning code
+- `--warnings-as-errors` — deny all default warnings (W0001–W0005, W0034, W0039)
+- `--no-warn <category>` — suppress warnings by category (e.g. `--no-warn Unused`)
 
 ---
 

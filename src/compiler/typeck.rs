@@ -19,7 +19,7 @@ use crate::load_project_manifest;
 
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
 use crate::compiler::{AnalysisSelection, location};
-use crate::error::{MireError, Result};
+use crate::error::{MireError, Result, type_error_at_span};
 use crate::incremental::analysis_unit_key;
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement, TraitMethodSig,
@@ -139,8 +139,7 @@ struct TypeChecker {
     sources_by_filename: HashMap<String, String>,
     base_source: Option<String>,
     current_filename: Option<String>,
-    current_line: usize,
-    current_column: usize,
+    current_span: crate::error::Span,
     current_top_level_index: Option<usize>,
     current_top_level_key: Option<String>,
     nested_statement_masks: HashMap<String, Vec<bool>>,
@@ -171,8 +170,7 @@ impl TypeChecker {
             sources_by_filename: HashMap::new(),
             base_source: (!source.is_empty()).then(|| source.to_string()),
             current_filename: None,
-            current_line: 1,
-            current_column: 1,
+            current_span: crate::error::Span::new(1, 1),
             current_top_level_index: None,
             current_top_level_key: None,
             nested_statement_masks: HashMap::new(),
@@ -228,9 +226,8 @@ impl TypeChecker {
         statement_mask: &[bool],
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Typecheck mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -271,9 +268,8 @@ impl TypeChecker {
         statement_mask: &[bool],
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Nested typecheck mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -302,8 +298,8 @@ impl TypeChecker {
     }
 
     fn attach_current_context(&self, err: MireError) -> MireError {
-        let err = if (err.line == 0 && err.column == 0) || (err.line == 1 && err.column == 1) {
-            err.with_position(self.current_line, self.current_column)
+        let err = if err.span.is_unknown() {
+            err.with_span(self.current_span)
         } else {
             err
         };
@@ -339,9 +335,8 @@ impl TypeChecker {
     }
 
     fn check_statement(&mut self, statement: &mut Statement) -> Result<()> {
-        let (line, column) = location::statement_location(statement);
-        self.current_line = line;
-        self.current_column = column;
+        let span = location::statement_location(statement);
+        self.current_span = span;
         let result = match statement {
             Statement::Let {
                 name,

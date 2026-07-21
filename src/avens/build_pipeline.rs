@@ -343,16 +343,14 @@ fn c_object_hash(content: &str) -> u64 {
 fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> Result<String> {
     let content = fs::read_to_string(c_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not read C source '{}': {}", c_path, err),
         })
     })?;
     let hash = c_object_hash(&content);
     fs::create_dir_all(cache_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not create cobjects dir: {}", err),
         })
     })?;
@@ -369,15 +367,13 @@ fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> R
             .status()
             .map_err(|err| {
                 MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
+                    span: crate::error::Span::unknown(),
                     message: format!("Failed to run clang for '{}': {}", c_path, err),
                 })
             })?;
         if !status.success() {
             return Err(MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("clang -c failed for '{}'", c_path),
             }));
         }
@@ -555,8 +551,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     let output_dir = default_output_dir(source_path, options.mode);
     fs::create_dir_all(&output_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!(
                 "Could not create build directory '{}': {}",
                 output_dir.display(),
@@ -585,15 +580,13 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         let mut files = Vec::new();
         for entry in std::fs::read_dir(runtime_base.join("runtime")).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Could not read runtime/: {}", err),
             })
         })? {
             let entry = entry.map_err(|err| {
                 MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
+                    span: crate::error::Span::unknown(),
                     message: format!("Could not read entry: {}", err),
                 })
             })?;
@@ -605,16 +598,14 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         for entry in
             std::fs::read_dir(runtime_base.join(format!("pal/{pal_backend}"))).map_err(|err| {
                 MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
+                    span: crate::error::Span::unknown(),
                     message: format!("Could not read pal/{pal_backend}: {}", err),
                 })
             })?
         {
             let entry = entry.map_err(|err| {
                 MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
+                    span: crate::error::Span::unknown(),
                     message: format!("Could not read entry: {}", err),
                 })
             })?;
@@ -907,8 +898,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     if let Some(path) = &ir_path {
         fs::write(path, &ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Could not write '{}': {}", path.display(), err),
             })
         })?;
@@ -929,8 +919,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     if let Some(path) = &optimized_ir_path {
         fs::write(path, &final_ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Could not write '{}': {}", path.display(), err),
             })
         })?;
