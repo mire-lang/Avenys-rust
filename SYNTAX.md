@@ -442,7 +442,48 @@ set result = strings::split(data "\n")
  => lists::len(self)
 ```
 
-### 6.4 `} else {` rule
+### 6.5 Find statement
+
+Search for an element in an iterable:
+
+```mire
+find item in items {
+ use dasu(item)
+}
+```
+
+`find` iterates the collection and executes the body for each element.
+The variable `item` is bound to the current element.
+
+### 6.6 Do-while loop
+
+```mire
+do {
+ body
+} while condition
+```
+
+The body executes at least once before the condition is checked.
+
+### 6.7 Named arguments
+
+Function calls can use named arguments (keyword-style):
+
+```mire
+fn greet: (name :&str, age :i64) {
+ use dasu("Hello " + *name)
+}
+
+greet(name: "Alice" age: 30)
+```
+
+Named arguments work for both user functions and struct construction:
+
+```mire
+set p = (Point x: 10, y: 20) // struct with named fields
+```
+
+### 6.8 `} else {` rule
 
 **`} else {` must be on the SAME line.** Mire does not allow `else` on a new line:
 
