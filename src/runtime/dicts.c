@@ -480,6 +480,9 @@ int64_t rt_dicts_len(void *dict) { return rt_dict_len(dict); }
 void *rt_dicts_get(void *dict, const char *key) {
     return rt_dict_get_ptr(dict, 3, 0, (void *)key, NULL);
 }
+int64_t rt_dicts_get_i64(void *dict, const char *key) {
+    return rt_dict_get_i64(dict, 3, 0, (void *)key, 0);
+}
 void *rt_dicts_set(void *dict, const char *key, void *value) {
     return rt_dict_set_ptr(dict, 3, dict ? ((MireDict *)dict)->value_kind : 3, 0, (void *)key, value);
 }

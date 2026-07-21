@@ -2,6 +2,33 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.19.1] - 2026-07-21 (F1.2)
+
+### Changed
+
+- Async channel: replaced file-based IPC (`/tmp` files) with real pthread
+  mutex + condition variable message queue. `async::channel()` returns an
+  opaque handle; `send`/`recv`/`close_channel` use the handle directly.
+  Channel supports blocking recv with a non-blocking queue.
+
+## [3.19.0] - 2026-07-21 (F1)
+
+### Added
+
+- GPU detection: `pal_gpu_snapshot` reads Linux sysfs (`/sys/class/drm/`)
+  to enumerate GPUs with vendor, device, driver, and VRAM info. Returns a
+  real dict instead of a hardcoded `"available=false"` string.
+- Dicts: `dicts.get_i64` reads integer values from dicts. Read-only dict
+  operations (`get`, `has`, `len`, `keys`, `values`, `entries`) now take
+  `&dict` references instead of moving the dict, allowing multiple reads
+  on the same dict.
+
+### Changed
+
+- GPU kioto module returns a parsed dict from the C PAL function directly.
+- Dicts module: `rt_dicts_get_i64` C function added for type-safe i64
+  retrieval from string-keyed dicts.
+
 ## [3.18.8] - 2026-07-21
 
 ### Added
