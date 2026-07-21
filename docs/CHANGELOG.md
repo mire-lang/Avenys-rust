@@ -2,6 +2,28 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.18.8] - 2026-07-21
+
+### Added
+
+- Regression test `tests/vec_indexed.mire` for vector indexed read/write.
+
+## [3.18.7] - 2026-07-21
+
+### Changed
+
+- Moved `11_maps.mire` from `tests/broken_mire/` to `tests/` (now compiles).
+
+## [3.18.6] - 2026-07-21 (F0.3)
+
+### Fixed
+
+- Vector indexed-assignment: adjust Gep index by header offset (8 bytes) for
+  `Vector`/`List` types in both read and write paths. Write path resolves target
+  type via `var_types` instead of `extract_data_type`.
+- Map type annotation: `[] :map[K V]` now produces a Dict instead of a Vector.
+  `apply_type_ascription` converts empty List to Dict when the target type is Map.
+
 ## [3.18.5] - 2026-07-21
 
 ### Changed
