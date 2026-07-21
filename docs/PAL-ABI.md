@@ -203,7 +203,8 @@ src/pal/
  pal_time.c ← Time (clock_gettime)
  pal_cpu.c ← CPU info (/proc/cpuinfo)
  pal_mem.c ← Memory info (/proc/meminfo)
- pal_gpu.c ← GPU info
+ pal_gpu.c ← GPU info (sysfs enumeration)
+ pal_channel.c ← Async channels (pthread mutex + condvar)
  pal_term.c ← Terminal styling (ANSI escapes)
  pal_net.c ← TCP sockets + poll + DNS
  pal_tls.c ← OpenSSL TLS client
@@ -213,15 +214,16 @@ src/pal/
  wasm/
  pal_fs.c ← WASI filesystem (fopen/stat via wasi-libc)
  pal_env.c ← WASI environment
- pal_proc.c ← Stubs
+ pal_proc.c ← Not available (WASM sandbox has no process creation)
  pal_time.c ← WASI clock
- pal_cpu.c ← Stubs
- pal_mem.c ← Stubs
- pal_gpu.c ← Stubs
- pal_term.c ← Stubs
- pal_net.c ← Stubs
- pal_tls.c ← Stubs
- pal_ws.c ← Stubs
+ pal_cpu.c ← Not available (no /proc/cpuinfo in WASM)
+ pal_mem.c ← Not available (no /proc/meminfo in WASM)
+ pal_gpu.c ← Not available (no sysfs/GPU enumeration in WASM sandbox)
+ pal_channel.c ← Single-threaded ring buffer message queue (no pthreads)
+ pal_term.c ← Not available (no terminal in WASM)
+ pal_net.c ← Not available (no raw sockets in WASM)
+ pal_tls.c ← Not available (no OpenSSL in WASM)
+ pal_ws.c ← Not available (no WebSocket from C in WASM)
 
  pal_io.c ← WASI I/O
 ```
@@ -279,7 +281,7 @@ The runtime core is platform-independent C code that provides:
 | `managed.c` | Ref-counted strings (`rt_managed_*`) |
 | `strings.c` | String ops (concat, split, substr, format, ...) |
 | `lists.c` | List ops (create, push, pop, concat, slice) |
-| `dicts.c` | Dict ops (get, set, keys, values) |
+| `dicts.c` | Dict ops (get, set, keys, values, get_i64) |
 
 These are always linked regardless of platform. They use only standard C
 (malloc, memcpy, sprintf) and no OS-specific APIs.
@@ -316,7 +318,7 @@ These are always linked regardless of platform. They use only standard C
 | Segfault in PAL function | String ownership issue (PAL freed a Mire string) OR null pointer not checked |
 | `str` argument is garbage | Parameter type mismatch — use `const char *` not `char *` |
 | `str` return causes leak | Not returning `malloc`'d memory — use `strdup()` or `malloc()+strcpy()` |
-| Compile fails on WASM target | Missing stub in `pal/wasm/` |
+| Compile fails on WASM target | Missing implementation in `pal/wasm/` |
 
 ## Status & Roadmap
 
@@ -327,12 +329,14 @@ These are always linked regardless of platform. They use only standard C
 - kioto modules call rt_*/pal_* directly
 
 ### WASM Backend
-`src/pal/wasm/` has stubs for WASM targets. Select with:
+`src/pal/wasm/` implements the PAL for WASM/WASI targets. Functions that
+cannot work in the WASM sandbox (process creation, GPU enumeration, raw
+sockets, threading) return error codes or empty results. Select with:
 ```bash
 MIRE_PAL=wasm mire run hello.mire
 ```
 
 ### Planned
-- Phase C: expand WASI-backed PAL beyond safe stubs
+- Phase C: expand WASI-backed PAL (filesystem, environment, I/O)
 - Phase D: move more C logic into Mire (kioto core)
 - Phase E: promote kioto as the sole library surface
