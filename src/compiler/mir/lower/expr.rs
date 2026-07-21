@@ -1,7 +1,8 @@
 use super::MirLower;
 use super::collections::lower_index_read;
 use super::types::{
-    data_type_to_kind, extract_data_type, is_map_or_dict_type, is_trivial_deref, llvm_elem_type_str,
+    data_type_to_kind, extract_data_type, is_map_or_dict_type, is_trivial_deref,
+    llvm_elem_type_str, llvm_type_byte_size,
 };
 use crate::compiler::location::{NO_POSITION, expression_location};
 use crate::compiler::mir::*;
@@ -707,9 +708,28 @@ impl MirLower {
 
                 let gep = self.new_temp();
                 let elem_llvm = llvm_elem_type_str(data_type);
+                let adjusted_index = if matches!(
+                    target_type,
+                    DataType::Vector { .. } | DataType::List
+                ) {
+                    let elem_size = llvm_type_byte_size(&elem_llvm);
+                    let header_offset = 8 / elem_size;
+                    let adj = self.new_temp();
+                    self.func.blocks[last].push(
+                        Some(adj),
+                        MirOp::Add(
+                            index_val.clone(),
+                            MirValue::Const(MirConst::Int(header_offset)),
+                        ),
+                        loc,
+                    );
+                    MirValue::temp(adj)
+                } else {
+                    index_val.clone()
+                };
                 self.func.blocks[last].push(
                     Some(gep),
-                    MirOp::Gep(target_val, vec![index_val], elem_llvm),
+                    MirOp::Gep(target_val, vec![adjusted_index], elem_llvm),
                     loc,
                 );
                 let loaded = self.new_temp();

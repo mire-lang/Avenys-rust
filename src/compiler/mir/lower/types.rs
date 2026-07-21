@@ -1,5 +1,5 @@
 use crate::parser::ast::{DataType, Expression, Literal};
-pub(crate) use crate::types::codegen::llvm_elem_type_str;
+pub(crate) use crate::types::codegen::{llvm_elem_type_str, llvm_type_byte_size};
 
 pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
     match expr {

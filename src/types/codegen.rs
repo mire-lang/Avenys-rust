@@ -92,6 +92,23 @@ pub fn render_struct_llvm_type(fields: &[(String, DataType)]) -> String {
 
 /// Tipo de elemento para GEP/codegen de colecciones, con anchos reales.
 /// Debe coincidir con `llvm_type_str` para escalares.
+pub fn llvm_type_byte_size(llvm_type: &str) -> i64 {
+    match llvm_type {
+        "i8" | "i1" => 1,
+        "i16" => 2,
+        "i32" | "float" => 4,
+        "i64" | "double" | "ptr" | "i8*" => 8,
+        "i128" => 16,
+        _ => {
+            if llvm_type.contains('*') {
+                8
+            } else {
+                8
+            }
+        }
+    }
+}
+
 pub fn llvm_elem_type_str(dt: &DataType) -> String {
     match dt {
         DataType::I8 => "i8".to_string(),

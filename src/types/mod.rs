@@ -16,7 +16,7 @@ pub mod errors;
 pub mod tests;
 pub mod unify;
 
-pub use codegen::{llvm_elem_type_str, llvm_type_str, render_struct_llvm_type};
+pub use codegen::{llvm_elem_type_str, llvm_type_byte_size, llvm_type_str, render_struct_llvm_type};
 pub use unify::{
     is_assignable, is_bool_like, is_integer_type, is_numeric, literal_type, promote_numeric,
     resolve_binary_type, unify_types, validate_int_literal_range,

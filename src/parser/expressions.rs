@@ -101,7 +101,12 @@ impl Parser {
             _ => {}
         }
 
-        if let Expression::List { element_type, .. } = &mut expr {
+        if let Expression::List {
+            elements,
+            element_type,
+            ..
+        } = &mut expr
+        {
             match &data_type {
                 DataType::Array {
                     element_type: explicit,
@@ -115,6 +120,18 @@ impl Parser {
                     element_type: explicit,
                 } => {
                     *element_type = *explicit.clone();
+                }
+                DataType::Map {
+                    key_type,
+                    value_type,
+                } if elements.is_empty() => {
+                    expr = Expression::Dict {
+                        entries: Vec::new(),
+                        key_type: (**key_type).clone(),
+                        value_type: (**value_type).clone(),
+                        data_type: data_type.clone(),
+                    };
+                    return Ok(expr);
                 }
                 _ => {}
             }

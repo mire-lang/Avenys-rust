@@ -1,6 +1,6 @@
 use super::MirLower;
 use super::collections::lower_index_write;
-use super::types::{extract_data_type, llvm_elem_type_str};
+use super::types::{extract_data_type, llvm_elem_type_str, llvm_type_byte_size};
 use crate::compiler::location::statement_location;
 use crate::compiler::mir::*;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Statement};
@@ -122,7 +122,11 @@ impl MirLower {
                         }
                     }
                     AssignmentTarget::Index { target, index } => {
-                        let target_type = extract_data_type(target);
+                        let target_type = if let Expression::Identifier(id) = target.as_ref() {
+                            self.var_types.get(&id.name).cloned().unwrap_or(DataType::Unknown)
+                        } else {
+                            extract_data_type(target)
+                        };
                         let value_type = extract_data_type(value);
                         if lower_index_write(self, target, index, v.clone(), &value_type) {
                             return;
@@ -188,9 +192,28 @@ impl MirLower {
 
                         let gep = self.new_temp();
                         let elem_ty = self.get_target_elem_type(target);
+                        let adjusted_index = if matches!(
+                            target_type,
+                            DataType::Vector { .. } | DataType::List
+                        ) {
+                            let elem_size = llvm_type_byte_size(&elem_ty);
+                            let header_offset = 8 / elem_size;
+                            let adj = self.new_temp();
+                            self.func.blocks[last].push(
+                                Some(adj),
+                                MirOp::Add(
+                                    index_val.clone(),
+                                    MirValue::Const(MirConst::Int(header_offset)),
+                                ),
+                                loc,
+                            );
+                            MirValue::temp(adj)
+                        } else {
+                            index_val.clone()
+                        };
                         self.func.blocks[last].push(
                             Some(gep),
-                            MirOp::Gep(target_val, vec![index_val], elem_ty),
+                            MirOp::Gep(target_val, vec![adjusted_index], elem_ty),
                             loc,
                         );
                         self.func.blocks[last].push(
