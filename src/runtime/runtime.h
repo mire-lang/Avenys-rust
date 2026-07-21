@@ -194,6 +194,7 @@ void   *rt_lists_unique(void *list);
 // ── Dicts module aliases (rt_dicts_*) ─────────────────────────────────
 int64_t rt_dicts_len(void *dict);
 void   *rt_dicts_get(void *dict, const char *key);
+int64_t rt_dicts_get_i64(void *dict, const char *key);
 void   *rt_dicts_set(void *dict, const char *key, void *value);
 void   *rt_dicts_set_i64(void *dict, const char *key, int64_t value);
 int64_t rt_dicts_has(void *dict, const char *key);

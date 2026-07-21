@@ -85,7 +85,7 @@ void   *pal_mem_snapshot(void);
 char   *pal_mem_format(int64_t bytes);
 
 // ── GPU ──────────────────────────────────────────────────────────────
-char   *pal_gpu_snapshot(void);
+void   *pal_gpu_snapshot(void);
 
 // ── Terminal ─────────────────────────────────────────────────────────
 char   *pal_term_style(const char *text, const char *style);
@@ -124,6 +124,16 @@ int64_t pal_thread_spawn(void *(*fn)(void*), void *arg);
 int64_t pal_thread_join(int64_t tid, void **result);
 void    pal_thread_exit(void *result);
 int64_t pal_thread_self(void);
+
+// ── Channels (pipe-based IPC) ───────────────────────────────────────
+// Creates a unidirectional pipe. Returns packed i64: high32=read_fd, low32=write_fd.
+int64_t pal_channel_create(void);
+// Writes data to the write end of a channel. Returns 0 on success.
+int64_t pal_channel_send(int64_t write_fd, const char *data);
+// Reads from the read end of a channel (blocking). Returns managed string.
+char   *pal_channel_recv(int64_t read_fd);
+// Closes a channel file descriptor.
+void    pal_channel_close(int64_t fd);
 
 // ── I/O helpers ──────────────────────────────────────────────────────
 void    pal_io_print(const char *msg);
