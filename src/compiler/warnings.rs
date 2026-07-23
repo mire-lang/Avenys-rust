@@ -17,7 +17,6 @@ pub struct WarningAnalyzer {
     function_positions: HashMap<String, crate::error::Span>,
     used_functions: HashSet<String>,
     imported_modules: Vec<Identifier>,
-    used_imports: HashSet<String>,
     loop_depth: usize,
     current_span: crate::error::Span,
     statement_origins: Vec<PathBuf>,
@@ -44,7 +43,6 @@ impl WarningAnalyzer {
             function_positions: HashMap::new(),
             used_functions: HashSet::new(),
             imported_modules: Vec::new(),
-            used_imports: HashSet::new(),
             loop_depth: 0,
             if_depth: 0,
             mutable_vars: HashSet::new(),
@@ -174,20 +172,12 @@ impl WarningAnalyzer {
 
         let imported_modules = self.imported_modules.clone();
         for load in &imported_modules {
-            if !self.used_imports.contains(&load.name) {
-                let loc = if load.line == 0 && load.column == 0 {
-                    find_position_for_load(source, &load.name).unwrap_or(Span::unknown())
-                } else {
-                    Span::new(load.line, load.column)
-                };
-                self.push_warn(
-                    DiagnosticCode::W0003,
-                    "Unused Load",
-                    format!("Load '{}' is never used", load.name),
-                    loc,
-                    Some("remove this import".to_string()),
-                );
-            }
+            let _loc = if load.line == 0 && load.column == 0 {
+                find_position_for_load(source, &load.name).unwrap_or(Span::unknown())
+            } else {
+                Span::new(load.line, load.column)
+            };
+            // W0003 removed: unused import check was impossible to trigger
         }
 
         let mutable_vars = self.mutable_vars.clone();
@@ -577,11 +567,8 @@ impl WarningAnalyzer {
                 );
             }
             Statement::Break | Statement::Continue => {}
-            Statement::Load { path, .. } => {
-                self.used_imports.insert(path.join("::"));
-            }
-            Statement::LoadLocal { rel_path, .. } => {
-                self.used_imports.insert(rel_path.join("::"));
+            Statement::Load { .. } | Statement::LoadLocal { .. } => {
+                // No-op: W0003 removed
             }
             Statement::Function { body, .. } => {
                 for s in body {

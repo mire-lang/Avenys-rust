@@ -171,6 +171,25 @@ impl MireError {
         &self.diagnostic
     }
 
+    /// Create a MireError from an existing Diagnostic, preserving its code and span.
+    pub fn from_diagnostic(diag: &Diagnostic) -> Self {
+        let span = diag.labels.first().map(|l| l.span).unwrap_or(Span::unknown());
+        let kind = ErrorKind::Runtime {
+            span,
+            message: diag.message.clone(),
+        };
+        Self {
+            kind,
+            span,
+            diagnostic: Box::new(diag.clone()),
+            context: Some(Box::new(MireErrorContext {
+                source: None,
+                filename: None,
+                explanation: None,
+            })),
+        }
+    }
+
     pub fn with_source(mut self, source: String) -> Self {
         self.context_mut().source = Some(source.clone());
         self.diagnostic.source = Some(source);

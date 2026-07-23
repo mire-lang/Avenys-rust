@@ -36,7 +36,6 @@ pub enum DiagnosticCode {
     E0009,
     E0010,
     E0011,
-    E0012,
     E0013,
     E0014,
     E0015,
@@ -54,7 +53,6 @@ pub enum DiagnosticCode {
     E0110,
     W0001,
     W0002,
-    W0003,
     W0004,
     W0005,
     W0006,
@@ -101,7 +99,6 @@ impl DiagnosticCode {
             DiagnosticCode::E0009 => "E0009",
             DiagnosticCode::E0010 => "E0010",
             DiagnosticCode::E0011 => "E0011",
-            DiagnosticCode::E0012 => "E0012",
             DiagnosticCode::E0013 => "E0013",
             DiagnosticCode::E0014 => "E0014",
             DiagnosticCode::E0015 => "E0015",
@@ -119,7 +116,6 @@ impl DiagnosticCode {
             DiagnosticCode::E0110 => "E0110",
             DiagnosticCode::W0001 => "W0001",
             DiagnosticCode::W0002 => "W0002",
-            DiagnosticCode::W0003 => "W0003",
             DiagnosticCode::W0004 => "W0004",
             DiagnosticCode::W0005 => "W0005",
             DiagnosticCode::W0006 => "W0006",
@@ -158,7 +154,7 @@ impl DiagnosticCode {
 
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
-            DiagnosticCode::W0001 | DiagnosticCode::W0002 | DiagnosticCode::W0003 => {
+            DiagnosticCode::W0001 | DiagnosticCode::W0002 => {
                 Some(WarningCategory::Unused)
             }
             DiagnosticCode::W0004 | DiagnosticCode::W0005 | DiagnosticCode::W0021 => {
@@ -203,7 +199,6 @@ impl DiagnosticCode {
         match self {
             DiagnosticCode::W0001 => "unused_variables",
             DiagnosticCode::W0002 => "dead_code",
-            DiagnosticCode::W0003 => "unused_imports",
             DiagnosticCode::W0004 => "implicit_type",
             DiagnosticCode::W0005 => "implicit_return_type",
             DiagnosticCode::W0006 => "empty_body",

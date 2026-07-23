@@ -53,6 +53,8 @@ mod tests {
                 visibility: crate::parser::ast::Visibility::Public,
                 is_method: false,
                 attributes: Vec::new(),
+                name_line: 0,
+                name_column: 0,
             }],
         }
     }
@@ -423,6 +425,8 @@ mod tests {
                         visibility: Visibility::Public,
                         is_method: true,
                         attributes: Vec::new(),
+                        name_line: 0,
+                        name_column: 0,
                     }],
                 },
             ],
@@ -459,6 +463,8 @@ mod tests {
             visibility: Visibility::Public,
             is_method: false,
             attributes: Vec::new(),
+            name_line: 0,
+            name_column: 0,
         };
 
         let h1 = stable_statement_hash(&stmt);
@@ -481,6 +487,8 @@ mod tests {
             visibility: Visibility::Public,
             is_method: false,
             attributes: Vec::new(),
+            name_line: 0,
+            name_column: 0,
         };
         let stmt_b = Statement::Function {
             name: "main".to_string(),
@@ -494,6 +502,8 @@ mod tests {
             visibility: Visibility::Public,
             is_method: false,
             attributes: Vec::new(),
+            name_line: 0,
+            name_column: 0,
         };
 
         let h1 = stable_statement_hash(&stmt_a);
@@ -725,6 +735,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
             ],
         };

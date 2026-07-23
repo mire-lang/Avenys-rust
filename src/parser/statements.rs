@@ -280,6 +280,8 @@ impl Parser {
                 target,
                 value: expr,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -292,6 +294,8 @@ impl Parser {
                 target,
                 value,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -304,6 +308,8 @@ impl Parser {
                 target,
                 value,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -336,6 +342,9 @@ impl Parser {
 
     fn parse_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
         self.expect(TokenType::Fn)?;
+        let name_token = self.peek();
+        let name_line = name_token.line;
+        let name_column = name_token.column;
         let name = self.expect_ident()?;
         let (type_params, type_param_bounds) = self.parse_optional_type_params_with_bounds()?;
         self.expect(TokenType::Colon)?;
@@ -375,6 +384,8 @@ impl Parser {
             return_type,
             visibility,
             is_method: self.method_context > 0,
+            name_line,
+            name_column,
         })
     }
 

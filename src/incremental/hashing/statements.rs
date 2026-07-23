@@ -26,6 +26,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             target,
             value,
             is_mutable,
+            ..
         } => {
             hasher.write_u8(1);
             hash_assignment_target(target, hasher);
@@ -42,6 +43,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             visibility,
             is_method,
             attributes: _,
+            name_line,
+            name_column,
         } => {
             hasher.write_u8(2);
             name.hash(hasher);
@@ -52,6 +55,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             hash_data_type(return_type, hasher);
             hash_visibility(*visibility, hasher);
             is_method.hash(hasher);
+            name_line.hash(hasher);
+            name_column.hash(hasher);
         }
         Statement::Return(expr) => {
             hasher.write_u8(3);

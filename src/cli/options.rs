@@ -130,7 +130,7 @@ pub(crate) fn parse_common_with_file(
             "--show-warn" | "--sh-warn" => show_warn = true,
             "--position" | "--pos" => position = true,
             "--warnings-as-errors" | "--deny-warnings" => {
-                for code in [DiagnosticCode::W0001, DiagnosticCode::W0002, DiagnosticCode::W0003, DiagnosticCode::W0004, DiagnosticCode::W0005, DiagnosticCode::W0034, DiagnosticCode::W0039] {
+                for code in [DiagnosticCode::W0001, DiagnosticCode::W0002, DiagnosticCode::W0004, DiagnosticCode::W0005, DiagnosticCode::W0034, DiagnosticCode::W0039] {
                     deny_codes.insert(code);
                 }
             }
@@ -280,7 +280,6 @@ pub(crate) fn parse_warning_code(value: &str) -> Result<DiagnosticCode, MireErro
     match value.trim().to_ascii_uppercase().as_str() {
         "W0001" => Ok(DiagnosticCode::W0001),
         "W0002" => Ok(DiagnosticCode::W0002),
-        "W0003" => Ok(DiagnosticCode::W0003),
         "W0004" => Ok(DiagnosticCode::W0004),
         "W0005" => Ok(DiagnosticCode::W0005),
         "W0006" => Ok(DiagnosticCode::W0006),

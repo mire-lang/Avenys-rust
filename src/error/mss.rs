@@ -7,7 +7,6 @@ pub enum MssError {
     MoveWhileBorrowed,
     UseAfterMove,
     DropWhileBorrowed,
-    DoubleDrop,
     BorrowOutOfScope,
     InvalidMove,
     UnsafeViolation,
@@ -21,7 +20,6 @@ impl MssError {
             MssError::MutationWhileShared => DiagnosticCode::E0009,
             MssError::MoveWhileBorrowed | MssError::InvalidMove => DiagnosticCode::E0010,
             MssError::DropWhileBorrowed => DiagnosticCode::E0011,
-            MssError::DoubleDrop => DiagnosticCode::E0012,
             MssError::BorrowOutOfScope | MssError::UnsafeViolation => DiagnosticCode::E0013,
         }
     }
@@ -41,7 +39,6 @@ impl std::fmt::Display for MssError {
             MssError::DropWhileBorrowed => {
                 write!(f, "MSS Error: Cannot drop - value has active references")
             }
-            MssError::DoubleDrop => write!(f, "MSS Error: Double drop detected"),
             MssError::BorrowOutOfScope => write!(f, "MSS Error: Borrow outlives owner scope"),
             MssError::InvalidMove => write!(f, "MSS Error: Invalid move operation"),
             MssError::UnsafeViolation => write!(f, "MSS Error: Unsafe block violation"),

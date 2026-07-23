@@ -11,8 +11,8 @@ pub fn statement_location(statement: &Statement) -> Span {
             name_column,
             ..
         } => Span::new(*name_line, *name_column),
-        Statement::Assignment { value, .. }
-        | Statement::Expression(value)
+        Statement::Assignment { line, column, .. } => Span::new(*line, *column),
+        Statement::Expression(value)
         | Statement::Drop { value }
         | Statement::New {
             value: Some(value), ..
@@ -21,6 +21,7 @@ pub fn statement_location(statement: &Statement) -> Span {
             value: Some(value), ..
         }
         | Statement::Move { value, .. } => expression_location(value),
+        Statement::Function { name_line, name_column, .. } => Span::new(*name_line, *name_column),
         Statement::Return(Some(value)) => expression_location(value),
         Statement::If { condition, .. } | Statement::While { condition, .. } => {
             expression_location(condition)

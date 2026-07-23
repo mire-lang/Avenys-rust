@@ -539,6 +539,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
                 Statement::Expression(Expression::Call {
                     name: "sum".to_string(),
@@ -602,6 +604,8 @@ mod tests {
                     target: AssignmentTarget::Variable("x".to_string()),
                     value: Expression::Literal(Literal::Str("bad".to_string())),
                     is_mutable: true,
+                    line: 0,
+                    column: 0,
                 },
             ],
         };
@@ -817,6 +821,8 @@ mod tests {
                         visibility: Visibility::Public,
                         is_method: true,
                         attributes: Vec::new(),
+                        name_line: 0,
+                        name_column: 0,
                     },
                     Statement::Function {
                         name: "bad".to_string(),
@@ -835,6 +841,8 @@ mod tests {
                         visibility: Visibility::Public,
                         is_method: true,
                         attributes: Vec::new(),
+                        name_line: 0,
+                        name_column: 0,
                     },
                 ],
             }],
@@ -916,6 +924,8 @@ mod tests {
                             visibility: Visibility::Public,
                             is_method: true,
                             attributes: Vec::new(),
+                            name_line: 0,
+                            name_column: 0,
                         },
                         Statement::Function {
                             name: "bad".to_string(),
@@ -934,6 +944,8 @@ mod tests {
                             visibility: Visibility::Public,
                             is_method: true,
                             attributes: Vec::new(),
+                            name_line: 0,
+                            name_column: 0,
                         },
                     ],
                 },
@@ -1136,6 +1148,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
                 Statement::Function {
                     name: "main".to_string(),
@@ -1193,6 +1207,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
             ],
         };

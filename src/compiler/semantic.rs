@@ -152,6 +152,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: true,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 }],
             }],
         };

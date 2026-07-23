@@ -537,6 +537,8 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
         return_type: DataType::None,
         visibility: Visibility::Public,
         is_method: false,
+        name_line: 0,
+        name_column: 0,
     };
     program
         .statements
@@ -792,13 +794,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     for diagnostic in &warnings {
         warning_strs.push(format_diagnostic(diagnostic, true));
     }
-    if warnings
-        .iter()
-        .any(|diag| matches!(diag.severity, Severity::Error))
-    {
-        return Err(MireError::runtime(
-            "Compilation aborted due to denied warnings".to_string(),
-        ));
+    if let Some(err_diag) = warnings.iter().find(|d| matches!(d.severity, Severity::Error)) {
+        return Err(MireError::from_diagnostic(err_diag));
     }
 
     let (mut ir, extern_libs) = {

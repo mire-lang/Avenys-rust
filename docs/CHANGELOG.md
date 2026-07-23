@@ -2,6 +2,20 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.20.1] - 2026-07-23 (Warning/Error diagnostic fixes)
+
+### Fixed
+
+- **E0009 span**: `Statement::Assignment` now carries `line`/`column` fields, so "mutation while shared reference" errors point to the correct line instead of `0:0`.
+- **E0016 code**: `@[deny(unsafe)]` now correctly reports `E0016` (unsafe not allowed) instead of silently promoting to `E0015` (runtime error). The diagnostic is forwarded with its original code and span.
+- **W0005/W0006/W0011/W0012/W0035/W0037/W0040/W0042/W0044 span**: Function-level warnings now point to the `fn` line instead of `1:1`. `Statement::Function` carries `name_line`/`name_column` fields, and `statement_location()` uses them.
+- **W0003 (Unused Load)**: Removed — the check was impossible to trigger because `scan_usage` marked every `Load` statement as used.
+- **E0012 (Double Drop)**: Removed — the borrow checker never generated this code; double drops are caught as E0007 (Use After Move).
+
+### Changed
+
+- **ERROR_CODES.md**: Updated to reflect only actually-emitted codes. Ghost codes (W0015, W0016, W0020, W0022, W0023, W0026–W0033) documented as reserved. E0005 description expanded to cover undefined identifiers. E0016 added.
+
 ## [3.20.0] - 2026-07-22 (Span refactor)
 
 ### Added

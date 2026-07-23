@@ -560,6 +560,8 @@ pub enum Statement {
         target: AssignmentTarget,
         value: Expression,
         is_mutable: bool,
+        line: usize,
+        column: usize,
     },
     Function {
         name: String,
@@ -574,6 +576,8 @@ pub enum Statement {
         return_type: DataType,
         visibility: Visibility,
         is_method: bool,
+        name_line: usize,
+        name_column: usize,
     },
     Return(Option<Expression>),
     If {

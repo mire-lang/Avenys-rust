@@ -787,10 +787,13 @@ impl<'a> ModuleRenamer<'a> {
                 target,
                 value,
                 is_mutable,
+                ..
             } => Statement::Assignment {
                 target: self.rename_assignment_target(target, scope_stack),
                 value: self.rename_expression(value, scope_stack),
                 is_mutable,
+                line: 0,
+                column: 0,
             },
             Statement::Function {
                 name,
@@ -802,6 +805,8 @@ impl<'a> ModuleRenamer<'a> {
                 visibility,
                 is_method,
                 attributes,
+                name_line,
+                name_column,
             } => {
                 let name = self.rename_decl_name(name, scope_stack, top_level);
                 let mut body_scope = scope_stack.clone();
@@ -839,6 +844,8 @@ impl<'a> ModuleRenamer<'a> {
                     return_type,
                     visibility,
                     is_method,
+                    name_line,
+                    name_column,
                 }
             }
             Statement::Return(expr) => {
