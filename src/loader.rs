@@ -1212,6 +1212,9 @@ impl<'a> ModuleRenamer<'a> {
                 ok: Box::new(self.rename_data_type(*ok, scope_stack)),
                 err: Box::new(self.rename_data_type(*err, scope_stack)),
             },
+            DataType::Maybe { inner } => DataType::Maybe {
+                inner: Box::new(self.rename_data_type(*inner, scope_stack)),
+            },
             DataType::Map {
                 key_type,
                 value_type,
@@ -1503,6 +1506,10 @@ impl<'a> ModuleRenamer<'a> {
                 data_type: self.rename_data_type(data_type, scope_stack),
             },
             Expression::Err { value, data_type } => Expression::Err {
+                value: Box::new(self.rename_expression(*value, scope_stack)),
+                data_type: self.rename_data_type(data_type, scope_stack),
+            },
+            Expression::Some { value, data_type } => Expression::Some {
                 value: Box::new(self.rename_expression(*value, scope_stack)),
                 data_type: self.rename_data_type(data_type, scope_stack),
             },

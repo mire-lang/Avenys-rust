@@ -463,6 +463,7 @@ impl TypeChecker {
             | Expression::Try { data_type, .. }
             | Expression::Ok { data_type, .. }
             | Expression::Err { data_type, .. }
+            | Expression::Some { data_type, .. }
             | Expression::EnumVariantPath { data_type, .. }
             | Expression::EnumVariant { data_type, .. } => data_type.clone(),
             Expression::UseMacro { inner } => self.expression_type_hint(inner),
@@ -743,7 +744,8 @@ fn collect_used_identifiers_in_expr(
         | Expression::Box { value: expr, .. }
         | Expression::Try { expr, .. }
         | Expression::Ok { value: expr, .. }
-        | Expression::Err { value: expr, .. } => {
+        | Expression::Err { value: expr, .. }
+        | Expression::Some { value: expr, .. } => {
             collect_used_identifiers_in_expr(expr, declared, used);
         }
         Expression::Pipeline { input, stage, .. } => {

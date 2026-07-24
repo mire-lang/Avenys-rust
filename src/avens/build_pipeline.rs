@@ -343,7 +343,7 @@ fn c_object_hash(content: &str) -> u64 {
 fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> Result<String> {
     let content = fs::read_to_string(c_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
+            span: crate::error::Span::new(1, 1),
             message: format!("Could not read C source '{}': {}", c_path, err),
         })
     })?;

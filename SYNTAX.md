@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.18.0** · 55 examples
+Version: **3.22.0** · 66 examples
 
 ---
 
@@ -120,7 +120,7 @@ any reassignment to `x`.
 
 **Types:** `str`, `bool`, `char`, `i8`, `i16`, `i32`, `i64`, `i128`,
 `u8`, `u16`, `u32`, `u64`, `u128`, `f32`, `f64`, `vec[T]`, `map[K V]`,
-`arr[T N]`, `result[T E]`, `option[T]`.
+`arr[T N]`, `result[T E]`, `maybe[T]`.
 
 Mire uses **real, fixed-width scalar types** up to 128 bits. Integer literals
 infer `i64`; floating-point literals infer `f64`. A narrower or differently
@@ -628,29 +628,45 @@ set full = s + " world"
 ## 9. Collections
 
 ```mire
-// Vectors (dynamic) — from strings::split
-set items = strings::split("a b c" " ")
-set n = rt_vec_len(items)
-set first = rt_vec_get_str(items 0)
-set second = rt_vec_get_str(items 1)
-
-// Iteration helpers
-set count = iter::count(items)
-set has = iter::contains(items "b")
-
-// Lists of i64
+// Vec — dynamic array (heap-allocated, resizable)
 set nums = [] :vec[i64] mut
 set nums = lists::push(nums 42)
 set val = lists::get(nums 0)
+set len = lists::len(nums)
 
-// Box[T] — heap-allocated wrapper
-set b = box(42)
+// Map — key-value dictionary (heap-allocated)
+set m = {} :map[str i64]
+set m = maps::set(m "key" 42)
+set v = maps::get(m "key")
+
+// Arr — fixed-size array (stack-allocated, compile-time length)
+set arr = [10 20 30] :arr[i64 3]
 ```
 
-**Access patterns:**
-- Vector elements: `rt_vec_get_str(vec index)` or `rt_vec_get_i64(vec index)`
-- Vector length: `rt_vec_len(vec)`
-- List operations: `lists::push`, `lists::get`, `lists::len`, `lists::pop`
+**Vec builtins:**
+
+| Function | Description |
+|----------|-------------|
+| `lists::push(v val)` | Append element to vec |
+| `lists::get(v idx)` | Get element by index |
+| `lists::len(v)` | Get vec length |
+| `lists::set(v idx val)` | Set element at index |
+| `lists::pop(v)` | Remove and return last element |
+| `lists::map(v f)` | Map closure over elements |
+| `lists::filter(v f)` | Filter elements by predicate |
+| `lists::fold(init f v)` | Fold elements into accumulator |
+
+**Map builtins:**
+
+| Function | Description |
+|----------|-------------|
+| `maps::set(m key val)` | Set key-value pair |
+| `maps::get(m key)` | Get value by key |
+| `maps::has(m key)` | Check if key exists |
+| `maps::len(m)` | Get map size |
+| `maps::remove(m key)` | Remove key-value pair |
+| `maps::keys(m)` | Get all keys |
+| `maps::values(m)` | Get all values |
 
 ### 9.2 Bitwise operators (v3.12.3+)
 
@@ -759,6 +775,50 @@ type TreeNode {
  left :Box[TreeNode]
  right :Box[TreeNode]
 }
+```
+
+### 9.6 String builtins
+
+The `strings` module provides string manipulation:
+
+```mire
+set s = "hello" :str mut
+
+set upper = strings::upper(s)
+set lower = strings::lower(s)
+set trimmed = strings::trim(" ok ")
+set replaced = strings::replace(s "hello" "hi")
+set parts = strings::split("a,b,c" ",")
+set joined = strings::join(parts "|")
+set sub = strings::substr("hello" 1 3)
+set has = strings::contains(s "ll")
+set pos = strings::index_of(s "ll")
+set n = strings::len(s)
+set num_str = strings::from_i64(42)
+set val = strings::to_i64("42")
+set full = s + " world"
+```
+
+### 9.7 Crypto builtins
+
+The `crypto` module provides hash, HMAC, base64, and hex operations:
+
+```mire
+// Hashing
+set hash = crypto::sha256(data len)
+set hash_hex = crypto::sha256_hex(data len)
+
+// HMAC
+set mac = crypto::hmac_sha256(key key_len data data_len)
+set mac_hex = crypto::hmac_sha256_hex(key key_len data data_len)
+
+// Base64
+set encoded = crypto::base64_encode(data len)
+set decoded = crypto::base64_decode(encoded enc_len)
+
+// Hex
+set hex = crypto::hex_encode(data len)
+set raw = crypto::hex_decode(hex hex_len)
 ```
 
 ---
@@ -1097,42 +1157,64 @@ set e = err("something went wrong")
 set r = some_value :result[i64]
 ```
 
-### 15.2 Unwrapping
+### 15.2 Maybe type
+
+The maybe type represents values that may be present (`some`) or absent (`none`):
 
 ```mire
-set v = result::unwrap(r) // panics on Err
-set v = result::unwrap_or(r 0) // returns default on Err
-set ok = result::is_ok(r)
-set err = result::is_err(r)
+// Type annotation
+set m = some_value :maybe[i64]
+
+// Some constructor
+set m = some(42)
+
+// None — use explicit type ascription
+set m = 0 : maybe[i64] // default/empty value
 ```
 
-### 15.3 Try operator (`?`)
-
-The `?` operator propagates errors: if the value is `Ok(v)`, it unwraps
-to `v`; if `Err(e)`, it returns early with `Err(e)` from the enclosing
-function.
+### 15.3 Unwrapping
 
 ```mire
-fn read_config: (path :&str) :result[str str] {
- set raw = fs::read(path) ? // returns early on error
- return ok(parse_config(raw))
-}
+// Result
+set v = result::unwrap(r) // panics on Err
+set v = result::unwrap_or(r 0) // returns default on Err
 
-// The function return type must be a result type
+// Maybe
+set v = maybe::unwrap(m) // panics on None
+set v = maybe::unwrap_or(m 0) // returns default on None
+```
+
+### 15.4 Try operator (`?`)
+
+The `?` operator propagates errors: if the value is `Ok(v)` or `Some(v)`, it
+unwraps to `v`; if `Err(e)` or `None`, it returns early from the enclosing
+function with the error/None value.
+
+The enclosing function **must** return `result[T E]` or `maybe[T]`.
+
+```mire
 fn safe_divide: (a :i64, b :i64) :result[i64 str] {
  if b == 0 {
- return err("division by zero")
+  return err("division by zero")
  }
  return ok(a / b)
 }
 
-fn main: () {
- set r = safe_divide(10 2) ?
- use dasu(r) // "5"
+fn compute: () :result[i64 str] {
+ set a = safe_divide(10 2) ? // unwraps to 10, or returns err early
+ set b = safe_divide(20 5) ? // unwraps to 4, or returns err early
+ return ok(a + b) // ok(14)
+}
+
+// Chaining with ? — early return on first error
+fn read_and_parse: (path :&str) :result[i64 str] {
+ set raw = fs::read(path) ? // returns early on error
+ set val = strings::to_i64(raw) ? // returns early on parse failure
+ return ok(val)
 }
 ```
 
-### 15.4 Result in generics
+### 15.5 Result in generics
 
 ```mire
 type Result[T E] {
@@ -1142,7 +1224,7 @@ type Result[T E] {
 
 fn safe_get[T]: (items :vec[T], index :i64) :result[T str] {
  if index < 0 {
- return err("negative index")
+  return err("negative index")
  }
  return ok(lists::get(items index))
 }
@@ -1161,8 +1243,8 @@ choice — short, unambiguous, and visually distinct from English keywords.
 | `set line = ireru()` | 入れる (*ireru*, "put in") | Read line from stdin |
 | `set line = ireru("> ")` | 入れる with prompt | Read with prompt from stdin |
 
-The rest of the standard library (kioto) uses English names: `log::info`,
-`fs::read`, `net::http::get`, etc. Only the two I/O primitives use Japanese.
+The rest of the standard library uses English names: `strings::*`, `lists::*`,
+`maps::*`, `crypto::*`, `vec::*`, etc. Only the two I/O primitives use Japanese.
 
 ### Full reference
 
@@ -1174,53 +1256,67 @@ The rest of the standard library (kioto) uses English names: `log::info`,
 | `strings::from_i64(n)` | i64 → str |
 | `strings::to_i64(s)` | str → i64 |
 | `strings::len(s)` | String length |
+| `strings::trim(s)` | Trim whitespace |
+| `strings::split(s sep)` | Split by separator |
+| `strings::join(parts sep)` | Join with separator |
+| `strings::contains(s sub)` | Check substring |
+| `strings::index_of(s sub)` | Find substring index |
+| `strings::substr(s start len)` | Extract substring |
+| `strings::upper(s)` | Uppercase |
+| `strings::lower(s)` | Lowercase |
+| `strings::replace(s old new)` | Replace substring |
+| `lists::push(v val)` | Append to vec |
+| `lists::get(v idx)` | Get by index |
+| `lists::len(v)` | Vec length |
+| `lists::set(v idx val)` | Set by index |
+| `lists::pop(v)` | Remove last |
+| `maps::set(m key val)` | Set key-value |
+| `maps::get(m key)` | Get by key |
+| `maps::has(m key)` | Check key exists |
+| `maps::len(m)` | Map size |
+| `maps::keys(m)` | All keys |
+| `maps::values(m)` | All values |
+| `crypto::sha256(data len)` | SHA-256 hash |
+| `crypto::base64_encode(data len)` | Base64 encode |
+| `crypto::hex_encode(data len)` | Hex encode |
 | `fs::read(path)` | Read file contents |
 | `fs::write(path, data)` | Write string to file |
 | `fs::exists(path)` | Check if file exists |
-| `rt_vec_len(v)` | Vector length |
-| `rt_vec_get_str(v, i)` | Vector element (indexed) |
 
 ---
 
 ## 17. Common patterns — Basic
 
 ```mire
-load kioto
+load mire
 
-pub fn main: () {
- // ── File I/O ──
- set content = fs::read("input.txt")
- use fs::write("output.txt" content)
+pub fn main: () :i64 {
+ // ── Vec ──
+ set v = [] :vec[i64] mut
+ set v = lists::push(v 42)
+ set v = lists::push(v 100)
+ set len = lists::len(v)
 
- // ── JSON ──
- set data = "{\"user\":{\"name\":\"Alice\",\"age\":30}}"
- set name = json::get(data "user.name") // "Alice"
- if json::is_valid(data) { ... }
+ // ── Map ──
+ set m = {} :map[str i64]
+ set m = maps::set(m "x" 10)
+ set val = maps::get(m "x")
 
- // ── String manipulation ──
+ // ── String ──
  set parts = strings::split("a,b,c" ",")
  set trimmed = strings::trim(" ok ")
  set has = strings::contains("hello world" "world")
 
- // ── Maybe (Option) ──
- set m = maybe::some("value")
- set v = maybe::unwrap_or(m "default")
- if maybe::is_some(m) { use dasu(maybe::unwrap(m)) }
+ // ── Maybe ──
+ set m = some(42) : maybe[i64]
+ set v = maybe::unwrap_or(m 0)
 
  // ── Result ──
- set r = result::ok("success")
- if result::is_ok(r) { use dasu(result::unwrap(r)) }
- set v2 = result::unwrap_or(result::err("fail") "fallback")
+ set r = ok("success") : result[str str]
+ set r2 = err("fail") : result[str str]
+ set v2 = maybe::unwrap_or(0 : maybe[i64]) 0
 
- // ── Logging ──
- use log::info("server started")
- use log::warn("low memory")
- use log::error("connection lost")
-
- // ── Iteration ──
- set range = iter::range(0 5) // "0\n1\n2\n3\n4"
- set rparts = strings::split(range "\n")
- set count = iter::count(rparts) // 5
+ return 0
 }
 ```
 
@@ -1229,42 +1325,46 @@ pub fn main: () {
 ## 18. Common patterns — Advanced
 
 ```mire
-load kioto
+load mire
 
-pub fn main: () {
- // ── HTTP client ──
- set body = net::http::get("https://api.example.com/data")
- set resp = net::http::post("https://api.example.com/create" body_json "application/json")
-
- // ── HTTP server ──
- set method = net::http::req_method(raw_request)
- set path = net::http::req_path(raw_request)
- set host = net::http::req_header(raw_request "Host")
- set qs = net::http::req_query(raw_request)
- set ct = net::http::server_mime("style.css")
- set response = net::http::resp_200(data ct)
-
- // ── WebSocket client ──
- set fd = ws::connect("ws://echo.example.com/")
- use ws::send::text(fd "hello")
- set msg = ws::recv::all(fd)
- use ws::close(fd)
-
- // ── SDL2 (graphics) ──
- if sdl2::init_video() {
- set win = sdl2::create_window("Demo" 800 600)
- sdl2::delay(2000)
- sdl2::destroy_window(win)
- sdl2::quit()
+fn safe_divide: (a :i64, b :i64) : result[i64 str] {
+ if b == 0 {
+  return err("division by zero")
  }
+ return ok(a / b)
+}
 
- // ── Pipeline ──
- set result = strings::split(data "\n")
- => lists::filter(self (s :&str) => strings::len(*s) > 0)
- => lists::len(self)
+fn read_and_compute: (a :i64, b :i64, c :i64) : result[i64 str] {
+ set x = safe_divide(a b) ?
+ set y = safe_divide(b c) ?
+ return ok(x + y)
+}
+
+pub fn main: () :i64 {
+ // ── Chained ? operator ──
+ set result = read_and_compute(100 10 5)
+ dasu(result) // ok(30)
+
+ set fail = read_and_compute(100 0 5)
+ dasu(fail) // err("division by zero")
+
+ // ── Vec operations ──
+ set nums = [10 20 30] : vec[i64]
+ set len = lists::len(nums)
+ set val = lists::get(nums 1)
+
+ // ── Map operations ──
+ set m = {} :map[str i64]
+ set m = maps::set(m "x" 10)
+ set m = maps::set(m "y" 20)
+ set has = maps::has(m "x")
 
  // ── Closures ──
  set doubled = lists::map(nums (x :i64) => x * 2)
- set sum = lists::fold(0 (acc elem :i64) => acc + elem, nums)
+
+ // ── Pipeline ──
+ set total = lists::fold(0 (acc elem :i64) => acc + elem, nums)
+
+ return 0
 }
 ```

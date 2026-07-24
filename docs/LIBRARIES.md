@@ -13,16 +13,20 @@ via `load`.
 ## Quick Reference
 
 ```mire
-# Load a library — all modules available with prefixes
+# Load the mire stdlib (vec, map, str modules)
+load mire
+
+# Load kioto (extended stdlib: net, async, json, etc.)
 load kioto
 
 # Load a specific module
 load kioto::net
-load kioto::ws
 
 # Call functions with module prefix
-set r = net::http_get("https://example.com")
-set fd = ws::connect("ws://127.0.0.1:9877/")
+set v = [10 20 30] : vec[i64]
+set len = lists::len(v)
+set s = strings::trim("  hello  ")
+set m = maps::set(0 "key" 42)
 
 # use executes a function for side effects (discards result):
 use dasu("hello")

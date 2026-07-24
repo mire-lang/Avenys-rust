@@ -920,19 +920,20 @@ impl TypeChecker {
                 let inner_type = self.check_expression(expr)?;
                 let resolved = match inner_type {
                     DataType::Result { ok, .. } => *ok,
+                    DataType::Maybe { inner } => *inner,
                     _ => {
                         return Err(type_error_at_span(
                             self.current_span,
-                            "'?' operator requires a result[T, E] type".to_string(),
+                            "'?' operator requires a result[T, E] or maybe[T] type".to_string(),
                         ));
                     }
                 };
                 if let Some(current_return) = self.return_type_stack.last()
-                    && !matches!(current_return, DataType::Result { .. })
+                    && !matches!(current_return, DataType::Result { .. } | DataType::Maybe { .. })
                 {
                     return Err(type_error_at_span(
                         self.current_span,
-                        "'?' operator can only be used in a function that returns result[T, E]"
+                        "'?' operator can only be used in a function that returns result[T, E] or maybe[T]"
                             .to_string(),
                     ));
                 }
@@ -1002,6 +1003,16 @@ impl TypeChecker {
                 let resolved = DataType::Result {
                     ok: Box::new(DataType::Unknown),
                     err: Box::new(val_type),
+                };
+                if *data_type == DataType::Unknown {
+                    *data_type = resolved.clone();
+                }
+                Ok(data_type.clone())
+            }
+            Expression::Some { value, data_type } => {
+                let val_type = self.check_expression(value)?;
+                let resolved = DataType::Maybe {
+                    inner: Box::new(val_type),
                 };
                 if *data_type == DataType::Unknown {
                     *data_type = resolved.clone();

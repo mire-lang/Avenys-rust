@@ -293,6 +293,7 @@ char *rt_strings_pad_right(const char *input, int64_t width, const char *pad) {
 char *rt_strings_trim(const char *input) {
     if (!input) return rt_managed_from_slice("", 0);
     size_t len = str_byte_len(input);
+    if (len == 0) return rt_managed_from_slice("", 0);
     const char *start = input;
     const char *end = input + len - 1;
     while (start <= end && (unsigned char)*start <= ' ') start++;

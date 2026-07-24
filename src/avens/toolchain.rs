@@ -104,7 +104,7 @@ pub(super) fn compile_binary_from_ir(
 
     let mut child = clang.spawn().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
+            span: crate::error::Span::new(1, 1),
             message: format!("Failed to run clang: {}", err),
         })
         .with_filename(source_filename.to_string())
@@ -112,7 +112,7 @@ pub(super) fn compile_binary_from_ir(
     if let Some(stdin) = child.stdin.as_mut() {
         stdin.write_all(ir.as_bytes()).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                span: crate::error::Span::unknown(),
+                span: crate::error::Span::new(1, 1),
                 message: format!("Failed to stream IR into clang: {}", err),
             })
             .with_filename(source_filename.to_string())
@@ -121,14 +121,14 @@ pub(super) fn compile_binary_from_ir(
     drop(child.stdin.take());
     let output = child.wait_with_output().map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
+            span: crate::error::Span::new(1, 1),
             message: format!("Failed to wait for clang: {}", err),
         })
         .with_filename(source_filename.to_string())
     })?;
     if !output.status.success() {
         return Err(MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
+            span: crate::error::Span::new(1, 1),
             message: format!(
                 "clang failed building `{}` (source: {}) with status {}.\nstdout:\n{}\nstderr:\n{}",
                 binary_path.display(),

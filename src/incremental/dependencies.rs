@@ -323,7 +323,8 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
         }
         Expression::Try { expr, .. }
         | Expression::Ok { value: expr, .. }
-        | Expression::Err { value: expr, .. } => {
+        | Expression::Err { value: expr, .. }
+        | Expression::Some { value: expr, .. } => {
             collect_expression_bindings(expr, bindings);
         }
         Expression::EnumVariant { payloads, .. } => {
@@ -440,7 +441,7 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
         Expression::Try { expr, .. } => {
             collect_expression_dependencies(expr, deps);
         }
-        Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+        Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
             collect_expression_dependencies(value, deps);
         }
         Expression::UseMacro { inner } => {
@@ -462,7 +463,8 @@ fn collect_type_dependencies(
         | crate::parser::ast::DataType::Slice { element_type }
         | crate::parser::ast::DataType::Result {
             ok: element_type, ..
-        } => {
+        }
+        | crate::parser::ast::DataType::Maybe { inner: element_type } => {
             collect_type_dependencies(element_type, deps);
         }
         crate::parser::ast::DataType::Map {

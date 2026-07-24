@@ -13,6 +13,7 @@ fn is_float_dt(t: &DataType) -> bool {
 }
 
 impl MirLower {
+
     pub(crate) fn lower_call_args(&mut self, name: &str, args: &[Expression]) -> Vec<MirValue> {
         let needs_wrap = name == "dasu" || name == "print" || name == "str";
         args.iter()
@@ -1043,6 +1044,259 @@ impl MirLower {
                     loc,
                 );
                 MirValue::temp(final_dict)
+            }
+            Expression::Some {
+                value,
+                data_type,
+            } => {
+                let lowered_value = self.lower_expression(value);
+                let result_ptr = self.new_temp();
+                let alloc_ty = MirType {
+                    data_type: DataType::Unknown,
+                };
+                self.func.blocks[self.current_block].push(
+                    Some(result_ptr),
+                    MirOp::Alloca(alloc_ty.clone()),
+                    loc,
+                );
+                let op = if data_type == &DataType::I64 {
+                    MirOp::Call(
+                        MirValue::Global("rt_maybe_some_i64".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else if data_type == &DataType::Str {
+                    MirOp::Call(
+                        MirValue::Global("rt_maybe_some_str".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else if data_type == &DataType::F64 {
+                    MirOp::Call(
+                        MirValue::Global("rt_maybe_some_f64".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else {
+                    MirOp::Call(
+                        MirValue::Global("rt_maybe_some_ptr".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                };
+                let lowered_op = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(lowered_op),
+                    op,
+                    loc,
+                );
+                self.func.blocks[self.current_block].push(
+                    None,
+                    MirOp::Store(MirValue::temp(result_ptr), MirValue::temp(lowered_op)),
+                    loc,
+                );
+                let restored = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(restored),
+                    MirOp::Load(MirValue::temp(result_ptr), alloc_ty.clone()),
+                    loc,
+                );
+                MirValue::temp(restored)
+            }
+            Expression::Ok {
+                value,
+                data_type,
+            } => {
+                let lowered_value = self.lower_expression(value);
+                let result_ptr = self.new_temp();
+                let alloc_ty = MirType {
+                    data_type: DataType::Unknown,
+                };
+                self.func.blocks[self.current_block].push(
+                    Some(result_ptr),
+                    MirOp::Alloca(alloc_ty.clone()),
+                    loc,
+                );
+                let op = if data_type == &DataType::I64 {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_ok_i64".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else if data_type == &DataType::Str {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_ok_str".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_ok_ptr".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                };
+                let lowered_op = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(lowered_op),
+                    op,
+                    loc,
+                );
+                self.func.blocks[self.current_block].push(
+                    None,
+                    MirOp::Store(MirValue::temp(result_ptr), MirValue::temp(lowered_op)),
+                    loc,
+                );
+                let restored = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(restored),
+                    MirOp::Load(MirValue::temp(result_ptr), alloc_ty.clone()),
+                    loc,
+                );
+                MirValue::temp(restored)
+            }
+            Expression::Err {
+                value,
+                data_type,
+            } => {
+                let lowered_value = self.lower_expression(value);
+                let result_ptr = self.new_temp();
+                let alloc_ty = MirType {
+                    data_type: DataType::Unknown,
+                };
+                self.func.blocks[self.current_block].push(
+                    Some(result_ptr),
+                    MirOp::Alloca(alloc_ty.clone()),
+                    loc,
+                );
+                let op = if data_type == &DataType::I64 {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_err_i64".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else if data_type == &DataType::Str {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_err_str".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                } else {
+                    MirOp::Call(
+                        MirValue::Global("rt_result_err_ptr".to_string()),
+                        vec![lowered_value],
+                        MirType {
+                            data_type: DataType::Unknown,
+                        },
+                    )
+                };
+                let lowered_op = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(lowered_op),
+                    op,
+                    loc,
+                );
+                self.func.blocks[self.current_block].push(
+                    None,
+                    MirOp::Store(MirValue::temp(result_ptr), MirValue::temp(lowered_op)),
+                    loc,
+                );
+                let restored = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(restored),
+                    MirOp::Load(MirValue::temp(result_ptr), alloc_ty.clone()),
+                    loc,
+                );
+                MirValue::temp(restored)
+            }
+            Expression::Try {
+                expr,
+                data_type: result_type,
+            } => {
+                let operand = self.lower_expression(expr);
+                let container_type = extract_data_type(expr);
+                let is_result = matches!(&container_type, DataType::Result { .. });
+                let inner_type = result_type.clone();
+
+                let file = MirValue::Const(MirConst::Str(self.filename.clone()));
+                let line = MirValue::Const(MirConst::Int(loc.0 as i64));
+                let col = MirValue::Const(MirConst::Int(loc.1 as i64));
+
+                let check_fn = if is_result { "rt_result_is_err" } else { "rt_maybe_is_none" };
+                let check_raw = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(check_raw),
+                    MirOp::Call(
+                        MirValue::Global(check_fn.to_string()),
+                        vec![operand.clone()],
+                        MirType { data_type: DataType::I64 },
+                    ),
+                    loc,
+                );
+
+                let is_err = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(is_err),
+                    MirOp::ICmp(MirCmp::Ne, MirValue::temp(check_raw), MirValue::Const(MirConst::Int(0))),
+                    loc,
+                );
+
+                let unwrap_block = self.new_block("try_unwrap");
+                let err_block = self.new_block("try_err");
+                let pre_check = self.current_block;
+
+                self.func.blocks[pre_check].terminator =
+                    MirTerminator::BrCond(MirValue::temp(is_err), err_block, unwrap_block);
+
+                self.current_block = err_block;
+                self.func.blocks[err_block].terminator =
+                    MirTerminator::Ret(Some(operand.clone()));
+
+                self.current_block = unwrap_block;
+                let unwrap_fn = if is_result {
+                    match &inner_type {
+                        DataType::I64 => "rt_result_unwrap_i64",
+                        DataType::Str => "rt_result_unwrap_str",
+                        DataType::F64 => "rt_result_unwrap_f64",
+                        _ => "rt_result_unwrap_ptr",
+                    }
+                } else {
+                    match &inner_type {
+                        DataType::I64 => "rt_maybe_unwrap_i64",
+                        DataType::Str => "rt_maybe_unwrap_str",
+                        DataType::F64 => "rt_maybe_unwrap_f64",
+                        _ => "rt_maybe_unwrap_ptr",
+                    }
+                };
+                let unwrapped = self.new_temp();
+                self.func.blocks[self.current_block].push(
+                    Some(unwrapped),
+                    MirOp::Call(
+                        MirValue::Global(unwrap_fn.to_string()),
+                        vec![operand.clone(), line, col, file],
+                        MirType { data_type: inner_type },
+                    ),
+                    loc,
+                );
+                MirValue::temp(unwrapped)
             }
             _ => MirValue::Const(MirConst::None),
         }

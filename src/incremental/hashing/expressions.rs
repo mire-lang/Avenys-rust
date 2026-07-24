@@ -219,6 +219,11 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             hash_expression(value, hasher);
             hash_data_type(data_type, hasher);
         }
+        Expression::Some { value, data_type } => {
+            hasher.write_u8(42);
+            hash_expression(value, hasher);
+            hash_data_type(data_type, hasher);
+        }
         Expression::UseMacro { inner } => {
             hasher.write_u8(22);
             hash_expression(inner, hasher);

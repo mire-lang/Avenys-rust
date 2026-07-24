@@ -600,7 +600,7 @@ impl Parser {
                     _ => None,
                 };
                 if let Some(name) = call_target {
-                    if name == "ok" || name == "err" {
+                    if name == "ok" || name == "err" || name == "some" {
                         let args = self.parse_call_arguments()?;
                         let value = if args.is_empty() {
                             Expression::Literal(Literal::None)
@@ -617,8 +617,13 @@ impl Parser {
                                 value: Box::new(value),
                                 data_type: DataType::Unknown,
                             }
-                        } else {
+                        } else if name == "err" {
                             Expression::Err {
+                                value: Box::new(value),
+                                data_type: DataType::Unknown,
+                            }
+                        } else {
+                            Expression::Some {
                                 value: Box::new(value),
                                 data_type: DataType::Unknown,
                             }

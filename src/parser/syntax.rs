@@ -46,7 +46,7 @@ pub(super) fn contains_self_placeholder(expr: &Expression) -> bool {
         Expression::EnumVariantPath { .. } => false,
         Expression::EnumVariant { payloads, .. } => payloads.iter().any(contains_self_placeholder),
         Expression::Try { expr, .. } => contains_self_placeholder(expr),
-        Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+        Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
             contains_self_placeholder(value)
         }
         Expression::UseMacro { inner } => contains_self_placeholder(inner),
@@ -266,6 +266,10 @@ pub(super) fn replace_self_placeholder(expr: Expression, replacement: &Expressio
             data_type,
         },
         Expression::Err { value, data_type } => Expression::Err {
+            value: Box::new(replace_self_placeholder(*value, replacement)),
+            data_type,
+        },
+        Expression::Some { value, data_type } => Expression::Some {
             value: Box::new(replace_self_placeholder(*value, replacement)),
             data_type,
         },

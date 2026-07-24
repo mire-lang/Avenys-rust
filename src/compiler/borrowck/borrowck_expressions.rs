@@ -113,7 +113,7 @@ impl BorrowChecker<'_> {
                     self.mark_moved_if_non_copy(&name);
                 }
             }
-            Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+            Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
                 self.check_expression(value)?;
                 if let Some(name) = Self::identifier_name(value) {
                     self.mark_moved_if_non_copy(&name);

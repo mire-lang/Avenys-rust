@@ -14,7 +14,7 @@
 
 [meta]
 generated_from = "src/compiler/mir/codegen/builtins.rs"
-symbol_count = 64
+symbol_count = 120
 
 [symbol.ireru]
 target = "ireru"
@@ -287,22 +287,22 @@ impl = "src/runtime/strings.c"
 [symbol.rt_dict_get_i64]
 target = "rt_dict_get_i64"
 category = "runtime"
-impl = "src/runtime/dicts.c"
+impl = "src/runtime/maps.c"
 
 [symbol.rt_dict_get_ptr]
 target = "rt_dict_get_ptr"
 category = "runtime"
-impl = "src/runtime/dicts.c"
+impl = "src/runtime/maps.c"
 
 [symbol.rt_dict_set_i64]
 target = "rt_dict_set_i64"
 category = "runtime"
-impl = "src/runtime/dicts.c"
+impl = "src/runtime/maps.c"
 
 [symbol.rt_dict_set_ptr]
 target = "rt_dict_set_ptr"
 category = "runtime"
-impl = "src/runtime/dicts.c"
+impl = "src/runtime/maps.c"
 
 [symbol.rt_f64_to_string]
 target = "rt_f64_to_string"
@@ -378,4 +378,284 @@ impl = "src/runtime/runtime.h"
 target = "rt_thread_spawn_closure"
 category = "runtime"
 impl = "src/runtime/runtime.h"
+
+[symbol.rt_arr_contains_i64]
+target = "rt_arr_contains_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_first_i64]
+target = "rt_arr_first_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_index_of_i64]
+target = "rt_arr_index_of_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_join]
+target = "rt_arr_join"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_last_i64]
+target = "rt_arr_last_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_len]
+target = "rt_arr_len"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_reverse_i64]
+target = "rt_arr_reverse_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_check_bounds_i64]
+target = "rt_check_bounds_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_crypto_base64_decode]
+target = "rt_crypto_base64_decode"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_base64_encode]
+target = "rt_crypto_base64_encode"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_hex_decode]
+target = "rt_crypto_hex_decode"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_hex_encode]
+target = "rt_crypto_hex_encode"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_hmac_sha256]
+target = "rt_crypto_hmac_sha256"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_hmac_sha256_hex]
+target = "rt_crypto_hmac_sha256_hex"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_sha256]
+target = "rt_crypto_sha256"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_crypto_sha256_hex]
+target = "rt_crypto_sha256_hex"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_div_i64]
+target = "rt_div_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_lists_first]
+target = "rt_lists_first"
+category = "runtime"
+impl = "src/runtime/vecs.c"
+
+[symbol.rt_lists_last]
+target = "rt_lists_last"
+category = "runtime"
+impl = "src/runtime/vecs.c"
+
+[symbol.rt_maybe_free]
+target = "rt_maybe_free"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_is_none]
+target = "rt_maybe_is_none"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_is_some]
+target = "rt_maybe_is_some"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_none_as_ptr]
+target = "rt_maybe_none_as_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_f64]
+target = "rt_maybe_some_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_i64]
+target = "rt_maybe_some_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_ptr]
+target = "rt_maybe_some_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_str]
+target = "rt_maybe_some_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_f64]
+target = "rt_maybe_unwrap_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_i64]
+target = "rt_maybe_unwrap_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_f64]
+target = "rt_maybe_unwrap_or_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_i64]
+target = "rt_maybe_unwrap_or_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_ptr]
+target = "rt_maybe_unwrap_or_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_str]
+target = "rt_maybe_unwrap_or_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_ptr]
+target = "rt_maybe_unwrap_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_str]
+target = "rt_maybe_unwrap_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_panic_loc]
+target = "rt_panic_loc"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_rem_i64]
+target = "rt_rem_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_result_err_i64]
+target = "rt_result_err_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_payload]
+target = "rt_result_err_payload"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_ptr]
+target = "rt_result_err_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_str]
+target = "rt_result_err_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_free]
+target = "rt_result_free"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_is_err]
+target = "rt_result_is_err"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_is_ok]
+target = "rt_result_is_ok"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_i64]
+target = "rt_result_ok_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_ptr]
+target = "rt_result_ok_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_str]
+target = "rt_result_ok_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_err_str]
+target = "rt_result_unwrap_err_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_f64]
+target = "rt_result_unwrap_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_i64]
+target = "rt_result_unwrap_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_or_f64]
+target = "rt_result_unwrap_or_f64"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_or_i64]
+target = "rt_result_unwrap_or_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_or_ptr]
+target = "rt_result_unwrap_or_ptr"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_or_str]
+target = "rt_result_unwrap_or_str"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_ptr]
+target = "rt_result_unwrap_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_str]
+target = "rt_result_unwrap_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
 

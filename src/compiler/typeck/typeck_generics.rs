@@ -54,6 +54,9 @@ impl TypeChecker {
                 ok: Box::new(self.substitute_generics(ok, bindings)),
                 err: Box::new(self.substitute_generics(err, bindings)),
             },
+            DataType::Maybe { inner } => DataType::Maybe {
+                inner: Box::new(self.substitute_generics(inner, bindings)),
+            },
             other => other.clone(),
         }
     }

@@ -278,10 +278,14 @@ The runtime core is platform-independent C code that provides:
 
 | File | Purpose |
 |------|---------|
-| `managed.c` | Ref-counted strings (`rt_managed_*`) |
-| `strings.c` | String ops (concat, split, substr, format, ...) |
-| `lists.c` | List ops (create, push, pop, concat, slice) |
-| `dicts.c` | Dict ops (get, set, keys, values, get_i64) |
+| `strings.c` | String ops (concat, split, substr, format, trim) |
+| `vecs.c` | Vec ops (create, push, pop, len, get, sort, remove, clear) |
+| `maps.c` | Map ops (get, set, keys, values, has, len, remove) |
+| `maps_internal.h/c` | Internal hash/bucket helpers for maps |
+| `mire_types.c` | Maybe/Result/Arr implementations, panic with location |
+| `safety.c` | Integer division safety (div/rem), bounds checking |
+| `crypto.c` | SHA-256, HMAC-SHA256, base64, hex encode/decode |
+| `runtime.h` | All runtime declarations, WASM export macros, math wrappers |
 
 These are always linked regardless of platform. They use only standard C
 (malloc, memcpy, sprintf) and no OS-specific APIs.

@@ -2,6 +2,68 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.22.0] - 2026-07-24 (Runtime Production Readiness)
+
+### Added
+
+- **`?` operator for `result[T E]`**: Error propagation in MIR lowerer. If the
+  value is `Ok(v)`, unwraps to `v`; if `Err(e)`, returns early from the enclosing
+  function with `Err(e)`. Requires the enclosing function to return `result[T E]`.
+  Uses `rt_result_is_err` / `rt_result_unwrap_i64/str/f64/ptr` for type-specific
+  unwrapping. Implemented in `src/compiler/mir/lower/expr.rs`.
+- **`?` operator for `maybe[T]`**: Same semantics for Maybe — if `Some(v)`,
+  unwraps; if `None`, returns early. Uses `rt_maybe_is_none` /
+  `rt_maybe_unwrap_i64/str/f64/ptr`.
+- **New runtime functions for `?`**: `rt_maybe_unwrap_f64`, `rt_maybe_unwrap_ptr`,
+  `rt_result_unwrap_str`, `rt_result_unwrap_f64`, `rt_result_unwrap_ptr`,
+  `rt_result_err_payload`, `rt_maybe_none_as_ptr` in `src/runtime/mire_types.c`.
+- **`rt_result_err_i64/str/ptr`**: Error constructors for Result (previously only
+  `ok` variants existed).
+- **`rt_result_unwrap_or_f64/str/ptr`**: Default-value unwrapping for Result.
+  Implemented in `src/runtime/mire_types.c` (were previously only declared in
+  `runtime.h` without implementations).
+- **`rt_panic_loc`**: Runtime panic with source location. All runtime safety
+  functions (division by zero, index out of bounds, unwrap on None/Err) now
+  report file:line:col.
+- **Crypto module**: Pure C implementation of SHA-256, HMAC-SHA256, base64,
+  and hex encode/decode in `src/runtime/crypto.c`. Zero external binary
+  dependencies.
+- **File renames**: `src/runtime/lists.c` → `vecs.c`, `dicts.c` → `maps.c`.
+  New `rt_maps_*`/`rt_vecs_*` alias functions added. Old names kept for
+  backward compatibility.
+- **Maps modularization**: `maps.c` split into `maps_internal.h`,
+  `maps_internal.c`, `maps.c` — hash/bucket internals separated from public API.
+- **WASM export macros**: `MIRE_EXPORT`, `MIRE_WASM_EXPORT(name)` in
+  `runtime.h` — no-op on native, export attribute on `__wasm__`.
+- **`docs/abi_map.toml`**: 56 new symbol entries (crypto, arr, result, maybe,
+  safety functions). Updated `dicts.c` → `maps.c` impl references.
+
+### Fixed
+
+- **Runtime safety spans**: All panic paths now report source location (file, line,
+  column): division by zero (`safety.c`), index out of bounds (`safety.c`),
+  unwrap on None (`mire_types.c`), unwrap on Err (`mire_types.c`),
+  first/last on empty vec/arr (`vecs.c`/`mire_types.c`).
+- **`INT64_MIN / -1` undefined behavior**: `safety.c` now guards against this
+  edge case.
+- **Dict string leaks**: `store_value`/`store_key` now duplicate managed strings
+  instead of reusing raw pointers. `rt_dict_remove`/`rt_dict_free` use
+  `rt_managed_free()`.
+- **`rt_arr_join` leak**: Intermediate string from `rt_managed_from_cstr` is now
+  freed after concatenation.
+- **Missing `rt_result_unwrap_or_f64/str/ptr` implementations**: These functions
+  were declared in `runtime.h` but had no C implementation — linker would fail
+  when they were referenced.
+- **Dead code**: Removed unused `lower_try_operand` function from MIR lowerer.
+
+### Changed
+
+- **`?` operator lowering inlined into `Expression::Try`**: Previously dead code
+  path that was never invoked. Now the full error propagation logic lives in
+  the `Expression::Try` match arm in `lower_expression`.
+- **ABI map updated**: 120 symbols catalogued, matching all `declare` statements
+  in `src/compiler/mir/codegen/builtins.rs`.
+
 ## [3.20.1] - 2026-07-23 (Warning/Error diagnostic fixes)
 
 ### Fixed

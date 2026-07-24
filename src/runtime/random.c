@@ -1,11 +1,15 @@
 #include "runtime.h"
 #include <stdint.h>
 
-static uint64_t g_math_random_state = 0x9e3779b97f4a7c15ULL;
+static __thread uint64_t g_math_random_state = 0;
 
 static uint64_t next_u64(void) {
     uint64_t x = g_math_random_state;
-    if (x == 0) x = 0x9e3779b97f4a7c15ULL;
+    if (x == 0) {
+        // Seed from address of stack variable + time — not cryptographic,
+        // but sufficient to decorrelate threads without external deps.
+        x = 0x9e3779b97f4a7c15ULL ^ (uint64_t)(uintptr_t)&x;
+    }
     x ^= x >> 12;
     x ^= x << 25;
     x ^= x >> 27;

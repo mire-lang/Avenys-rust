@@ -310,6 +310,29 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
             });
         }
         (
+            DataType::Maybe {
+                inner: left_inner,
+            },
+            DataType::Maybe {
+                inner: right_inner,
+            },
+        ) => {
+            let inner = unify_types(left_inner, right_inner)?;
+            return Ok(DataType::Maybe {
+                inner: Box::new(inner),
+            });
+        }
+        (DataType::Maybe { inner }, _) if *right == DataType::Unknown => {
+            return Ok(DataType::Maybe {
+                inner: inner.clone(),
+            });
+        }
+        (_, DataType::Maybe { inner }) if *left == DataType::Unknown => {
+            return Ok(DataType::Maybe {
+                inner: inner.clone(),
+            });
+        }
+        (
             DataType::Ref { inner: left_inner } | DataType::RefMut { inner: left_inner },
             DataType::Ref { inner: right_inner } | DataType::RefMut { inner: right_inner },
         ) => {
@@ -515,6 +538,16 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
             },
         ) => {
             return is_assignable(expected_ok, actual_ok) && is_assignable(expected_err, actual_err);
+        }
+        (
+            DataType::Maybe {
+                inner: expected_inner,
+            },
+            DataType::Maybe {
+                inner: actual_inner,
+            },
+        ) => {
+            return is_assignable(expected_inner, actual_inner);
         }
         (
             DataType::Array {

@@ -75,6 +75,10 @@ pub enum DataType {
         ok: Box<DataType>,
         err: Box<DataType>,
     },
+    /// Represents an optional value: `some(value)` or `none`.
+    Maybe {
+        inner: Box<DataType>,
+    },
     /// Closure as a first-class value with explicit signature.
     /// Stores params and return type for type-safe closure usage.
     Closure {
@@ -316,6 +320,10 @@ pub enum Expression {
         data_type: DataType,
     },
     Err {
+        value: Box<Expression>,
+        data_type: DataType,
+    },
+    Some {
         value: Box<Expression>,
         data_type: DataType,
     },

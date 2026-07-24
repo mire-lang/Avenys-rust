@@ -80,14 +80,13 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
         }
     } else {
         out.push_str(&format!(
-            "│     │ <location recorded at {}:{}>\n",
-            span.line, span.column
+            "│     │ <no source location available>\n"
         ));
     }
 
     out.push_str(&format!("╰─ {}\n", diag.message));
     if span.is_unknown() {
-        out.push_str("   ─┬─ note: position recorded as 0:0; compiler bug or toolchain error\n");
+        out.push_str("   ─┬─ note: toolchain error (no source location available)\n");
     }
     for note in &diag.notes {
         out.push_str(&format!("   ─┬─ note: {}\n", note));

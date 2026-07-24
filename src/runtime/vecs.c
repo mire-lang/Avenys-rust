@@ -30,7 +30,7 @@ static void *list_grow(void *list_ptr, int64_t elem_size) {
     int64_t new_cap = old_cap < 4 ? 4 : old_cap + (old_cap >> 1);
     int64_t *old_ptr = ((int64_t *)list_ptr) - 1;
     int64_t *new_ptr = (int64_t *)realloc(old_ptr, 16 + new_cap * elem_size);
-    if (!new_ptr) return list_ptr;
+    if (!new_ptr) return NULL;
     new_ptr[0] = new_cap;
     new_ptr[1] = old_len;
     return new_ptr + 1;
@@ -43,7 +43,10 @@ void *rt_list_push_i64(void *list_ptr, int64_t value) {
     }
     int64_t len = rt_list_len(list_ptr);
     int64_t cap = list_cap(list_ptr);
-    if (len >= cap) list_ptr = list_grow(list_ptr, 8);
+    if (len >= cap) {
+        list_ptr = list_grow(list_ptr, 8);
+        if (!list_ptr) return NULL;
+    }
     ((int64_t *)list_ptr)[len + 1] = value;
     ((int64_t *)list_ptr)[0] = len + 1;
     return list_ptr;
@@ -56,7 +59,10 @@ void *rt_list_push_ptr(void *list_ptr, void *value) {
     }
     int64_t len = rt_list_len(list_ptr);
     int64_t cap = list_cap(list_ptr);
-    if (len >= cap) list_ptr = list_grow(list_ptr, 8);
+    if (len >= cap) {
+        list_ptr = list_grow(list_ptr, 8);
+        if (!list_ptr) return NULL;
+    }
     ((void **)list_ptr)[len + 1] = value;
     ((int64_t *)list_ptr)[0] = len + 1;
     return list_ptr;
@@ -69,7 +75,10 @@ void *rt_list_push_scalar(void *list_ptr, int64_t value, int64_t elem_size) {
     }
     int64_t len = rt_list_len(list_ptr);
     int64_t cap = list_cap(list_ptr);
-    if (len >= cap) list_ptr = list_grow(list_ptr, elem_size > 0 ? elem_size : 8);
+    if (len >= cap) {
+        list_ptr = list_grow(list_ptr, elem_size > 0 ? elem_size : 8);
+        if (!list_ptr) return NULL;
+    }
     if (elem_size == 8) {
         ((int64_t *)list_ptr)[len + 1] = value;
     } else if (elem_size == 4) {
@@ -202,13 +211,15 @@ void *rt_lists_sort(void *list) {
 char *rt_lists_join_list(void *list, const char *sep) {
     return rt_strings_join_list(list, sep);
 }
-int64_t rt_lists_first(void *list) {
-    if (rt_list_len(list) <= 0) return 0;
+int64_t rt_lists_first(void *list, int64_t line, int64_t col, const char *file) {
+    if (rt_list_len(list) <= 0)
+        rt_panic_loc("called first() on empty vec", line, col, file);
     return rt_list_get_i64(list, 0);
 }
-int64_t rt_lists_last(void *list) {
+int64_t rt_lists_last(void *list, int64_t line, int64_t col, const char *file) {
     int64_t len = rt_list_len(list);
-    if (len <= 0) return 0;
+    if (len <= 0)
+        rt_panic_loc("called last() on empty vec", line, col, file);
     return rt_list_get_i64(list, len - 1);
 }
 
@@ -266,3 +277,27 @@ void *rt_lists_unique(void *list) {
     ((int64_t *)result)[0] = out_len;
     return result;
 }
+
+// ── Vecs module aliases (rt_vecs_*) ──────────────────────────────────
+int64_t rt_vecs_len(void *vec) { return rt_list_len(vec); }
+int64_t rt_vecs_get_i64(void *vec, int64_t index) { return rt_list_get_i64(vec, index); }
+void   *rt_vecs_get_ptr(void *vec, int64_t index) { return rt_list_get_ptr(vec, index); }
+void   *rt_vecs_push_i64(void *vec, int64_t value) { return rt_list_push_i64(vec, value); }
+void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
+int64_t rt_vecs_pop(void *vec) { return rt_list_pop_i64(vec); }
+void   *rt_vecs_slice(void *vec, int64_t start, int64_t end) { return rt_list_slice(vec, start, end); }
+void   *rt_vecs_concat(void *a, void *b) { return rt_list_concat(a, b); }
+void   *rt_vecs_remove(void *vec, int64_t index) { return rt_list_remove(vec, index); }
+void   *rt_vecs_clear(void *vec) { return rt_list_clear(vec); }
+void   *rt_vecs_flatten(void *vec) { return rt_lists_flatten(vec); }
+void   *rt_vecs_sort(void *vec) { return rt_lists_sort(vec); }
+void   *rt_vecs_reverse(void *vec) { return rt_lists_reverse(vec); }
+void   *rt_vecs_unique(void *vec) { return rt_lists_unique(vec); }
+int64_t rt_vecs_first(void *vec, int64_t line, int64_t col, const char *file) {
+    return rt_lists_first(vec, line, col, file);
+}
+int64_t rt_vecs_last(void *vec, int64_t line, int64_t col, const char *file) {
+    return rt_lists_last(vec, line, col, file);
+}
+int64_t rt_vecs_contains_i64(void *vec, int64_t needle) { return rt_lists_contains_i64(vec, needle); }
+int64_t rt_vecs_index_of_i64(void *vec, int64_t needle) { return rt_lists_index_of_i64(vec, needle); }

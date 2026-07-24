@@ -351,6 +351,9 @@ pub(super) fn data_type_name(data_type: &DataType) -> String {
         DataType::Result { ok, err } => {
             format!("result[{} {}]", data_type_name(ok), data_type_name(err))
         }
+        DataType::Maybe { inner } => {
+            format!("maybe[{}]", data_type_name(inner))
+        }
         DataType::StructNamed(name) | DataType::EnumNamed(name) | DataType::Generic(name) => {
             name.clone()
         }

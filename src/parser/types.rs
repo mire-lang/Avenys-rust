@@ -178,6 +178,14 @@ impl Parser {
                         err: err_type,
                     })
                 }
+                "maybe" => {
+                    self.expect(TokenType::Lbracket)?;
+                    let inner_type = Box::new(self.parse_type()?);
+                    self.expect(TokenType::Rbracket)?;
+                    Ok(DataType::Maybe {
+                        inner: inner_type,
+                    })
+                }
                 other => {
                     if self.check(TokenType::Bang) {
                         self.advance();

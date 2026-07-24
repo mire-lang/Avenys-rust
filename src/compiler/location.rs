@@ -46,7 +46,8 @@ pub fn expression_location(expression: &Expression) -> Span {
         | Expression::Pipeline { input: left, .. }
         | Expression::Try { expr: left, .. }
         | Expression::Ok { value: left, .. }
-        | Expression::Err { value: left, .. } => expression_location(left),
+        | Expression::Err { value: left, .. }
+        | Expression::Some { value: left, .. } => expression_location(left),
         Expression::UnaryOp { operand, .. } => expression_location(operand),
         Expression::Call {
             name_line,

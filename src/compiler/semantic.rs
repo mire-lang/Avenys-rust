@@ -561,7 +561,7 @@ impl SemanticModelBuilder {
             Expression::Try { expr, .. } => {
                 self.visit_expression(expr);
             }
-            Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+            Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
                 self.visit_expression(value);
             }
             Expression::Literal(_) | Expression::Identifier(_) => {}

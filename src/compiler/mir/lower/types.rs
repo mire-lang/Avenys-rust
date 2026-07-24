@@ -32,6 +32,7 @@ pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
         Expression::Try { data_type, .. } => data_type.clone(),
         Expression::Ok { data_type, .. } => data_type.clone(),
         Expression::Err { data_type, .. } => data_type.clone(),
+        Expression::Some { data_type, .. } => data_type.clone(),
         Expression::Match { data_type, .. } => data_type.clone(),
         Expression::EnumVariantPath { data_type, .. } => data_type.clone(),
         Expression::EnumVariant { data_type, .. } => data_type.clone(),
@@ -62,6 +63,7 @@ pub(crate) fn is_pointer_valued_type(dt: &DataType) -> bool {
             | DataType::Datetime
             | DataType::DynTrait { .. }
             | DataType::Result { .. }
+            | DataType::Maybe { .. }
             | DataType::Anything
             | DataType::Unknown
     )
@@ -88,6 +90,7 @@ pub(crate) fn is_trivial_deref(source: &DataType, target: &DataType) -> bool {
             | DataType::Slice { .. }
             | DataType::DynTrait { .. }
             | DataType::Result { .. }
+            | DataType::Maybe { .. }
     )
 }
 
