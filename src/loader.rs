@@ -500,22 +500,19 @@ impl<'a> ImportResolver<'a> {
 
         let mut selected = Vec::new();
         for export in &parsed.exports {
-            let export_tail = export
+            let normalized = export.replace("::", ".");
+            let export_tail = normalized
                 .rsplit_once('.')
-                .map_or(export.as_str(), |(_, tail)| tail);
+                .map_or(normalized.as_str(), |(_, tail)| tail);
             let prefixed = module_prefix.map(|prefix| format!("{prefix}.{export_tail}"));
-            let prefixed_double_colon =
-                module_prefix.map(|prefix| format!("{prefix}::{export_tail}"));
             if candidates.contains(export)
+                || candidates.contains(&normalized)
                 || candidates.contains(export_tail)
                 || prefixed
                     .as_ref()
                     .is_some_and(|value| candidates.contains(value))
-                || prefixed_double_colon
-                    .as_ref()
-                    .is_some_and(|value| candidates.contains(value))
             {
-                selected.push(export_tail.to_string());
+                selected.push(export.to_string());
             }
         }
 
@@ -1178,9 +1175,6 @@ impl<'a> ModuleRenamer<'a> {
     }
 
     fn should_prefix(&self, name: &str, scope_stack: &[HashSet<String>]) -> bool {
-        // Skip names that already contain a prefix (introduced by a prior pass).
-        // Function names in mire are plain identifiers without dots natively,
-        // so a dot means the name was already prefixed by a nested load.
         self.module_symbols.contains(name) && !is_shadowed(scope_stack, name) && !name.contains('.')
     }
 

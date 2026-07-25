@@ -198,6 +198,16 @@ impl MireError {
         self
     }
 
+    pub fn ensure_context(mut self, filename: &str, source: &str) -> Self {
+        if self.diagnostic.filename.is_none() {
+            self = self.with_filename(filename.to_string());
+        }
+        if self.diagnostic.source.is_none() {
+            self = self.with_source(source.to_string());
+        }
+        self
+    }
+
     pub fn with_explanation(mut self, explanation: String) -> Self {
         self.context_mut().explanation = Some(explanation.clone());
         self.diagnostic.notes.push(explanation);

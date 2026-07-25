@@ -2,6 +2,45 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.0] - 2026-07-26 (`::` Preservation & Normalization)
+
+### Fixed
+
+- **`::` naming convention preserved in AST**: Parser now keeps `::` separators in
+  function declaration names (`pub fn get::i64:` → AST name `get::i64` instead of
+  `get.i64`). This allows the renamer to correctly distinguish original names from
+  already-prefixed names, fixing double-prefixing in nested module loads (e.g.,
+  `http.server.server.mime`).
+- **`::` → `.` normalization at boundaries**: Normalization is applied exactly once
+  at each compiler boundary where `.` is required:
+  - Type checker: `collect_function_signatures`, `collect_function_return_signatures`,
+    `check_function_statement` normalize when inserting into function lookup tables.
+  - MIR lowerer: `MirFunction::new`, `seen_functions`, extern function names are
+    normalized to `.` for LLVM compatibility.
+  - Codegen: `sanitize_fn_name` normalizes `::` to `.` for valid LLVM IR identifiers.
+  - Loader: `infer_reachable_import_items` normalizes exports when matching against
+    call candidates.
+- **Expression parser `::` chains**: `name::member(args)` now correctly parses as a
+  Call expression with a while-loop that handles arbitrary-length chains
+  (`maybe::unwrap::i64::or(args)` → `maybe.unwrap.i64.or`).
+- **Expression parser `.` Call expressions**: `name.member(args)` now also parses as
+  a Call expression instead of requiring an explicit `::` separator.
+- **Keyword support in function names**: `expect_ident()` and `is_member_name_token()`
+  now handle `Is`, `To`, `Find` keywords, enabling names like `is::some`, `to::str`,
+  `find::first`.
+- **Error formatting for unknown spans**: Errors with unknown spans but known
+  filenames now show just the filename (no `0:0`), and the "toolchain error" note
+  only appears when BOTH span and filename are unknown.
+- **Source text in diagnostics**: `ensure_context()` method on `MireError` ensures
+  all errors carry filename and source text before reaching the CLI, enabling
+  source text rendering in error output.
+
+### Changed
+
+- **`infer_reachable_import_items`**: Simplified `::` matching — exports are now
+  normalized to `.` before comparing against call candidates, removing the
+  `prefixed_double_colon` special case.
+
 ## [3.23.0] - 2026-07-25 (Source Span Coverage)
 
 ### Added

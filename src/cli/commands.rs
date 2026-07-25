@@ -111,45 +111,49 @@ pub(crate) fn check_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
     let suppress_warn = is_under_test_path(&path, &test_roots);
     let warn_filter_off = matches!(common.warn.filter, WarningFilter::Off);
     let source = fs::read_to_string(&path).map_err(runtime_err)?;
-    let loaded = load_program_with_metadata(&path)?;
-    let mut program = loaded.program;
-    let mut analysis_program = program.clone();
-    let _ = analyze_program(&mut analysis_program, &source)?;
-    let report = analyze_program_with_warnings_and_origins(
-        &mut program,
-        &source,
-        Some(&path.display().to_string()),
-        WarningConfig {
-            filter: common.warn.filter,
-            deny: common.warn.deny,
-        },
-        &loaded.statement_origins,
-        &path,
-    )?;
+    let source_filename = path.display().to_string();
+    let check = || -> Result<i32, MireError> {
+        let loaded = load_program_with_metadata(&path)?;
+        let mut program = loaded.program;
+        let mut analysis_program = program.clone();
+        let _ = analyze_program(&mut analysis_program, &source)?;
+        let report = analyze_program_with_warnings_and_origins(
+            &mut program,
+            &source,
+            Some(&source_filename),
+            WarningConfig {
+                filter: common.warn.filter,
+                deny: common.warn.deny,
+            },
+            &loaded.statement_origins,
+            &path,
+        )?;
 
-    let filtered_diags: Vec<_> = report
-        .diagnostics
-        .iter()
-        .filter(|d| !should_suppress(d.code.name(), &common.warn.no_warn_cats))
-        .cloned()
-        .collect();
-    let mut has_error = false;
-    if !suppress_warn && !warn_filter_off {
-        if common.warn.position {
-            for diagnostic in &filtered_diags {
-                eprintln!("{}", format_diagnostic(diagnostic, true));
-                if matches!(diagnostic.severity, Severity::Error) {
-                    has_error = true;
+        let filtered_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| !should_suppress(d.code.name(), &common.warn.no_warn_cats))
+            .cloned()
+            .collect();
+        let mut has_error = false;
+        if !suppress_warn && !warn_filter_off {
+            if common.warn.position {
+                for diagnostic in &filtered_diags {
+                    eprintln!("{}", format_diagnostic(diagnostic, true));
+                    if matches!(diagnostic.severity, Severity::Error) {
+                        has_error = true;
+                    }
                 }
+            } else {
+                print_warning_summary(&filtered_diags);
+                has_error = filtered_diags.iter().any(|d| matches!(d.severity, Severity::Error));
             }
         } else {
-            print_warning_summary(&filtered_diags);
             has_error = filtered_diags.iter().any(|d| matches!(d.severity, Severity::Error));
         }
-    } else {
-        has_error = filtered_diags.iter().any(|d| matches!(d.severity, Severity::Error));
-    }
-    Ok(if has_error { 1 } else { 0 })
+        Ok(if has_error { 1 } else { 0 })
+    };
+    check().map_err(|err| err.ensure_context(&source_filename, &source))
 }
 
 pub(crate) fn debug_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {

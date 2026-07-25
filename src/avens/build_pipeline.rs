@@ -547,9 +547,27 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
 }
 
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
-    let build_start = std::time::Instant::now();
-    let source = fs::read_to_string(source_path)?;
+    let source = fs::read_to_string(source_path).map_err(|err| {
+        crate::error::MireError::runtime(format!(
+            "Could not read '{}': {}",
+            source_path.display(),
+            err
+        ))
+    })?;
     let source_filename = source_path.display().to_string();
+    match compile_file_inner(source_path, options, &source, &source_filename) {
+        Ok(result) => Ok(result),
+        Err(err) => Err(err.ensure_context(&source_filename, &source)),
+    }
+}
+
+fn compile_file_inner(
+    source_path: &Path,
+    options: &BuildOptions,
+    source: &str,
+    source_filename: &str,
+) -> Result<BuildResult> {
+    let build_start = std::time::Instant::now();
     let output_dir = default_output_dir(source_path, options.mode);
     fs::create_dir_all(&output_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
@@ -756,12 +774,12 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
 
         if let Err(err) = analysis_result {
             let err = if err.source().is_none() {
-                err.with_source(source.clone())
+                err.with_source(source.to_string())
             } else {
                 err
             };
             let err = if err.filename().is_none() {
-                err.with_filename(source_filename.clone())
+                err.with_filename(source_filename.to_string())
             } else {
                 err
             };

@@ -188,7 +188,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         } = stmt
         {
             extern_functions.push(MirExternFunction {
-                name: name.clone(),
+                name: name.replace("::", "."),
                 lib_name: lib_name.clone(),
                 params: params.iter().map(|(_, t)| t.clone()).collect(),
                 return_type: return_type.clone(),
@@ -229,7 +229,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
 
     for stmt in &program.statements {
         if let Statement::Function { name, .. } = stmt {
-            seen_functions.insert(name.clone());
+            seen_functions.insert(name.replace("::", "."));
         }
         if let Statement::Impl {
             type_name, methods, ..
@@ -237,7 +237,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         {
             for method in methods {
                 if let Statement::Function { name, .. } = method {
-                    seen_functions.insert(format!("{}.{}", type_name, name));
+                    seen_functions.insert(format!("{}.{}", type_name.replace("::", "."), name.replace("::", ".")));
                 }
             }
         }
@@ -288,7 +288,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 body,
                 ..
             } => {
-                if !seen_functions.insert(name.clone()) {
+                if !seen_functions.insert(name.replace("::", ".")) {
                     continue;
                 }
                 let mir_params = params
@@ -300,7 +300,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                     .collect();
 
                 let mut lower = MirLower {
-                    func: MirFunction::new(name.clone(), mir_params, return_type.clone()),
+                    func: MirFunction::new(name.replace("::", "."), mir_params, return_type.clone()),
                     next_temp: 0,
                     vars: HashMap::new(),
                     var_types: HashMap::new(),
@@ -347,7 +347,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                         ..
                     } = method
                     {
-                        let full_name = format!("{}.{}", type_name, name);
+                        let full_name = format!("{}.{}", type_name.replace("::", "."), name.replace("::", "."));
                         if !seen_functions.insert(full_name.clone()) {
                             continue;
                         }

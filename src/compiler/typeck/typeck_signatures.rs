@@ -18,7 +18,7 @@ impl TypeChecker {
                     ..
                 } => {
                     self.functions.insert(
-                        name.clone(),
+                        name.replace("::", "."),
                         FunctionSig {
                             type_params: type_params.clone(),
                             type_param_bounds: type_param_bounds.clone(),
@@ -34,7 +34,7 @@ impl TypeChecker {
                     ..
                 } => {
                     self.functions.insert(
-                        name.clone(),
+                        name.replace("::", "."),
                         FunctionSig {
                             type_params: Vec::new(),
                             type_param_bounds: Vec::new(),
@@ -166,7 +166,7 @@ impl TypeChecker {
                     if *return_type == DataType::Function
                         && let Some(sig) = self.infer_returned_function_signature(body)
                     {
-                        self.function_return_signatures.insert(name.clone(), sig);
+                        self.function_return_signatures.insert(name.replace("::", "."), sig);
                     }
                 }
                 Statement::Impl {

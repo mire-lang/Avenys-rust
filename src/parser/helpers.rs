@@ -15,6 +15,7 @@ impl Parser {
             TokenType::OwnKw => "own",
             TokenType::Set => "set",
             TokenType::To => "to",
+            TokenType::Is => "is",
             _ => return Err(self.error("Expected identifier")),
         };
         self.advance();
@@ -194,6 +195,9 @@ impl Parser {
                 | TokenType::DropKw
                 | TokenType::MoveKw
                 | TokenType::OwnKw
+                | TokenType::Is
+                | TokenType::To
+                | TokenType::Find
         )
     }
 

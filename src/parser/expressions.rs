@@ -855,39 +855,55 @@ impl Parser {
                     });
                 }
                 if self.check_double_colon() && Self::is_member_name_token(self.peek_n(2).ttype) {
-                    self.advance();
-                    self.advance();
-                    let member = self.expect_member_name()?;
+                    let mut full_name = name.clone();
+                    while self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon && Self::is_member_name_token(self.peek_n(2).ttype) {
+                        self.advance(); // first :
+                        self.advance(); // second :
+                        full_name.push('.');
+                        full_name.push_str(&self.expect_member_name()?);
+                    }
 
                     if self.check(TokenType::Dot) && self.peek_n(1).ttype == TokenType::Ident {
-                        if self.enum_names.contains(&member) {
+                        let last_part = full_name.split('.').last().unwrap_or("");
+                        if self.enum_names.contains(last_part) {
                             self.advance();
                             let variant_name = self.advance().value.unwrap_or_default();
-                            let enum_name = format!("{}::{}", name, member);
                             if self.check(TokenType::Lparen) {
                                 let payloads = self.parse_enum_variant_arguments()?;
                                 return Ok(Expression::EnumVariant {
-                                    enum_name: enum_name.clone(),
+                                    enum_name: full_name.clone(),
                                     variant_name,
                                     payloads,
-                                    data_type: DataType::EnumNamed(enum_name),
+                                    data_type: DataType::EnumNamed(full_name),
                                     line: token.line,
                                     column: token.column,
                                 });
                             }
                             return Ok(Expression::EnumVariantPath {
-                                enum_name: enum_name.clone(),
+                                enum_name: full_name.clone(),
                                 variant_name,
-                                data_type: DataType::EnumNamed(enum_name),
+                                data_type: DataType::EnumNamed(full_name),
                                 line: token.line,
                                 column: token.column,
                             });
                         }
                     }
 
+                    if self.check(TokenType::Lparen) {
+                        let args = self.parse_call_arguments()?;
+                        return Ok(Expression::Call {
+                            name: full_name,
+                            args,
+                            type_args: Vec::new(),
+                            name_line: token.line,
+                            name_column: token.column,
+                            data_type: DataType::Unknown,
+                        });
+                    }
+
                     return Ok(Expression::MemberAccess {
                         target: Box::new(identifier_expr_with_pos(&name, token.line, token.column)),
-                        member,
+                        member: full_name.strip_prefix(&format!("{}.", name)).unwrap_or(&full_name).to_string(),
                         data_type: DataType::Unknown,
                     });
                 }
@@ -922,6 +938,18 @@ impl Parser {
                     }
                     self.advance();
                     let member = self.expect_member_name()?;
+                    if self.check(TokenType::Lparen) {
+                        let full_name = format!("{}.{}", name, member);
+                        let args = self.parse_call_arguments()?;
+                        return Ok(Expression::Call {
+                            name: full_name,
+                            args,
+                            type_args: Vec::new(),
+                            name_line: token.line,
+                            name_column: token.column,
+                            data_type: DataType::Unknown,
+                        });
+                    }
                     return Ok(Expression::MemberAccess {
                         target: Box::new(identifier_expr_with_pos(&name, token.line, token.column)),
                         member,

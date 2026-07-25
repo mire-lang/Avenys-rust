@@ -37,14 +37,30 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
 
     let display_line = span.line.max(1);
     let display_col = span.column.max(1);
-    out.push_str(&format!(
-        "{}╭─[ {}:{}:{} ]{}\n",
-        c(use_color, "\x1b[1;36m"),
-        filename,
-        display_line,
-        display_col,
-        c(use_color, "\x1b[0m")
-    ));
+    if span.is_unknown() && diag.filename.is_some() {
+        out.push_str(&format!(
+            "{}╭─[ {} ]{}\n",
+            c(use_color, "\x1b[1;36m"),
+            filename,
+            c(use_color, "\x1b[0m")
+        ));
+    } else if span.is_unknown() {
+        out.push_str(&format!(
+            "{}╭─[ {} ]{}\n",
+            c(use_color, "\x1b[1;36m"),
+            filename,
+            c(use_color, "\x1b[0m")
+        ));
+    } else {
+        out.push_str(&format!(
+            "{}╭─[ {}:{}:{} ]{}\n",
+            c(use_color, "\x1b[1;36m"),
+            filename,
+            display_line,
+            display_col,
+            c(use_color, "\x1b[0m")
+        ));
+    }
 
     if !span.is_unknown() {
         // Source text resolution: try diag.source first, then read the file.
@@ -66,7 +82,7 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
     }
 
     out.push_str(&format!("╰─ {}\n", diag.message));
-    if span.is_unknown() && diag.code != DiagnosticCode::E0017 {
+    if span.is_unknown() && diag.filename.is_none() && diag.code != DiagnosticCode::E0017 {
         out.push_str("   ─┬─ note: toolchain error (no source location available)\n");
     }
     for note in &diag.notes {

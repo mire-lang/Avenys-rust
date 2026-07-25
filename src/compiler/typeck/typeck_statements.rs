@@ -338,7 +338,7 @@ impl TypeChecker {
         return_type: &mut DataType,
     ) -> Result<()> {
         self.functions.insert(
-            name.to_string(),
+            name.replace("::", "."),
             FunctionSig {
                 type_params: type_params.to_vec(),
                 type_param_bounds: type_param_bounds.to_vec(),

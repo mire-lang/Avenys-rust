@@ -345,7 +345,13 @@ impl Parser {
         let name_token = self.peek();
         let name_line = name_token.line;
         let name_column = name_token.column;
-        let name = self.expect_ident()?;
+        let mut name = self.expect_ident()?;
+        while self.check_double_colon() && Self::is_member_name_token(self.peek_n(2).ttype) {
+            self.advance();
+            self.advance();
+            let member = self.expect_member_name()?;
+            name = format!("{}::{}", name, member);
+        }
         let (type_params, type_param_bounds) = self.parse_optional_type_params_with_bounds()?;
         self.expect(TokenType::Colon)?;
         self.expect(TokenType::Lparen)?;

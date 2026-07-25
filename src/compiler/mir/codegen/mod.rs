@@ -122,6 +122,7 @@ pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) ->
 }
 
 fn sanitize_fn_name(name: &str) -> String {
+    let name = name.replace("::", ".");
     name.split_once('[')
         .map(|(base, rest)| {
             // base = "Box", rest = "T].get" → "Box.get"
