@@ -1,4 +1,5 @@
 use super::*;
+use crate::canonical_fn_name;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Literal, Program, Statement};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -188,7 +189,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         } = stmt
         {
             extern_functions.push(MirExternFunction {
-                name: name.replace("::", "."),
+                name: canonical_fn_name(name),
                 lib_name: lib_name.clone(),
                 params: params.iter().map(|(_, t)| t.clone()).collect(),
                 return_type: return_type.clone(),
@@ -229,7 +230,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
 
     for stmt in &program.statements {
         if let Statement::Function { name, .. } = stmt {
-            seen_functions.insert(name.replace("::", "."));
+            seen_functions.insert(canonical_fn_name(name));
         }
         if let Statement::Impl {
             type_name, methods, ..
@@ -237,7 +238,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         {
             for method in methods {
                 if let Statement::Function { name, .. } = method {
-                    seen_functions.insert(format!("{}.{}", type_name.replace("::", "."), name.replace("::", ".")));
+                    seen_functions.insert(format!("{}.{}", canonical_fn_name(type_name), canonical_fn_name(name)));
                 }
             }
         }
@@ -288,7 +289,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 body,
                 ..
             } => {
-                if !seen_functions.insert(name.replace("::", ".")) {
+                if !seen_functions.insert(canonical_fn_name(name)) {
                     continue;
                 }
                 let mir_params = params
@@ -300,7 +301,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                     .collect();
 
                 let mut lower = MirLower {
-                    func: MirFunction::new(name.replace("::", "."), mir_params, return_type.clone()),
+                    func: MirFunction::new(canonical_fn_name(name), mir_params, return_type.clone()),
                     next_temp: 0,
                     vars: HashMap::new(),
                     var_types: HashMap::new(),
@@ -347,7 +348,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                         ..
                     } = method
                     {
-                        let full_name = format!("{}.{}", type_name.replace("::", "."), name.replace("::", "."));
+                        let full_name = format!("{}.{}", canonical_fn_name(type_name), canonical_fn_name(name));
                         if !seen_functions.insert(full_name.clone()) {
                             continue;
                         }

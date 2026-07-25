@@ -28,3 +28,22 @@ pub use loader::{
 };
 pub use parser::parse;
 pub use parser::{MireValue, Program};
+
+/// Normalize `::` separators in function names to `.`.
+///
+/// The parser preserves `::` in fn declaration names (e.g., `push::i64`) so the
+/// renamer can distinguish original names from already-prefixed ones. Downstream
+/// compiler passes that need `.`-separated identifiers call this function exactly
+/// once at their boundary.
+///
+/// ```text
+/// AST:   push::i64        ← kept by parser
+///         ↓ canonical_fn_name
+/// Typeck: push.i64         ← function lookup tables
+///         ↓ canonical_fn_name
+/// MIR:    push.i64         ← LLVM identifiers
+/// ```
+#[inline]
+pub fn canonical_fn_name(name: &str) -> String {
+    name.replace("::", ".")
+}

@@ -1,3 +1,4 @@
+use crate::canonical_fn_name;
 use crate::error::Result;
 use crate::parser::ast::{DataType, Expression, Statement};
 
@@ -18,7 +19,7 @@ impl TypeChecker {
                     ..
                 } => {
                     self.functions.insert(
-                        name.replace("::", "."),
+                        canonical_fn_name(name),
                         FunctionSig {
                             type_params: type_params.clone(),
                             type_param_bounds: type_param_bounds.clone(),
@@ -34,7 +35,7 @@ impl TypeChecker {
                     ..
                 } => {
                     self.functions.insert(
-                        name.replace("::", "."),
+                        canonical_fn_name(name),
                         FunctionSig {
                             type_params: Vec::new(),
                             type_param_bounds: Vec::new(),
@@ -166,7 +167,7 @@ impl TypeChecker {
                     if *return_type == DataType::Function
                         && let Some(sig) = self.infer_returned_function_signature(body)
                     {
-                        self.function_return_signatures.insert(name.replace("::", "."), sig);
+                        self.function_return_signatures.insert(canonical_fn_name(name), sig);
                     }
                 }
                 Statement::Impl {

@@ -1,3 +1,4 @@
+use crate::canonical_fn_name;
 use crate::error::{Result, type_error_at_span};
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, QueryBinding, QueryOp, Statement,
@@ -338,7 +339,7 @@ impl TypeChecker {
         return_type: &mut DataType,
     ) -> Result<()> {
         self.functions.insert(
-            name.replace("::", "."),
+            canonical_fn_name(name),
             FunctionSig {
                 type_params: type_params.to_vec(),
                 type_param_bounds: type_param_bounds.to_vec(),

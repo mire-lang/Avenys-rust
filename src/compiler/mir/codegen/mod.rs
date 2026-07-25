@@ -1,4 +1,5 @@
 use super::*;
+use crate::canonical_fn_name;
 use std::collections::{HashMap, HashSet};
 
 use self::builtins::pal_extern_decls;
@@ -122,7 +123,7 @@ pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) ->
 }
 
 fn sanitize_fn_name(name: &str) -> String {
-    let name = name.replace("::", ".");
+    let name = canonical_fn_name(name);
     name.split_once('[')
         .map(|(base, rest)| {
             // base = "Box", rest = "T].get" → "Box.get"
