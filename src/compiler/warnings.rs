@@ -470,7 +470,7 @@ impl WarningAnalyzer {
             Statement::While { condition, body } => {
                 self.loop_depth += 1;
                 self.scan_expr(condition);
-                if let Expression::Literal(Literal::Bool(true)) = condition
+                if let Expression::Literal { lit: Literal::Bool(true), .. } = condition
                     && !has_break(body)
                 {
                     self.push_warn(
@@ -483,7 +483,7 @@ impl WarningAnalyzer {
                         ),
                     );
                 }
-                if let Expression::Literal(Literal::Bool(false)) = condition {
+                if let Expression::Literal { lit: Literal::Bool(false), .. } = condition {
                     self.push_warn(
                         DiagnosticCode::W0017,
                         "Unreachable Loop",
@@ -688,7 +688,7 @@ impl WarningAnalyzer {
                         Some("this comparison is always true or always false".to_string()),
                     );
                 }
-                if let Expression::Literal(Literal::Int(n)) = right.as_ref() {
+                if let Expression::Literal { lit: Literal::Int(n), .. } = right.as_ref() {
                     match operator.as_str() {
                         "*" if *n == 0 => self.push_warn(
                             DiagnosticCode::W0007,
@@ -751,7 +751,7 @@ impl WarningAnalyzer {
             Expression::Index { target, index, .. } => {
                 self.scan_expr(target);
                 self.scan_expr(index);
-                if let Expression::Literal(Literal::Int(n)) = index.as_ref()
+                if let Expression::Literal { lit: Literal::Int(n), .. } = index.as_ref()
                     && *n < 0
                 {
                     self.push_warn(
@@ -763,7 +763,7 @@ impl WarningAnalyzer {
                     );
                 }
             }
-            Expression::Literal(lit) => {
+            Expression::Literal { lit, .. } => {
                 if let Literal::Str(s) = lit
                     && s.len() > 120
                 {
@@ -953,12 +953,12 @@ fn contains_explicit_return(statements: &[Statement]) -> bool {
 
 fn literal_pattern_key(expr: &Expression) -> Option<String> {
     match expr {
-        Expression::Literal(Literal::Int(v)) => Some(format!("int:{v}")),
-        Expression::Literal(Literal::Float(v)) => Some(format!("float:{v}")),
-        Expression::Literal(Literal::Bool(v)) => Some(format!("bool:{v}")),
-        Expression::Literal(Literal::Str(v)) => Some(format!("str:{v}")),
-        Expression::Literal(Literal::Char(v)) => Some(format!("char:{v}")),
-        Expression::Literal(Literal::None) => Some("mu".to_string()),
+        Expression::Literal { lit: Literal::Int(v), .. } => Some(format!("int:{v}")),
+        Expression::Literal { lit: Literal::Float(v), .. } => Some(format!("float:{v}")),
+        Expression::Literal { lit: Literal::Bool(v), .. } => Some(format!("bool:{v}")),
+        Expression::Literal { lit: Literal::Str(v), .. } => Some(format!("str:{v}")),
+        Expression::Literal { lit: Literal::Char(v), .. } => Some(format!("char:{v}")),
+        Expression::Literal { lit: Literal::None, .. } => Some("mu".to_string()),
         _ => None,
     }
 }
@@ -966,12 +966,12 @@ fn literal_pattern_key(expr: &Expression) -> Option<String> {
 fn expr_fingerprint(expr: &Expression) -> String {
     match expr {
         Expression::Identifier(id) => format!("id:{}", id.name),
-        Expression::Literal(Literal::Int(v)) => format!("int:{v}"),
-        Expression::Literal(Literal::Float(v)) => format!("float:{v}"),
-        Expression::Literal(Literal::Bool(v)) => format!("bool:{v}"),
-        Expression::Literal(Literal::Str(v)) => format!("str:{v}"),
-        Expression::Literal(Literal::Char(v)) => format!("char:{v}"),
-        Expression::Literal(Literal::None) => "mu".to_string(),
+        Expression::Literal { lit: Literal::Int(v), .. } => format!("int:{v}"),
+        Expression::Literal { lit: Literal::Float(v), .. } => format!("float:{v}"),
+        Expression::Literal { lit: Literal::Bool(v), .. } => format!("bool:{v}"),
+        Expression::Literal { lit: Literal::Str(v), .. } => format!("str:{v}"),
+        Expression::Literal { lit: Literal::Char(v), .. } => format!("char:{v}"),
+        Expression::Literal { lit: Literal::None, .. } => "mu".to_string(),
         Expression::MemberAccess { target, member, .. } => {
             format!("member:{}:{}", expr_fingerprint(target), member)
         }
@@ -1018,7 +1018,7 @@ fn has_break(statements: &[Statement]) -> bool {
 }
 
 fn is_bool_literal(expr: &Expression) -> bool {
-    matches!(expr, Expression::Literal(Literal::Bool(_)))
+    matches!(expr, Expression::Literal { lit: Literal::Bool(_), .. })
 }
 
 fn is_str_type(_ident: &Identifier) -> bool {
@@ -1072,7 +1072,7 @@ fn find_unsafe_block_position(body: &[Statement]) -> Option<crate::error::Span> 
 
 fn is_return_bool(statements: &[Statement], expected: bool) -> bool {
     if statements.len() == 1
-        && let Statement::Return(Some(Expression::Literal(Literal::Bool(val)))) = &statements[0]
+        && let Statement::Return(Some(Expression::Literal { lit: Literal::Bool(val), .. })) = &statements[0]
     {
         return *val == expected;
     }

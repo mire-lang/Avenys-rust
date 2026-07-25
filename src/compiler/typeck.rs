@@ -451,7 +451,7 @@ mod tests {
             statements: vec![Statement::Let {
                 name: "x".to_string(),
                 data_type: DataType::Unknown,
-                value: Some(Expression::Literal(Literal::Int(42))),
+                value: Some(Expression::Literal { lit: Literal::Int(42), line: 0, column: 0 }),
                 is_constant: false,
                 is_mutable: false,
                 is_static: false,
@@ -478,7 +478,7 @@ mod tests {
                 Statement::Let {
                     name: "x".to_string(),
                     data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
+                    value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -547,8 +547,8 @@ mod tests {
                     name_line: 0,
                     name_column: 0,
                     args: vec![
-                        Expression::Literal(Literal::Int(1)),
-                        Expression::Literal(Literal::Int(2)),
+                        Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 },
+                        Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                     ],
                     type_args: Vec::new(),
                     data_type: DataType::Unknown,
@@ -592,7 +592,7 @@ mod tests {
                 Statement::Let {
                     name: "x".to_string(),
                     data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
+                    value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -602,7 +602,7 @@ mod tests {
                 },
                 Statement::Assignment {
                     target: AssignmentTarget::Variable("x".to_string()),
-                    value: Expression::Literal(Literal::Str("bad".to_string())),
+                    value: Expression::Literal { lit: Literal::Str("bad".to_string()), line: 0, column: 0 },
                     is_mutable: true,
                     line: 0,
                     column: 0,
@@ -625,7 +625,7 @@ mod tests {
             statements: vec![
                 Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str("hello".to_string()))],
+                    args: vec![Expression::Literal { lit: Literal::Str("hello".to_string()), line: 0, column: 0 }],
                     type_args: Vec::new(),
                     name_line: 0,
                     name_column: 0,
@@ -635,10 +635,10 @@ mod tests {
                     name: "len".to_string(),
                     name_line: 0,
                     name_column: 0,
-                    args: vec![Expression::Literal(Literal::List(vec![
-                        Expression::Literal(Literal::Int(1)),
-                        Expression::Literal(Literal::Int(2)),
-                    ]))],
+                    args: vec![Expression::Literal { lit: Literal::List(vec![
+                        Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 },
+                        Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
+                    ]), line: 0, column: 0 }],
                     type_args: Vec::new(),
                     data_type: DataType::Unknown,
                 }),
@@ -670,7 +670,7 @@ mod tests {
                 Statement::Let {
                     name: "x".to_string(),
                     data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
+                    value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -720,7 +720,7 @@ mod tests {
                 Statement::Let {
                     name: "x".to_string(),
                     data_type: DataType::Unknown,
-                    value: Some(Expression::Literal(Literal::Int(1))),
+                    value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -755,7 +755,7 @@ mod tests {
                 Statement::Let {
                     name: "x".to_string(),
                     data_type: DataType::Unknown,
-                    value: Some(Expression::Literal(Literal::Int(2))),
+                    value: Some(Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -814,9 +814,7 @@ mod tests {
                         type_params: Vec::new(),
                         type_param_bounds: Vec::new(),
                         params: vec![],
-                        body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                            1,
-                        ))))],
+                        body: vec![Statement::Return(Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }))],
                         return_type: DataType::I64,
                         visibility: Visibility::Public,
                         is_method: true,
@@ -880,7 +878,7 @@ mod tests {
                         Statement::Let {
                             name: "x".to_string(),
                             data_type: DataType::Unknown,
-                            value: Some(Expression::Literal(Literal::Int(1))),
+                            value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                             is_constant: false,
                             is_mutable: false,
                             is_static: false,
@@ -917,9 +915,7 @@ mod tests {
                             type_params: Vec::new(),
                             type_param_bounds: Vec::new(),
                             params: vec![],
-                            body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                                1,
-                            ))))],
+                            body: vec![Statement::Return(Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }))],
                             return_type: DataType::I64,
                             visibility: Visibility::Public,
                             is_method: true,
@@ -1047,9 +1043,9 @@ mod tests {
                     },
                     value: Some(Expression::List {
                         elements: vec![
-                            Expression::Literal(Literal::Int(1)),
-                            Expression::Literal(Literal::Int(2)),
-                            Expression::Literal(Literal::Int(3)),
+                            Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 },
+                            Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
+                            Expression::Literal { lit: Literal::Int(3), line: 0, column: 0 },
                         ],
                         element_type: DataType::I64,
                         data_type: DataType::Vector {
@@ -1160,7 +1156,7 @@ mod tests {
                         Statement::Let {
                             name: "x".to_string(),
                             data_type: DataType::I64,
-                            value: Some(Expression::Literal(Literal::Int(1))),
+                            value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                             is_constant: false,
                             is_mutable: false,
                             is_static: false,

@@ -6,7 +6,7 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             hasher.write_u8(99);
             hash_expression(inner, hasher);
         }
-        Expression::Literal(lit) => {
+        Expression::Literal { lit, .. } => {
             hasher.write_u8(0);
             hash_literal(lit, hasher);
         }
@@ -186,6 +186,7 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             enum_name,
             variant_name,
             data_type,
+            ..
         } => {
             hasher.write_u8(17);
             enum_name.hash(hasher);
@@ -197,6 +198,7 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             variant_name,
             payloads,
             data_type,
+            ..
         } => {
             hasher.write_u8(18);
             enum_name.hash(hasher);

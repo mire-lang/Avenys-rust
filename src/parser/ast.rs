@@ -231,7 +231,11 @@ pub struct TraitMethodSig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Expression {
-    Literal(Literal),
+    Literal {
+        lit: Literal,
+        line: usize,
+        column: usize,
+    },
     Identifier(Identifier),
     BinaryOp {
         operator: String,
@@ -337,12 +341,16 @@ pub enum Expression {
         enum_name: String,
         variant_name: String,
         data_type: DataType,
+        line: usize,
+        column: usize,
     },
     EnumVariant {
         enum_name: String,
         variant_name: String,
         payloads: Vec<Expression>,
         data_type: DataType,
+        line: usize,
+        column: usize,
     },
     /// Explicit type ascription `(expr :T)`. Carries the target type and the
     /// resolved type of the whole expression (equal to `target`). The typechecker
@@ -644,6 +652,8 @@ pub enum Statement {
     ExternLib {
         name: String,
         path: String,
+        line: usize,
+        column: usize,
     },
     ExternFunction {
         name: String,
@@ -651,6 +661,8 @@ pub enum Statement {
         params: Vec<(String, DataType)>,
         return_type: DataType,
         visibility: Visibility,
+        line: usize,
+        column: usize,
     },
     Unsafe {
         line: usize,
@@ -664,6 +676,8 @@ pub enum Statement {
         path: Vec<String>,
         alias: Option<String>,
         items: Option<Vec<String>>,
+        line: usize,
+        column: usize,
     },
     Module {
         name: String,
@@ -702,6 +716,8 @@ pub enum Statement {
     LoadLocal {
         rel_path: Vec<String>,
         absolute: bool,
+        line: usize,
+        column: usize,
     },
 }
 

@@ -48,33 +48,33 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             "--position" | "--pos" => position = true,
             "--no-warn" => {
                 i += 1;
-                let cat = args.get(i).ok_or_else(|| runtime_msg("Missing warning category after --no-warn"))?;
+                let cat = args.get(i).ok_or_else(|| cli_msg("Missing warning category after --no-warn"))?;
                 no_warn_cats.push(cat.clone());
             }
             "--jobs" | "-j" => {
                 i += 1;
                 let value = args.get(i).ok_or_else(|| {
-                    runtime_msg("Missing value for --jobs")
+                    cli_msg("Missing value for --jobs")
                 })?;
                 jobs = value.parse().map_err(|_| {
-                    runtime_msg("--jobs must be a positive integer")
+                    cli_msg("--jobs must be a positive integer")
                 })?;
             }
             "--owl-home" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --owl-home"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --owl-home"))?;
                 owl_home = Some(PathBuf::from(value));
             }
             "-O" | "--opt-level" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --opt-level"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --opt-level"))?;
                 match OptLevel::parse(value) {
                     Some(level) => opt_level = level,
-                    None => return Err(runtime_msg("Invalid opt-level")),
+                    None => return Err(cli_msg("Invalid opt-level")),
                 }
             }
             "-r" | "--release" => opt_level = OptLevel::O3,
@@ -82,7 +82,7 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             _ => {
                 if let Some(val) = args[i].strip_prefix("--jobs=") {
                     jobs = val.parse().map_err(|_| {
-                        runtime_msg("--jobs must be a positive integer")
+                        cli_msg("--jobs must be a positive integer")
                     })?;
                 } else {
                     paths.push(args[i].clone());

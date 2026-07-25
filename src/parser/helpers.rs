@@ -314,7 +314,7 @@ pub(super) fn identifier_expr_with_pos(name: &str, line: usize, column: usize) -
 }
 
 pub(super) fn string_expr(value: &str) -> Expression {
-    Expression::Literal(Literal::Str(value.to_string()))
+    Expression::Literal { lit: Literal::Str(value.to_string()), line: 0, column: 0 }
 }
 
 pub(super) fn data_type_name(data_type: &DataType) -> String {
@@ -363,7 +363,7 @@ pub(super) fn data_type_name(data_type: &DataType) -> String {
 
 pub(super) fn concat_expressions(mut parts: Vec<Expression>) -> Expression {
     parts.retain(
-        |part| !matches!(part, Expression::Literal(Literal::Str(value)) if value.is_empty()),
+        |part| !matches!(part, Expression::Literal { lit: Literal::Str(value), .. } if value.is_empty()),
     );
 
     if parts.is_empty() {

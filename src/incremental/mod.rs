@@ -228,6 +228,9 @@ pub(crate) enum StoredErrorKind {
         column: usize,
         kind: StoredMssError,
     },
+    Cli {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,6 +328,9 @@ impl From<&ErrorKind> for StoredErrorKind {
                 column: span.column,
                 kind: kind.into(),
             },
+            ErrorKind::Cli { message } => Self::Cli {
+                message: message.clone(),
+            },
         }
     }
 }
@@ -381,6 +387,7 @@ impl From<StoredErrorKind> for ErrorKind {
                 span: crate::error::Span::new(line, column),
                 kind: kind.into(),
             },
+            StoredErrorKind::Cli { message } => Self::Cli { message },
         }
     }
 }

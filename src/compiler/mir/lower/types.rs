@@ -3,7 +3,7 @@ pub(crate) use crate::types::codegen::{llvm_elem_type_str, llvm_type_byte_size};
 
 pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
     match expr {
-        Expression::Literal(lit) => match lit {
+        Expression::Literal { lit, .. } => match lit {
             Literal::Int(_) => DataType::I64,
             Literal::Float(_) => DataType::F64,
             Literal::Bool(_) => DataType::Bool,

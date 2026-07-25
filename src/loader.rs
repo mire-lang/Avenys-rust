@@ -2,7 +2,7 @@ use crate::avens::{
     ImportMode, MireDependency, find_project_root, load_exports, load_manifest_dependencies,
     load_project_manifest, resolve_export_path,
 };
-use crate::error::{ErrorKind, MireError, Result};
+use crate::error::{ErrorKind, MireError, Result, Span};
 use crate::incremental::{
     CacheSettings, CachedParsedFile, IncrementalCache, LoadedFile, LoadedProgram,
     collect_statement_bindings, collect_statement_dependencies, source_hash, source_hash2,
@@ -60,7 +60,7 @@ pub fn load_program_with_metadata_with_settings(
             import_mode,
             manifest_dependencies,
         );
-        let statements = resolver.load_file(&canonical)?;
+        let statements = resolver.load_file(&canonical, Span::unknown())?;
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
         let files = std::mem::take(&mut resolver.files);
@@ -83,7 +83,7 @@ pub fn load_program_with_metadata_with_settings(
     let mut cache = IncrementalCache::load_with_settings(&canonical, settings)?;
     let mut resolver =
         ImportResolver::new(project_root, &mut cache, import_mode, manifest_dependencies);
-    let statements = resolver.load_file(&canonical)?;
+    let statements = resolver.load_file(&canonical, Span::unknown())?;
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     let files = std::mem::take(&mut resolver.files);
@@ -128,7 +128,7 @@ pub fn load_program_with_cache(
         let manifest_dependencies = HashMap::new();
         let mut resolver =
             ImportResolver::new(fallback.clone(), cache, import_mode, manifest_dependencies);
-        let statements = resolver.load_file(&canonical)?;
+        let statements = resolver.load_file(&canonical, Span::unknown())?;
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
         return Ok(LoadedProgram {
@@ -145,7 +145,7 @@ pub fn load_program_with_cache(
 
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
     let mut resolver = ImportResolver::new(project_root, cache, import_mode, manifest_dependencies);
-    let statements = resolver.load_file(&canonical)?;
+    let statements = resolver.load_file(&canonical, Span::unknown())?;
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     Ok(LoadedProgram {
@@ -178,6 +178,7 @@ struct ImportResolver<'a> {
     import_mode: ImportMode,
     manifest_dependencies: HashMap<String, MireDependency>,
     package_registry: HashMap<String, PackageEntry>,
+    current_file: Option<String>,
 }
 
 impl<'a> ImportResolver<'a> {
@@ -197,15 +198,21 @@ impl<'a> ImportResolver<'a> {
             import_mode,
             manifest_dependencies,
             package_registry: HashMap::new(),
+            current_file: None,
         }
     }
 
-    fn load_file(&mut self, path: &Path) -> Result<Vec<ExpandedStatement>> {
+    fn loader_error(&self, span: Span, message: String) -> MireError {
+        let mut err = MireError::new(ErrorKind::Runtime { span, message });
+        if let Some(ref file) = self.current_file {
+            err = err.with_filename(file.clone());
+        }
+        err
+    }
+
+    fn load_file(&mut self, path: &Path, span: Span) -> Result<Vec<ExpandedStatement>> {
     let canonical = path.canonicalize().map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Could not resolve '{}': {}", path.display(), err),
-        })
+        self.loader_error(span, format!("Could not resolve '{}': {}", path.display(), err))
     })?;
 
     if let Some(cached) = self.expanded_cache.get(&canonical) {
@@ -213,23 +220,22 @@ impl<'a> ImportResolver<'a> {
     }
 
     if !self.active_stack.insert(canonical.clone()) {
-        return Err(MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Cyclic local load detected at '{}'", canonical.display()),
-        }));
+        return Err(self.loader_error(span, format!("Cyclic local load detected at '{}'", canonical.display())));
     }
 
         let parsed = self.load_or_parse_file(&canonical)?;
+        self.current_file = Some(canonical.display().to_string());
         let imported_symbol_candidates = collect_program_dependency_candidates(&parsed.program);
         let mut expanded = Vec::new();
         let mut direct_dependencies = Vec::new();
         let mut dep_set = HashSet::new();
         for statement in parsed.program.statements {
             match statement {
-                Statement::Load { path, alias, items }
+                Statement::Load { path, alias, items, line, column }
                     if !path.is_empty() && !path[0].starts_with("__") =>
                 {
-                    let target = self.resolve_load_path(&path)?;
+                    let load_span = Span::new(line, column);
+                    let target = self.resolve_load_path(&path, load_span)?;
 
                     let selected = if items.is_some() {
                         items
@@ -244,9 +250,9 @@ impl<'a> ImportResolver<'a> {
                     };
 
                     let imported = if selected.is_some() {
-                        self.load_selected_imports(&target, selected.as_deref())?
+                        self.load_selected_imports(&target, selected.as_deref(), load_span)?
                     } else {
-                        self.load_file(&target)?
+                        self.load_file(&target, load_span)?
                     };
 
                     let prefix = alias.unwrap_or_else(|| {
@@ -269,21 +275,19 @@ impl<'a> ImportResolver<'a> {
                         expanded.extend(prefixed);
                     }
                 }
-                Statement::LoadLocal { rel_path, absolute } => {
+                Statement::LoadLocal { rel_path, absolute, line, column } => {
                     let current_dir = canonical.parent().unwrap_or_else(|| Path::new("."));
+                    let span = Span::new(line, column);
                     let (target, depth) =
-                        self.resolve_load_local_target(&rel_path, absolute, current_dir)?;
+                        self.resolve_load_local_target(&rel_path, absolute, current_dir, span)?;
                     if depth > 2 {
-                        return Err(MireError::new(ErrorKind::Runtime {
-                            span: crate::error::Span::unknown(),
-                            message: format!(
-                                "load! can only descend 2 levels below owl.toml, but got {} levels",
-                                depth
-                            ),
-                        }));
+                        return Err(self.loader_error(span, format!(
+                            "load! can only descend 2 levels below owl.toml, but got {} levels",
+                            depth
+                        )));
                     }
                     let namespace = rel_path.last().cloned().unwrap_or_default();
-                    let imported = self.load_file(&target)?;
+                    let imported = self.load_file(&target, span)?;
                     let prefixed =
                         prefix_loaded_statements_scoped(imported, &namespace, &target);
                     if dep_set.insert(target.clone()) {
@@ -293,7 +297,7 @@ impl<'a> ImportResolver<'a> {
                     // Keep the `load!` declaration in the program so later passes
                     // (e.g. the mandatory `use!` check) can see the imported module.
                     expanded.push(ExpandedStatement {
-                        statement: Statement::LoadLocal { rel_path, absolute },
+                        statement: Statement::LoadLocal { rel_path, absolute, line, column },
                         origin: canonical.clone(),
                     });
                 }
@@ -317,7 +321,7 @@ impl<'a> ImportResolver<'a> {
         Ok(expanded)
     }
 
-    fn resolve_package(&mut self, name: &str) -> Result<(PathBuf, String)> {
+    fn resolve_package(&mut self, name: &str, span: Span) -> Result<(PathBuf, String)> {
         if let Some(entry) = self.package_registry.get(name) {
             return Ok((entry.root.clone(), entry.entry.clone()));
         }
@@ -347,26 +351,20 @@ impl<'a> ImportResolver<'a> {
                 }
             }
         } else {
-            return Err(MireError::new(ErrorKind::Runtime {
-                span: crate::error::Span::unknown(),
-                message: format!(
-                    "Package '{}' not found in [dependencies] of {}",
-                    name,
-                    self.project_root.join("owl.toml").display()
-                ),
-            }));
+            return Err(self.loader_error(span, format!(
+                "Package '{}' not found in [dependencies] of {}",
+                name,
+                self.project_root.join("owl.toml").display()
+            )));
         };
 
         let canonical_root = package_root.canonicalize().map_err(|err| {
-            MireError::new(ErrorKind::Runtime {
-                span: crate::error::Span::unknown(),
-                message: format!(
-                    "Could not resolve package '{}' at '{}': {}",
-                    name,
-                    package_root.display(),
-                    err
-                ),
-            })
+            self.loader_error(span, format!(
+                "Could not resolve package '{}' at '{}': {}",
+                name,
+                package_root.display(),
+                err
+            ))
         })?;
 
         let manifest = load_project_manifest(&canonical_root)?;
@@ -403,6 +401,7 @@ impl<'a> ImportResolver<'a> {
         rel_path: &[String],
         absolute: bool,
         current_dir: &Path,
+        span: Span,
     ) -> Result<(PathBuf, usize)> {
         let base = if absolute {
             self.project_root.clone()
@@ -420,10 +419,7 @@ impl<'a> ImportResolver<'a> {
             .into_iter()
             .find(|p| p.exists())
             .ok_or_else(|| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("load! target '{}' not found", rel_path.join("/")),
-                })
+                self.loader_error(span, format!("load! target '{}' not found", rel_path.join("/")))
             })?;
         let depth = target
             .parent()
@@ -439,8 +435,8 @@ impl<'a> ImportResolver<'a> {
         Ok((target, depth))
     }
 
-    fn resolve_load_path(&mut self, segments: &[String]) -> Result<PathBuf> {
-        let (mut current_root, entry) = self.resolve_package(&segments[0])?;
+    fn resolve_load_path(&mut self, segments: &[String], span: Span) -> Result<PathBuf> {
+        let (mut current_root, entry) = self.resolve_package(&segments[0], span)?;
         let mut current_exports = load_exports(&current_root).unwrap_or_default();
 
         if segments.len() == 1 {
@@ -463,10 +459,7 @@ impl<'a> ImportResolver<'a> {
 
             let target =
                 resolve_export_path(&current_exports, &current_root, segment).ok_or_else(|| {
-                    MireError::new(ErrorKind::Runtime {
-                        span: crate::error::Span::unknown(),
-                        message: format!("Package '{}' has no export '{}'", segments[0], segment),
-                    })
+                    self.loader_error(span, format!("Package '{}' has no export '{}'", segments[0], segment))
                 })?;
 
             if is_last {
@@ -483,14 +476,11 @@ impl<'a> ImportResolver<'a> {
                 current_exports = load_exports(&parent).unwrap_or_default();
                 current_root = parent;
             } else {
-                return Err(MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!(
-                        "Cannot resolve '{}': '{}' has no sub-exports",
-                        segments[i + 1..].join("::"),
-                        segment
-                    ),
-                }));
+                return Err(self.loader_error(span, format!(
+                    "Cannot resolve '{}': '{}' has no sub-exports",
+                    segments[i + 1..].join("::"),
+                    segment
+                )));
             }
         }
 
@@ -581,6 +571,7 @@ impl<'a> ImportResolver<'a> {
         &mut self,
         path: &Path,
         items: Option<&[String]>,
+        span: Span,
     ) -> Result<Vec<ExpandedStatement>> {
         let parsed = self.load_or_parse_file(path)?;
         let has_loads = parsed
@@ -589,8 +580,8 @@ impl<'a> ImportResolver<'a> {
             .iter()
             .any(|stmt| matches!(stmt, Statement::Load { .. }));
         if has_loads {
-            let loaded = self.load_file(path)?;
-            return select_imported_statements(&loaded, items, path);
+            let loaded = self.load_file(path, span)?;
+            return select_imported_statements(&loaded, items, path, span);
         }
         self.files.insert(
             path.to_path_buf(),
@@ -608,7 +599,7 @@ impl<'a> ImportResolver<'a> {
                 origin: path.to_path_buf(),
             })
             .collect();
-        select_imported_statements(&expanded, items, path)
+        select_imported_statements(&expanded, items, path, span)
     }
 }
 
@@ -1017,9 +1008,11 @@ impl<'a> ModuleRenamer<'a> {
                     methods,
                 }
             }
-            Statement::ExternLib { name, path } => Statement::ExternLib {
+            Statement::ExternLib { name, path, line, column } => Statement::ExternLib {
                 name: self.rename_decl_name(name, scope_stack, top_level),
                 path,
+                line,
+                column,
             },
             Statement::ExternFunction {
                 name,
@@ -1027,6 +1020,8 @@ impl<'a> ModuleRenamer<'a> {
                 params,
                 return_type,
                 visibility,
+                line,
+                column,
             } => Statement::ExternFunction {
                 name: self.rename_extern_name(name, scope_stack, top_level, &lib_name),
                 lib_name,
@@ -1038,6 +1033,8 @@ impl<'a> ModuleRenamer<'a> {
                     .collect(),
                 return_type: self.rename_data_type(return_type, scope_stack),
                 visibility,
+                line,
+                column,
             },
             Statement::Unsafe {
                 line, column, body, ..
@@ -1052,7 +1049,7 @@ impl<'a> ModuleRenamer<'a> {
                     .map(|(name, expr)| (name, self.rename_expression(expr, scope_stack)))
                     .collect(),
             },
-            Statement::Load { path, alias, items } => Statement::Load { path, alias, items },
+            Statement::Load { path, alias, items, line, column } => Statement::Load { path, alias, items, line, column },
             Statement::LoadLocal { .. } => statement,
             Statement::Module { name } => Statement::Module {
                 name: self.rename_decl_name(name, scope_stack, top_level),
@@ -1270,6 +1267,7 @@ impl<'a> ModuleRenamer<'a> {
                 variant_name,
                 payloads,
                 data_type,
+                ..
             } => Expression::EnumVariant {
                 enum_name: self.rename_type_name(enum_name, scope_stack),
                 variant_name,
@@ -1281,15 +1279,20 @@ impl<'a> ModuleRenamer<'a> {
                     })
                     .collect(),
                 data_type,
+                line: 0,
+                column: 0,
             },
             Expression::EnumVariantPath {
                 enum_name,
                 variant_name,
                 data_type,
+                ..
             } => Expression::EnumVariantPath {
                 enum_name: self.rename_type_name(enum_name, scope_stack),
                 variant_name,
                 data_type,
+                line: 0,
+                column: 0,
             },
             Expression::Call {
                 name,
@@ -1543,16 +1546,20 @@ impl<'a> ModuleRenamer<'a> {
                 enum_name,
                 variant_name,
                 data_type,
+                ..
             } => Expression::EnumVariantPath {
                 enum_name: self.rename_type_name(enum_name, scope_stack),
                 variant_name,
                 data_type: self.rename_data_type(data_type, scope_stack),
+                line: 0,
+                column: 0,
             },
             Expression::EnumVariant {
                 enum_name,
                 variant_name,
                 payloads,
                 data_type,
+                ..
             } => Expression::EnumVariant {
                 enum_name: self.rename_type_name(enum_name, scope_stack),
                 variant_name,
@@ -1561,10 +1568,12 @@ impl<'a> ModuleRenamer<'a> {
                     .map(|payload| self.rename_expression(payload, scope_stack))
                     .collect(),
                 data_type: self.rename_data_type(data_type, scope_stack),
+                line: 0,
+                column: 0,
             },
             Expression::Ascription { .. } => expression,
             Expression::UseMacro { .. } => expression,
-            Expression::Literal(literal) => Expression::Literal(match literal {
+            Expression::Literal { lit: literal, line, column } => Expression::Literal { lit: match literal {
                 Literal::List(elements) => Literal::List(
                     elements
                         .into_iter()
@@ -1592,7 +1601,7 @@ impl<'a> ModuleRenamer<'a> {
                         .collect(),
                 ),
                 other => other,
-            }),
+            }, line, column },
         }
     }
 
@@ -1705,6 +1714,7 @@ fn select_imported_statements(
     statements: &[ExpandedStatement],
     items: Option<&[String]>,
     import_path: &Path,
+    span: Span,
 ) -> Result<Vec<ExpandedStatement>> {
     if let Some(items) = items {
         let mut selected_indices = Vec::new();
@@ -1719,7 +1729,7 @@ fn select_imported_statements(
                 .map(|(idx, _)| idx)
                 .ok_or_else(|| {
                     MireError::new(ErrorKind::Runtime {
-                        span: crate::error::Span::unknown(),
+                        span,
                         message: format!(
                             "Local load '{}' does not export '{}'",
                             import_path.display(),

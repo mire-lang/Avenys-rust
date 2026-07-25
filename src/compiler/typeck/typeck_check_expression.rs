@@ -21,23 +21,23 @@ impl TypeChecker {
                 let inner = self.check_expression(expr)?;
                 if inner != DataType::Unknown && *target != DataType::Unknown {
                     let literal_ok = match &**expr {
-                        Expression::Literal(Literal::Int(v)) => {
+                        Expression::Literal { lit: Literal::Int(v), .. } => {
                             crate::types::unify::validate_int_literal_range(
                                 target, *v, span.line, span.column,
                             )
                             .is_ok()
                         }
-                        Expression::Literal(Literal::Float(_)) => {
+                        Expression::Literal { lit: Literal::Float(_), .. } => {
                             matches!(target, DataType::F32 | DataType::F64)
                         }
-                        Expression::Literal(_) => self.is_assignable(target, &inner),
+                        Expression::Literal { .. } => self.is_assignable(target, &inner),
                         _ => false,
                     };
                     if !literal_ok && !self.is_assignable(target, &inner) {
                         if crate::types::unify::is_numeric(target)
                             && crate::types::unify::is_numeric(&inner)
                         {
-                            if let Expression::Literal(Literal::Int(v)) = &**expr {
+                            if let Expression::Literal { lit: Literal::Int(v), .. } = &**expr {
                                 crate::types::unify::validate_int_literal_range(
                                     target, *v, span.line, span.column,
                                 )?;
@@ -61,7 +61,7 @@ impl TypeChecker {
                 *data_type = target.clone();
                 Ok(target.clone())
             }
-            Expression::Literal(lit) => Ok(Self::literal_type(lit)),
+            Expression::Literal { lit, .. } => Ok(Self::literal_type(lit)),
             Expression::Identifier(ident) => {
                 if let Some((resolved, _)) = self.lookup_var(&ident.name) {
                     if ident.data_type == DataType::Unknown {
@@ -715,6 +715,7 @@ impl TypeChecker {
                 enum_name,
                 variant_name,
                 data_type,
+                ..
             } => {
                 let full_name =
                     Self::canonical_enum_variant_name(&format!("{}.{}", enum_name, variant_name));
@@ -732,6 +733,7 @@ impl TypeChecker {
                 variant_name,
                 payloads,
                 data_type,
+                ..
             } => {
                 let typed_name = format!("{}.{}", enum_name, variant_name);
                 let full_name = Self::canonical_enum_variant_name(&typed_name);
@@ -966,7 +968,7 @@ impl TypeChecker {
                 }
 
                 let is_implicit_default =
-                    matches!(default.as_ref(), Expression::Literal(Literal::None));
+                    matches!(default.as_ref(), Expression::Literal { lit: Literal::None, .. });
                 if !is_implicit_default {
                     let default_type = self.check_expression(default)?;
                     resolved_type = Self::unify_types(&resolved_type, &default_type)?;

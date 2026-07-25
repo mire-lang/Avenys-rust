@@ -68,7 +68,7 @@ closure bodies.
 | Pipeline (`|>`) | Not supported |
 | Enum variants (bare path) | Done: resolves to real discriminant |
 | Enum variants (with payload) | Partial: returns discriminant only (payloads not bound yet) |
-| Try/Ok/Err | Done (`?` operator lowers to early-return on error; unwrap calls `rt_result_unwrap_*`/`rt_maybe_unwrap_*`) |
+| Try/Ok/Err | Done (`?` operator lowers to early-return on error; unwrap calls `rt_result_unwrap_*`/`rt_maybe_unwrap_*`; source spans tracked through AST nodes) |
 | Dict/Map literals | Partial: empty map literal works; dict set/get via builtins `maps::set`/`maps::get` route to C runtime |
 
 Var types tracked via `var_types: HashMap<String, DataType>` during lowering.

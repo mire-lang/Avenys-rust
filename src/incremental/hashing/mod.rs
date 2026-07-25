@@ -401,7 +401,7 @@ mod tests {
                     fields: vec![Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal(Literal::Int(1))),
+                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -456,7 +456,7 @@ mod tests {
                     column: 0,
                 })),
                 operator: "+".to_string(),
-                right: Box::new(Expression::Literal(Literal::Int(1))),
+                right: Box::new(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                 data_type: DataType::I64,
             }))],
             return_type: DataType::I64,
@@ -480,9 +480,11 @@ mod tests {
             type_params: Vec::new(),
             type_param_bounds: Vec::new(),
             params: Vec::new(),
-            body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                1,
-            ))))],
+            body: vec![Statement::Return(Some(Expression::Literal {
+                lit: Literal::Int(1),
+                line: 0,
+                column: 0,
+            }))],
             return_type: DataType::I64,
             visibility: Visibility::Public,
             is_method: false,
@@ -495,9 +497,11 @@ mod tests {
             type_params: Vec::new(),
             type_param_bounds: Vec::new(),
             params: Vec::new(),
-            body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                2,
-            ))))],
+            body: vec![Statement::Return(Some(Expression::Literal {
+                lit: Literal::Int(2),
+                line: 0,
+                column: 0,
+            }))],
             return_type: DataType::I64,
             visibility: Visibility::Public,
             is_method: false,
@@ -707,7 +711,7 @@ mod tests {
                     fields: vec![Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal(Literal::Int(1))),
+                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -747,7 +751,7 @@ mod tests {
         let Statement::Let { value, .. } = &mut fields[0] else {
             panic!("expected field");
         };
-        *value = Some(Expression::Literal(Literal::Int(2)));
+        *value = Some(Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 });
 
         let report = compute_invalidation_report(
             &analysis_units_for_program(&previous),

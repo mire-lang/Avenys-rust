@@ -5,6 +5,7 @@ impl Parser {
         if self.function_body_depth > 0 {
             return Err(self.error("`load` must be at the top level, not inside a function body"));
         }
+        let load_token = self.peek();
         self.expect(TokenType::Load)?;
 
         if self.check(TokenType::Dot) {
@@ -40,7 +41,7 @@ impl Parser {
             None
         };
 
-        Ok(Statement::Load { path, alias, items })
+        Ok(Statement::Load { path, alias, items, line: load_token.line, column: load_token.column })
     }
 
     /// Parse `load! math/main` (or `load! /math` for project-root relative).
@@ -51,6 +52,7 @@ impl Parser {
         if self.function_body_depth > 0 {
             return Err(self.error("`load!` must be at the top level, not inside a function body"));
         }
+        let load_bang_token = self.peek();
         self.expect(TokenType::Load)?;
         self.expect(TokenType::Bang)?;
 
@@ -69,6 +71,6 @@ impl Parser {
             return Err(self.error("`load!` requires a relative path, e.g. `load! math/main`"));
         }
 
-        Ok(Statement::LoadLocal { rel_path, absolute })
+        Ok(Statement::LoadLocal { rel_path, absolute, line: load_bang_token.line, column: load_bang_token.column })
     }
 }

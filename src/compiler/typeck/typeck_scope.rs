@@ -467,15 +467,15 @@ impl TypeChecker {
             | Expression::EnumVariantPath { data_type, .. }
             | Expression::EnumVariant { data_type, .. } => data_type.clone(),
             Expression::UseMacro { inner } => self.expression_type_hint(inner),
-            Expression::Literal(Literal::Int(_)) => DataType::I64,
-            Expression::Literal(Literal::Float(_)) => DataType::F64,
-            Expression::Literal(Literal::Char(_)) => DataType::Char,
-            Expression::Literal(Literal::Str(_)) => DataType::Str,
-            Expression::Literal(Literal::Bool(_)) => DataType::Bool,
-            Expression::Literal(Literal::None) => DataType::None,
-            Expression::Literal(Literal::List(_)) => DataType::List,
-            Expression::Literal(Literal::Dict(_)) => DataType::Dict,
-            Expression::Literal(Literal::Tuple(_)) => DataType::Tuple,
+            Expression::Literal { lit: Literal::Int(_), .. } => DataType::I64,
+            Expression::Literal { lit: Literal::Float(_), .. } => DataType::F64,
+            Expression::Literal { lit: Literal::Char(_), .. } => DataType::Char,
+            Expression::Literal { lit: Literal::Str(_), .. } => DataType::Str,
+            Expression::Literal { lit: Literal::Bool(_), .. } => DataType::Bool,
+            Expression::Literal { lit: Literal::None, .. } => DataType::None,
+            Expression::Literal { lit: Literal::List(_), .. } => DataType::List,
+            Expression::Literal { lit: Literal::Dict(_), .. } => DataType::Dict,
+            Expression::Literal { lit: Literal::Tuple(_), .. } => DataType::Tuple,
             Expression::Closure { return_type, .. } => return_type.clone(),
         }
     }
@@ -778,13 +778,13 @@ fn collect_used_identifiers_in_expr(
                 collect_used_identifiers_in_expr(p, declared, used);
             }
         }
-        Expression::Literal(Literal::List(elements))
-        | Expression::Literal(Literal::Tuple(elements)) => {
+        Expression::Literal { lit: Literal::List(elements), .. }
+        | Expression::Literal { lit: Literal::Tuple(elements), .. } => {
             for e in elements {
                 collect_used_identifiers_in_expr(e, declared, used);
             }
         }
-        Expression::Literal(Literal::Dict(entries)) => {
+        Expression::Literal { lit: Literal::Dict(entries), .. } => {
             for ((k, v), _) in entries {
                 collect_used_identifiers_in_expr(k, declared, used);
                 collect_used_identifiers_in_expr(v, declared, used);

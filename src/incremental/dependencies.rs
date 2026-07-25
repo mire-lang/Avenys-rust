@@ -185,7 +185,7 @@ pub(crate) fn collect_statement_dependencies(statement: &Statement, deps: &mut V
         Statement::LoadLocal { rel_path, .. } => {
             deps.extend(rel_path.iter().cloned());
         }
-        Statement::ExternLib { name, path } => {
+        Statement::ExternLib { name, path, .. } => {
             deps.push(name.clone());
             deps.push(path.clone());
         }
@@ -447,7 +447,7 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
         Expression::UseMacro { inner } => {
             collect_expression_dependencies(inner, deps);
         }
-        Expression::Literal(_) => {}
+        Expression::Literal { .. } => {}
     }
 }
 

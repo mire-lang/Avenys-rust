@@ -1,4 +1,4 @@
-use crate::error::diagnostic::{Diagnostic, LabelStyle, Severity};
+use crate::error::diagnostic::{Diagnostic, DiagnosticCode, LabelStyle, Severity};
 
 fn c(use_color: bool, s: &str) -> &str {
     if use_color { s } else { "" }
@@ -47,33 +47,14 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
     ));
 
     if !span.is_unknown() {
+        // Source text resolution: try diag.source first, then read the file.
         if let Some(source) = &diag.source {
-            let lines: Vec<&str> = source.lines().collect();
-            if !lines.is_empty() {
-                let line = span.line;
-                let start = line.saturating_sub(2).max(1);
-                let end = (line + 2).min(lines.len());
-                let width = end.to_string().len();
-
-                for lno in start..=end {
-                    let txt = lines.get(lno - 1).copied().unwrap_or("");
-                    out.push_str(&format!("│ {:>width$} │ {}\n", lno, txt, width = width));
-                    for label in diag.labels.iter().filter(|x| x.span.line == lno) {
-                        let marker = match label.style {
-                            LabelStyle::Primary => '^',
-                            LabelStyle::Secondary => '-',
-                        };
-                        let marker_len = label.length.max(1);
-                        out.push_str(&format!(
-                            "│ {:>width$} │ {}{} {}\n",
-                            "",
-                            " ".repeat(label.span.column.saturating_sub(1)),
-                            marker.to_string().repeat(marker_len),
-                            label.message,
-                            width = width
-                        ));
-                    }
-                }
+            render_source_lines(&mut out, source, span, diag);
+        } else if let Some(ref fname) = diag.filename {
+            let path = std::path::Path::new(fname);
+            match std::fs::read_to_string(path) {
+                Ok(content) => render_source_lines(&mut out, &content, span, diag),
+                Err(_) => out.push_str("│     │ <no source text available>\n"),
             }
         } else {
             out.push_str("│     │ <no source text available>\n");
@@ -85,7 +66,7 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
     }
 
     out.push_str(&format!("╰─ {}\n", diag.message));
-    if span.is_unknown() {
+    if span.is_unknown() && diag.code != DiagnosticCode::E0017 {
         out.push_str("   ─┬─ note: toolchain error (no source location available)\n");
     }
     for note in &diag.notes {
@@ -98,4 +79,41 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
         out.push_str(&format!("   ─┬─ suggestion: {}\n", suggestion.message));
     }
     out
+}
+
+fn render_source_lines(
+    out: &mut String,
+    source: &str,
+    span: crate::error::Span,
+    diag: &Diagnostic,
+) {
+    let lines: Vec<&str> = source.lines().collect();
+    if lines.is_empty() {
+        out.push_str("│     │ <no source text available>\n");
+        return;
+    }
+    let line = span.line;
+    let start = line.saturating_sub(2).max(1);
+    let end = (line + 2).min(lines.len());
+    let width = end.to_string().len();
+
+    for lno in start..=end {
+        let txt = lines.get(lno - 1).copied().unwrap_or("");
+        out.push_str(&format!("│ {:>width$} │ {}\n", lno, txt, width = width));
+        for label in diag.labels.iter().filter(|x| x.span.line == lno) {
+            let marker = match label.style {
+                LabelStyle::Primary => '^',
+                LabelStyle::Secondary => '-',
+            };
+            let marker_len = label.length.max(1);
+            out.push_str(&format!(
+                "│ {:>width$} │ {}{} {}\n",
+                "",
+                " ".repeat(label.span.column.saturating_sub(1)),
+                marker.to_string().repeat(marker_len),
+                label.message,
+                width = width
+            ));
+        }
+    }
 }

@@ -451,10 +451,10 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
             if !current_section.is_empty() {
                 body.push(Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
                         "\n  [{}]",
                         current_section
-                    )))],
+                    )), line: 0, column: 0 }],
                     type_args: Vec::new(),
                     name_line: 0,
             name_column: 0,
@@ -465,10 +465,10 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
         if test.ignored {
             body.push(Statement::Expression(Expression::Call {
                 name: "dasu".to_string(),
-                args: vec![Expression::Literal(Literal::Str(format!(
+                args: vec![Expression::Literal { lit: Literal::Str(format!(
                     "  [SKIP] {}",
                     test.name
-                )))],
+                )), line: 0, column: 0 }],
                 type_args: Vec::new(),
                 name_line: 0,
             name_column: 0,
@@ -503,10 +503,10 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
                 }),
                 then_branch: vec![Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
                         "  [PASS] {}",
                         test.name
-                    )))],
+                    )), line: 0, column: 0 }],
                     type_args: Vec::new(),
                     name_line: 0,
             name_column: 0,
@@ -514,10 +514,10 @@ fn inject_test_harness(program: &mut crate::parser::ast::Program) {
                 })],
                 else_branch: Some(vec![Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
                         "  [FAIL] {}",
                         test.name
-                    )))],
+                    )), line: 0, column: 0 }],
                     type_args: Vec::new(),
                     name_line: 0,
             name_column: 0,

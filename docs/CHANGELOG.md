@@ -2,6 +2,66 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.23.0] - 2026-07-25 (Source Span Coverage)
+
+### Added
+
+- **`DiagnosticCode::E0017` (CLI Error)**: New error code for invalid CLI flags,
+  missing input files, and other command-line argument errors. Maps to title
+  "CLI Error" in `map_kind()` and is serialized/deserialized via
+  `StoredErrorKind::Cli` in the incremental cache.
+- **`ErrorKind::Cli { message }`**: New variant for CLI-level errors, replacing
+  all `ErrorKind::runtime_msg()` calls in the CLI layer. Constructor:
+  `MireError::cli(message)`.
+- **`Expression::Literal` source spans**: The `Expression::Literal` variant now
+  carries `line` and `column` fields. `expression_location()` returns real source
+  positions instead of `Span::unknown()` for all literal expressions.
+- **`Expression::EnumVariantPath` / `Expression::EnumVariant` source spans**: Both
+  variants now carry `line` and `column` fields. `expression_location()` returns
+  real source positions.
+- **`Statement::Load` source spans**: The `load` statement now carries `line` and
+  `column` fields. `statement_location()` returns the real source position.
+- **`Statement::LoadLocal` source spans**: The `load!` statement now carries
+  `line` and `column` fields. `statement_location()` returns the real source
+  position.
+- **`Statement::ExternLib` source spans**: The `extern ... lib "c"` declaration
+  now carries `line` and `column` fields.
+- **`Statement::ExternFunction` source spans**: The `extern fn` declaration now
+  carries `line` and `column` fields.
+- **Loader source spans**: `resolve_package`, `resolve_load_path`, and
+  `resolve_load_local_target` now accept a `Span` parameter threaded from the
+  calling `Statement::Load` / `Statement::LoadLocal`. Loader errors (package not
+  found, export not found, cyclic load) now report the source position of the
+  `load` statement instead of `0:0`.
+
+### Fixed
+
+- **Build error spans**: `compile_binary_from_ir` errors (clang spawn, stdin
+  write, wait, failure) now report `Span::new(1, 1)` instead of
+  `Span::unknown()`. The format layer shows `<no source location available>`
+  instead of the misleading `<location recorded at 0:0>` and the
+  "compiler bug or toolchain error" note.
+- **`Expression::Literal` match coverage**: All 131 match sites across the
+  codebase updated to use struct-pattern syntax (`Expression::Literal { lit, .. }`
+  or `Expression::Literal { .. }`).
+
+### Removed
+
+- **`ErrorKind::runtime_msg()`**: Dead code (0 callers) — replaced by
+  `ErrorKind::Cli` for CLI errors and `ErrorKind::Runtime` for runtime errors.
+- **`MireError::unknown()`**: Dead code (0 callers) — all former usages now use
+  `MireError::cli()` or `Span::new(1, 1)` as appropriate.
+
+### Changed
+
+- **CLI error messages**: All 23 `runtime_msg()` calls in the CLI layer
+  (`cli/options.rs`, `cli/test.rs`, `cli/files.rs`) replaced with `cli_msg()`
+  using `MireError::cli()`. Invalid flags, unknown commands, and missing input
+  files now show `error[E0017] ── CLI Error`.
+- **`Span::unknown()` count reduced**: From ~70 to ~61 usages across the
+  codebase. Remaining usages are all in infrastructure code (toolchain, cache,
+  build pipeline, top-level entry points) where no source context exists.
+
 ## [3.22.0] - 2026-07-24 (Runtime Production Readiness)
 
 ### Added

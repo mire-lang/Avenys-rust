@@ -27,7 +27,7 @@ pub(super) fn contains_self_placeholder(expr: &Expression) -> bool {
         | Expression::Reference { expr: target, .. }
         | Expression::Box { value: target, .. } => contains_self_placeholder(target),
         Expression::Closure { body, .. } => body.iter().any(statement_contains_self_placeholder),
-        Expression::Literal(_) => false,
+        Expression::Literal { .. } => false,
         Expression::Pipeline { input, stage, .. } => {
             contains_self_placeholder(input) || contains_self_placeholder(stage)
         }
@@ -297,6 +297,7 @@ pub(super) fn replace_self_placeholder(expr: Expression, replacement: &Expressio
             variant_name,
             payloads,
             data_type,
+            ..
         } => Expression::EnumVariant {
             enum_name,
             variant_name,
@@ -305,6 +306,8 @@ pub(super) fn replace_self_placeholder(expr: Expression, replacement: &Expressio
                 .map(|payload| replace_self_placeholder(payload, replacement))
                 .collect(),
             data_type,
+            line: 0,
+            column: 0,
         },
         other => other,
     }
@@ -552,7 +555,7 @@ impl Parser {
         Ok(Expression::Match {
             value: Box::new(value),
             cases,
-            default: Box::new(default.unwrap_or(Expression::Literal(Literal::None))),
+            default: Box::new(default.unwrap_or(Expression::Literal { lit: Literal::None, line: 0, column: 0 })),
             data_type: DataType::Unknown,
         })
     }
@@ -587,19 +590,23 @@ impl Parser {
                         let payloads = self.parse_expression_list_until(TokenType::Rparen)?;
                         self.expect(TokenType::Rparen)?;
                         let enum_name = name;
-                        return Ok(Expression::EnumVariant {
-                            enum_name: enum_name.clone(),
-                            variant_name,
-                            payloads,
-                            data_type: DataType::EnumNamed(enum_name),
-                        });
-                    }
-                    let enum_name = name;
-                    return Ok(Expression::EnumVariantPath {
+                    return Ok(Expression::EnumVariant {
                         enum_name: enum_name.clone(),
                         variant_name,
+                        payloads,
                         data_type: DataType::EnumNamed(enum_name),
+                        line: 0,
+                        column: 0,
                     });
+                }
+                let enum_name = name;
+                return Ok(Expression::EnumVariantPath {
+                    enum_name: enum_name.clone(),
+                    variant_name,
+                    data_type: DataType::EnumNamed(enum_name),
+                    line: 0,
+                    column: 0,
+                });
                 }
 
                 if self.check(TokenType::Lparen)
@@ -623,6 +630,8 @@ impl Parser {
                         variant_name: name,
                         payloads,
                         data_type: DataType::EnumNamed(enum_name),
+                        line: 0,
+                        column: 0,
                     });
                 }
 
@@ -638,7 +647,7 @@ impl Parser {
                         &format!("Invalid integer literal '{}'", val),
                     )
                 })?;
-                let base = Expression::Literal(Literal::Int(parsed));
+                let base = Expression::Literal { lit: Literal::Int(parsed), line: token.line, column: token.column };
                 if self.check(TokenType::Dot) && self.peek_n(1).ttype == TokenType::Dot {
                     self.advance();
                     self.advance();
@@ -664,7 +673,7 @@ impl Parser {
                         &format!("Invalid float literal '{}'", val),
                     )
                 })?;
-                Ok(Expression::Literal(Literal::Float(parsed)))
+                Ok(Expression::Literal { lit: Literal::Float(parsed), line: token.line, column: token.column })
             }
             TokenType::CharLit => {
                 let token = self.advance();
@@ -676,15 +685,17 @@ impl Parser {
                         &format!("Invalid char literal '{}'", val),
                     )
                 })?;
-                Ok(Expression::Literal(Literal::Char(parsed)))
+                Ok(Expression::Literal { lit: Literal::Char(parsed), line: token.line, column: token.column })
             }
             TokenType::StrLit => {
-                let val = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Str(val)))
+                let token = self.advance();
+                let val = token.value.unwrap_or_default();
+                Ok(Expression::Literal { lit: Literal::Str(val), line: token.line, column: token.column })
             }
             TokenType::BoolLit => {
-                let val = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Bool(val == "true")))
+                let token = self.advance();
+                let val = token.value.unwrap_or_default();
+                Ok(Expression::Literal { lit: Literal::Bool(val == "true"), line: token.line, column: token.column })
             }
             _ => Err(self.error("Expected pattern in match case")),
         }

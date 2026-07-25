@@ -58,7 +58,7 @@ impl MirLower {
                 }
                 val
             }
-            Expression::Literal(lit) => {
+                        Expression::Literal { lit, .. } => {
                 let val = self.lower_literal(lit);
                 let natural = crate::types::unify::literal_type(lit);
                 let expr_ty = extract_data_type(expr);
@@ -469,7 +469,7 @@ impl MirLower {
                     };
 
                     match pattern {
-                        Expression::Literal(lit) => {
+            Expression::Literal { lit, .. } => {
                             let lit_val = self.lower_literal(lit);
                             let cmp = self.new_temp();
                             self.func.blocks[chk].push(

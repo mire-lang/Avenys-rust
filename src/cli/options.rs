@@ -92,37 +92,37 @@ pub(crate) fn parse_common_with_file(
             "-O" | "--opt-level" => {
                 i += 1;
                 let level = args.get(i).ok_or_else(|| {
-                    runtime_msg("Missing optimization level after -O/--opt-level")
+                    cli_msg("Missing optimization level after -O/--opt-level")
                 })?;
                 opt_level = OptLevel::parse(level)
-                    .ok_or_else(|| runtime_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
+                    .ok_or_else(|| cli_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
             }
             flag if flag.starts_with("-O") && flag.len() > 2 => {
                 opt_level = OptLevel::parse(&flag[2..])
-                    .ok_or_else(|| runtime_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
+                    .ok_or_else(|| cli_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
             }
             "-o" | "--output" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing output path after -o/--output"))?;
+                    .ok_or_else(|| cli_msg("Missing output path after -o/--output"))?;
                 output = Some(PathBuf::from(value));
             }
             "--owl-home" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --owl-home"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --owl-home"))?;
                 owl_home = Some(PathBuf::from(value));
             }
             "--cache-max-units" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --cache-max-units"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --cache-max-units"))?;
                 let parsed = value
                     .parse::<usize>()
-                    .map_err(|_| runtime_msg("Invalid --cache-max-units value"))?;
+                    .map_err(|_| cli_msg("Invalid --cache-max-units value"))?;
                 cache.max_units = Some(parsed);
             }
             "--no-analysis-cache" => cache.analysis_cache = Some(false),
@@ -136,21 +136,21 @@ pub(crate) fn parse_common_with_file(
             }
             "--no-warn" => {
                 i += 1;
-                let cat = args.get(i).ok_or_else(|| runtime_msg("Missing warning category after --no-warn"))?;
+                let cat = args.get(i).ok_or_else(|| cli_msg("Missing warning category after --no-warn"))?;
                 no_warn_cats.push(cat.clone());
             }
             "-W" => {
                 i += 1;
                 let code = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing warning code after -W"))?;
+                    .ok_or_else(|| cli_msg("Missing warning code after -W"))?;
                 warn_codes.insert(parse_warning_code(code)?);
             }
             "--deny" => {
                 i += 1;
                 let code = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing warning code after --deny"))?;
+                    .ok_or_else(|| cli_msg("Missing warning code after --deny"))?;
                 deny_codes.insert(parse_warning_code(code)?);
             }
             "--verbose" | "-v" => verbose = true,
@@ -158,11 +158,11 @@ pub(crate) fn parse_common_with_file(
                 unsafe { std::env::set_var("OWL_PROGRESS", "1") };
             }
             value if value.starts_with('-') => {
-                return Err(runtime_msg(&format!("Unknown option: {value}")));
+                return Err(cli_msg(&format!("Unknown option: {value}")));
             }
             value => {
                 if file.is_some() {
-                    return Err(runtime_msg("Only one input file is supported"));
+                    return Err(cli_msg("Only one input file is supported"));
                 }
                 file = Some(value.to_string());
             }
@@ -251,7 +251,7 @@ pub(crate) fn default_entry_from_manifest(cwd: &Path) -> Result<Option<String>, 
 
 pub(crate) fn resolve_source_path(cwd: &Path, file: Option<String>) -> Result<PathBuf, MireError> {
     let file = file.ok_or_else(|| {
-        runtime_msg("No input file provided and no `entry` was found in owl.toml")
+        cli_msg("No input file provided and no `entry` was found in owl.toml")
     })?;
     let path = PathBuf::from(&file);
     let resolved = if path.is_absolute() {
@@ -260,7 +260,7 @@ pub(crate) fn resolve_source_path(cwd: &Path, file: Option<String>) -> Result<Pa
         cwd.join(path)
     };
     if !resolved.exists() {
-        return Err(runtime_msg(&format!(
+        return Err(cli_msg(&format!(
             "Input file not found: {}",
             resolved.display()
         )));
@@ -304,6 +304,6 @@ pub(crate) fn parse_warning_code(value: &str) -> Result<DiagnosticCode, MireErro
         "W0038" => Ok(DiagnosticCode::W0038),
         "W0039" => Ok(DiagnosticCode::W0039),
         "W0040" => Ok(DiagnosticCode::W0040),
-        _ => Err(runtime_msg("Warning code must look like W0001")),
+        _ => Err(cli_msg("Warning code must look like W0001")),
     }
 }

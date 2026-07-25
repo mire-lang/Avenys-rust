@@ -31,7 +31,22 @@ pub fn statement_location(statement: &Statement) -> Span {
         }
         Statement::Match { value, .. } => expression_location(value),
         Statement::Unsafe { line, column, .. } => Span::new(*line, *column),
-        _ => Span::unknown(),
+        Statement::Load { line, column, .. } => Span::new(*line, *column),
+        Statement::LoadLocal { line, column, .. } => Span::new(*line, *column),
+        Statement::ExternLib { line, column, .. } => Span::new(*line, *column),
+        Statement::ExternFunction { line, column, .. } => Span::new(*line, *column),
+        Statement::Module { .. }
+        | Statement::Break
+        | Statement::Continue
+        | Statement::Type { .. }
+        | Statement::Skill { .. }
+        | Statement::Impl { .. }
+        | Statement::Asm { .. }
+        | Statement::Enum { .. }
+        | Statement::Query { .. }
+        | Statement::Return(None)
+        | Statement::New { value: None, .. }
+        | Statement::Own { value: None, .. } => Span::unknown(),
     }
 }
 
@@ -81,12 +96,10 @@ pub fn expression_location(expression: &Expression) -> Span {
             .map(statement_location)
             .unwrap_or(Span::unknown()),
         Expression::Match { value, .. } => expression_location(value),
-        Expression::EnumVariant { payloads, .. } => payloads
-            .first()
-            .map(expression_location)
-            .unwrap_or(Span::unknown()),
+        Expression::EnumVariant { line, column, .. } => Span::new(*line, *column),
         Expression::Ascription { expr, .. } => expression_location(expr),
         Expression::UseMacro { inner } => expression_location(inner),
-        Expression::Literal(_) | Expression::EnumVariantPath { .. } => Span::unknown(),
+        Expression::Literal { line, column, .. } => Span::new(*line, *column),
+        Expression::EnumVariantPath { line, column, .. } => Span::new(*line, *column),
     }
 }

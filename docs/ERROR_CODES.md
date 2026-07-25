@@ -18,6 +18,7 @@
 | E0014 | Backend Limitation | The frontend accepted the program, but the current backend cannot lower a construct (e.g., tuples, `contains`) | Use an alternative approach or implement the missing lowering |
 | E0015 | Runtime Error | I/O errors, file not found, process failures, or other runtime failures during compilation | Check file paths, permissions, and system resources; ensure runtime dependencies are available |
 | E0016 | Unsafe Not Allowed | `@[deny(unsafe)]` attribute forbids unsafe blocks but one was found | Remove the unsafe block or remove the `@[deny(unsafe)]` attribute |
+| E0017 | CLI Error | Invalid CLI flags, missing input files, or other command-line argument errors | Check the command-line arguments; run `mire build --help` or `mire check --help` for usage |
 | E0100 | Type Conversion Error | Implicit numeric conversion would lose precision (e.g. `i64` → `i8`, `f64` → `f32`) | Use an explicit type ascription `(value :T)` or a wider target type |
 | E0101 | Type Mismatch | Declared type and assigned/operand type are incompatible (non-unifiable) | Make the types match, or convert the value explicitly |
 | E0102 | Type Conversion Error | Implicit float → int conversion would discard the fractional part | Use an explicit cast `(value :T)` if truncation is intended |

@@ -226,6 +226,7 @@ impl TypeChecker {
                 enum_name,
                 variant_name,
                 data_type,
+                ..
             } => {
                 let full_name = format!("{}.{}", enum_name, variant_name);
                 if !self.enum_variants.contains_key(&full_name) {
@@ -242,6 +243,7 @@ impl TypeChecker {
                 variant_name,
                 payloads,
                 data_type,
+                ..
             } => {
                 let full_name =
                     Self::canonical_enum_variant_name(&format!("{}.{}", enum_name, variant_name));

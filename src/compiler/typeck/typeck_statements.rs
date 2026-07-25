@@ -16,7 +16,7 @@ impl TypeChecker {
         is_mutable: bool,
     ) -> Result<()> {
         if let Some(expr) = value
-            && let Expression::Literal(Literal::Int(int_val)) = expr
+            && let Expression::Literal { lit: Literal::Int(int_val), .. } = expr
         {
             Self::validate_int_literal_range(data_type, *int_val, self.current_span.line, self.current_span.column)?;
         }

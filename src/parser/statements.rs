@@ -770,6 +770,7 @@ impl Parser {
     }
 
     fn parse_extern_lib_statement(&mut self) -> Result<Statement> {
+        let lib_token = self.peek();
         self.expect(TokenType::Lib)?;
         let name = self.expect_string_or_ident()?;
         let path = if self.check(TokenType::StrLit) || self.check(TokenType::Ident) {
@@ -777,10 +778,11 @@ impl Parser {
         } else {
             name.clone()
         };
-        Ok(Statement::ExternLib { name, path })
+        Ok(Statement::ExternLib { name, path, line: lib_token.line, column: lib_token.column })
     }
 
     fn parse_extern_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
+        let fn_token = self.peek();
         self.expect(TokenType::Fn)?;
         let name = self.expect_ident()?;
         self.expect(TokenType::Colon)?;
@@ -801,6 +803,8 @@ impl Parser {
             params,
             return_type,
             visibility,
+            line: fn_token.line,
+            column: fn_token.column,
         })
     }
 
@@ -867,7 +871,7 @@ impl Parser {
                 .join(" ")
                 .trim()
                 .to_string();
-            instructions.push((opcode, Expression::Literal(Literal::Str(operand_text))));
+            instructions.push((opcode, Expression::Literal { lit: Literal::Str(operand_text), line: 0, column: 0 }));
         }
 
         self.expect_block_close()?;

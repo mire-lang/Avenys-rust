@@ -31,8 +31,8 @@ pub(crate) fn walkdir(dir: &Path, _pattern: &str) -> Result<Vec<PathBuf>, MireEr
     Ok(results)
 }
 
-pub(crate) fn runtime_msg(message: &str) -> MireError {
-    MireError::runtime(message.to_string())
+pub(crate) fn cli_msg(message: &str) -> MireError {
+    MireError::cli(message.to_string())
 }
 
 pub(crate) fn runtime_err(err: std::io::Error) -> MireError {

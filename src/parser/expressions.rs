@@ -91,7 +91,7 @@ impl Parser {
             // Literals (and any node without a mutable `data_type` slot) cannot
             // carry the ascription inline, so wrap them in an `Ascription` node
             // that the typechecker and lower turn into a real conversion.
-            Expression::Literal(_) => {
+            Expression::Literal { .. } => {
                 return Ok(Expression::Ascription {
                     expr: Box::new(expr),
                     target: data_type.clone(),
@@ -603,7 +603,7 @@ impl Parser {
                     if name == "ok" || name == "err" || name == "some" {
                         let args = self.parse_call_arguments()?;
                         let value = if args.is_empty() {
-                            Expression::Literal(Literal::None)
+                            Expression::Literal { lit: Literal::None, line: 0, column: 0 }
                         } else if args.len() == 1 {
                             args.into_iter().next().unwrap()
                         } else {
@@ -781,7 +781,7 @@ impl Parser {
                         &format!("Invalid integer literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal(Literal::Int(parsed)))
+                Ok(Expression::Literal { lit: Literal::Int(parsed), line: token.line, column: token.column })
             }
             TokenType::FloatLit => {
                 let token = self.advance();
@@ -793,7 +793,7 @@ impl Parser {
                         &format!("Invalid float literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal(Literal::Float(parsed)))
+                Ok(Expression::Literal { lit: Literal::Float(parsed), line: token.line, column: token.column })
             }
             TokenType::CharLit => {
                 let token = self.advance();
@@ -805,19 +805,21 @@ impl Parser {
                         &format!("Invalid char literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal(Literal::Char(parsed)))
+                Ok(Expression::Literal { lit: Literal::Char(parsed), line: token.line, column: token.column })
             }
             TokenType::StrLit => {
-                let value = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Str(value)))
+                let token = self.advance();
+                let value = token.value.unwrap_or_default();
+                Ok(Expression::Literal { lit: Literal::Str(value), line: token.line, column: token.column })
             }
             TokenType::BoolLit => {
-                let value = self.advance().value.unwrap_or_default();
-                Ok(Expression::Literal(Literal::Bool(value == "true")))
+                let token = self.advance();
+                let value = token.value.unwrap_or_default();
+                Ok(Expression::Literal { lit: Literal::Bool(value == "true"), line: token.line, column: token.column })
             }
             TokenType::NoneLit => {
-                self.advance();
-                Ok(Expression::Literal(Literal::None))
+                let token = self.advance();
+                Ok(Expression::Literal { lit: Literal::None, line: token.line, column: token.column })
             }
             TokenType::SelfToken => {
                 let token = self.peek();
@@ -869,12 +871,16 @@ impl Parser {
                                     variant_name,
                                     payloads,
                                     data_type: DataType::EnumNamed(enum_name),
+                                    line: token.line,
+                                    column: token.column,
                                 });
                             }
                             return Ok(Expression::EnumVariantPath {
                                 enum_name: enum_name.clone(),
                                 variant_name,
                                 data_type: DataType::EnumNamed(enum_name),
+                                line: token.line,
+                                column: token.column,
                             });
                         }
                     }
@@ -901,6 +907,8 @@ impl Parser {
                                 variant_name,
                                 payloads,
                                 data_type: DataType::EnumNamed(enum_name),
+                                line: token.line,
+                                column: token.column,
                             });
                         }
                         let enum_name = name;
@@ -908,6 +916,8 @@ impl Parser {
                             enum_name: enum_name.clone(),
                             variant_name,
                             data_type: DataType::EnumNamed(enum_name),
+                            line: token.line,
+                            column: token.column,
                         });
                     }
                     self.advance();
@@ -1397,7 +1407,7 @@ impl Parser {
     }
 
     fn normalize_io_argument(&self, expr: &mut Expression) -> Result<()> {
-        if let Expression::Literal(Literal::Str(value)) = expr
+        if let Expression::Literal { lit: Literal::Str(value), .. } = expr
             && value.contains('{')
         {
             *expr = super::helpers::concat_expressions(self.parse_string_template_parts(value)?);

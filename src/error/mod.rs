@@ -79,18 +79,14 @@ pub enum ErrorKind {
         span: Span,
         kind: MssError,
     },
+    Cli {
+        message: String,
+    },
 }
 
 impl ErrorKind {
     pub fn runtime(span: Span, message: String) -> Self {
         ErrorKind::Runtime { span, message }
-    }
-
-    pub fn runtime_msg(message: String) -> Self {
-        ErrorKind::Runtime {
-            span: Span::unknown(),
-            message,
-        }
     }
 
     pub fn type_error_at(span: Span, message: String) -> Self {
@@ -344,6 +340,10 @@ impl MireError {
         })
     }
 
+    pub fn cli(message: String) -> Self {
+        Self::new(ErrorKind::Cli { message })
+    }
+
     pub fn runtime_at(line: usize, column: usize, message: String) -> Self {
         Self::new(ErrorKind::Runtime {
             span: Span::new(line, column),
@@ -378,14 +378,6 @@ impl MireError {
         Self::new(ErrorKind::Ownership {
             span: Span::new(line, column),
             kind,
-        })
-    }
-
-    pub fn unknown(message: String) -> Self {
-        Self::new(ErrorKind::Type {
-            span: Span::unknown(),
-            message,
-            code: None,
         })
     }
 }
@@ -437,6 +429,12 @@ fn map_kind(kind: &ErrorKind) -> (Span, &'static str, String, DiagnosticCode) {
             "Ownership Error",
             kind.to_string(),
             kind.diagnostic_code(),
+        ),
+        ErrorKind::Cli { message } => (
+            Span::unknown(),
+            "CLI Error",
+            message.clone(),
+            DiagnosticCode::E0017,
         ),
     }
 }

@@ -11,7 +11,7 @@ impl BorrowChecker<'_> {
             Expression::Ascription { expr, .. } => {
                 self.check_expression(expr)?;
             }
-            Expression::Literal(_) => {}
+            Expression::Literal { .. } => {}
             Expression::Identifier(ident) => {
                 self.ensure_binding_available(&ident.name)?;
             }

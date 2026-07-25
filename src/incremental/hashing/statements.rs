@@ -153,7 +153,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             type_param_bounds.hash(hasher);
             hash_statements(methods, hasher);
         }
-        Statement::ExternLib { name, path } => {
+        Statement::ExternLib { name, path, .. } => {
             hasher.write_u8(18);
             name.hash(hasher);
             path.hash(hasher);
@@ -164,6 +164,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             params,
             return_type,
             visibility: _,
+            ..
         } => {
             hasher.write_u8(19);
             name.hash(hasher);
@@ -183,13 +184,13 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
                 hash_expression(expr, hasher);
             }
         }
-        Statement::Load { path, alias, items } => {
+        Statement::Load { path, alias, items, .. } => {
             hasher.write_u8(23);
             path.hash(hasher);
             alias.hash(hasher);
             items.hash(hasher);
         }
-        Statement::LoadLocal { rel_path, absolute } => {
+        Statement::LoadLocal { rel_path, absolute, .. } => {
             hasher.write_u8(23);
             rel_path.hash(hasher);
             absolute.hash(hasher);

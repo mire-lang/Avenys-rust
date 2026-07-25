@@ -151,7 +151,7 @@ fn is_global_compatible(ty: &DataType) -> bool {
 
 fn infer_literal_type(expr: &Expression) -> Option<DataType> {
     match expr {
-        Expression::Literal(lit) => Some(match lit {
+        Expression::Literal { lit, .. } => Some(match lit {
             Literal::Int(_) => DataType::I64,
             Literal::Float(_) => DataType::F64,
             Literal::Char(_) => DataType::Char,
@@ -194,7 +194,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 return_type: return_type.clone(),
             });
         }
-        if let Statement::ExternLib { name, path } = stmt {
+        if let Statement::ExternLib { name, path, .. } = stmt {
             let clean = name.rsplit('.').next().unwrap_or(name);
             extern_libs.push((clean.to_string(), path.clone()));
         }

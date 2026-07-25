@@ -604,7 +604,7 @@ impl TypeChecker {
             }
         }
 
-        let has_default = !matches!(default, Expression::Literal(Literal::None));
+        let has_default = !matches!(default, Expression::Literal { lit: Literal::None, .. });
         if has_default {
             return Ok(());
         }
