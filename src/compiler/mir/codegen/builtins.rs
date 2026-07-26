@@ -242,14 +242,6 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         // ── Lists with spans ─────────────────────────────────────────
         "declare i64 @rt_lists_first(ptr, i64, i64, ptr)".to_string(),
         "declare i64 @rt_lists_last(ptr, i64, i64, ptr)".to_string(),
-        // ── Crypto ───────────────────────────────────────────────────
-        "declare ptr @rt_crypto_sha256(ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_sha256_hex(ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_hmac_sha256(ptr, i64, ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_hmac_sha256_hex(ptr, i64, ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_base64_encode(ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_base64_decode(ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_hex_encode(ptr, i64)".to_string(),
-        "declare ptr @rt_crypto_hex_decode(ptr, i64)".to_string(),
+
     ]
 }

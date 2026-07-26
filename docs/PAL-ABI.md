@@ -284,7 +284,7 @@ The runtime core is platform-independent C code that provides:
 | `maps_internal.h/c` | Internal hash/bucket helpers for maps |
 | `mire_types.c` | Maybe/Result/Arr implementations, panic with location |
 | `safety.c` | Integer division safety (div/rem), bounds checking |
-| `crypto.c` | SHA-256, HMAC-SHA256, base64, hex encode/decode |
+| `helpers.c` | Byte/file utilities (rt_read_bytes, rt_crypto_byte_at, rt_hex_to_file) |
 | `runtime.h` | All runtime declarations, WASM export macros, math wrappers |
 
 These are always linked regardless of platform. They use only standard C

@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.1** · 66 examples
+Version: **3.24.2** · 66 examples
 
 ---
 
@@ -799,28 +799,6 @@ set val = strings::to_i64("42")
 set full = s + " world"
 ```
 
-### 9.7 Crypto builtins
-
-The `crypto` module provides hash, HMAC, base64, and hex operations:
-
-```mire
-// Hashing
-set hash = crypto::sha256(data len)
-set hash_hex = crypto::sha256_hex(data len)
-
-// HMAC
-set mac = crypto::hmac_sha256(key key_len data data_len)
-set mac_hex = crypto::hmac_sha256_hex(key key_len data data_len)
-
-// Base64
-set encoded = crypto::base64_encode(data len)
-set decoded = crypto::base64_decode(encoded enc_len)
-
-// Hex
-set hex = crypto::hex_encode(data len)
-set raw = crypto::hex_decode(hex hex_len)
-```
-
 ---
 
 ## 10. Structs
@@ -1244,7 +1222,7 @@ choice — short, unambiguous, and visually distinct from English keywords.
 | `set line = ireru("> ")` | 入れる with prompt | Read with prompt from stdin |
 
 The rest of the standard library uses English names: `strings::*`, `lists::*`,
-`maps::*`, `crypto::*`, `vec::*`, etc. Only the two I/O primitives use Japanese.
+`maps::*`, `vec::*`, etc. Only the two I/O primitives use Japanese.
 
 ### Full reference
 
@@ -1276,9 +1254,6 @@ The rest of the standard library uses English names: `strings::*`, `lists::*`,
 | `maps::len(m)` | Map size |
 | `maps::keys(m)` | All keys |
 | `maps::values(m)` | All values |
-| `crypto::sha256(data len)` | SHA-256 hash |
-| `crypto::base64_encode(data len)` | Base64 encode |
-| `crypto::hex_encode(data len)` | Hex encode |
 | `fs::read(path)` | Read file contents |
 | `fs::write(path, data)` | Write string to file |
 | `fs::exists(path)` | Check if file exists |

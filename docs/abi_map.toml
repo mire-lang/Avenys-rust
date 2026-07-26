@@ -14,7 +14,7 @@
 
 [meta]
 generated_from = "src/compiler/mir/codegen/builtins.rs"
-symbol_count = 120
+symbol_count = 112
 
 [symbol.ireru]
 target = "ireru"
@@ -418,46 +418,6 @@ impl = "src/runtime/mire_types.c"
 target = "rt_check_bounds_i64"
 category = "runtime"
 impl = "src/runtime/safety.c"
-
-[symbol.rt_crypto_base64_decode]
-target = "rt_crypto_base64_decode"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_base64_encode]
-target = "rt_crypto_base64_encode"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_hex_decode]
-target = "rt_crypto_hex_decode"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_hex_encode]
-target = "rt_crypto_hex_encode"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_hmac_sha256]
-target = "rt_crypto_hmac_sha256"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_hmac_sha256_hex]
-target = "rt_crypto_hmac_sha256_hex"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_sha256]
-target = "rt_crypto_sha256"
-category = "runtime"
-impl = "src/runtime/runtime.h"
-
-[symbol.rt_crypto_sha256_hex]
-target = "rt_crypto_sha256_hex"
-category = "runtime"
-impl = "src/runtime/runtime.h"
 
 [symbol.rt_div_i64]
 target = "rt_div_i64"

@@ -2,6 +2,23 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.2] - 2026-07-26 (Stdlib Consolidation & Crypto Removal)
+
+### Removed
+
+- **`mire::math` stdlib module**: Removed 32 functions (pi, sin, cos, tan, sqrt, pow,
+  sum, mean, range, random, etc.) — exact duplicates of `kioto::math`. Use
+  `load kioto::math` instead.
+- **`mire::io` stdlib module**: Removed 4 functions (print, println, input,
+  input_prompt) — duplicates of `kioto::proc`. Use `load kioto::proc` instead.
+- **`crypto::` builtins from avenys**: Removed SHA-256, HMAC-SHA256, base64, and hex
+  encode/decode builtins (`crypto.c`, LLVM extern declarations, ABI map entries,
+  SYNTAX.md documentation). Kioto's `kioto::crypto` module provides the full crypto
+  API. Three byte/file utility helpers (`rt_crypto_byte_at`, `rt_read_bytes`,
+  `rt_hex_to_file`) retained in `helpers.c` for kioto compatibility.
+- **Dead `std_module_members` function**: Removed unused `std_module_members()` from
+  `builtins/mod.rs` (defined but never called).
+
 ## [3.24.1] - 2026-07-26 (Loader Modularization & Clippy Cleanup)
 
 ### Added

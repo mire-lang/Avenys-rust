@@ -16,9 +16,8 @@
 //    7. Arr[T N]         — fixed-size arrays
 //    8. Math             — trigonometry, statistics, range generation
 //    9. Safety           — bounds checks, checked arithmetic, panics
-//   10. Crypto           — SHA-256, HMAC, base64, hex encoding
-//   11. I/O              — print, read line, arguments
-//   12. PAL (platform)   — filesystem, networking, process, threads
+//   10. I/O              — print, read line, arguments
+//   11. PAL (platform)   — filesystem, networking, process, threads
 //
 //  Backward-compat aliases:
 //    rt_lists_* → rt_vecs_*   (lists.c renamed to vecs.c)
@@ -412,25 +411,7 @@ void *rt_closure_env_alloc(int64_t size);
 void  rt_closure_env_free(void *env);
 
 // ═══════════════════════════════════════════════════════════════════════
-//  10. Crypto operations
-//
-//  Pure C implementations. No external dependencies.
-// ═══════════════════════════════════════════════════════════════════════
-
-char   *rt_crypto_sha256(const char *data, int64_t len);
-char   *rt_crypto_sha256_hex(const char *data, int64_t len);
-char   *rt_crypto_hmac_sha256(const char *key, int64_t key_len, const char *data, int64_t data_len);
-char   *rt_crypto_hmac_sha256_hex(const char *key, int64_t key_len, const char *data, int64_t data_len);
-char   *rt_crypto_base64_encode(const char *data, int64_t len);
-char   *rt_crypto_base64_decode(const char *data, int64_t len);
-char   *rt_crypto_hex_encode(const char *data, int64_t len);
-char   *rt_crypto_hex_decode(const char *hex, int64_t len);
-int64_t rt_crypto_byte_at(const char *s, int64_t i);
-char   *rt_read_bytes(const char *path);
-int      rt_hex_to_file(const char *path, const char *hex);
-
-// ═══════════════════════════════════════════════════════════════════════
-//  11. I/O helpers
+//  10. I/O helpers
 // ═══════════════════════════════════════════════════════════════════════
 
 void   *dasu(int64_t value);
@@ -440,7 +421,15 @@ char   *rt_time_elapsed_ms_str(int64_t start_ns);
 char   *rt_cpu_elapsed_ms_str(int64_t start_ns);
 
 // ═══════════════════════════════════════════════════════════════════════
-//  12. Thread operations
+//  11. Byte / file utilities (used by kioto)
+// ═══════════════════════════════════════════════════════════════════════
+
+int64_t rt_crypto_byte_at(const char *s, int64_t i);
+char   *rt_read_bytes(const char *path);
+int     rt_hex_to_file(const char *path, const char *hex);
+
+// ═══════════════════════════════════════════════════════════════════════
+//   12. Thread operations
 // ═══════════════════════════════════════════════════════════════════════
 
 int64_t rt_thread_spawn_closure(void *fn_ptr, void *env_ptr);
