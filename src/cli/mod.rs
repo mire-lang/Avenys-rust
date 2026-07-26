@@ -63,7 +63,7 @@ pub(crate) fn print_help() {
     println!("  --debug               Build profile debug (default)");
     println!("  --release             Build profile release");
     println!("  -O, --opt-level <n>   0|1|2|3|s|z");
-    println!("  --owl-home <path>     Override the Owl module cache root");
+    println!("  --lib-dir <path>      Extra fallback package directory");
     println!("\nWarnings (for build/check/run):");
     println!("  --show-warn           Show warning summary");
     println!("  --position            Show per-file warning locations");

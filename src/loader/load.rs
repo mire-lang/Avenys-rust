@@ -24,6 +24,24 @@ pub(super) fn owl_home_libs() -> PathBuf {
     PathBuf::from(home).join(".owl").join("libs")
 }
 
+/// Extra fallback directory from `--lib-dir` / `$MIRE_LIB_DIR`.
+pub(super) fn lib_dir_fallback() -> Option<PathBuf> {
+    std::env::var("MIRE_LIB_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Expand a leading `~` in a path to the user's home directory.
+pub(super) fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
 /// Resolve a package name to its `(root_path, entry_string)`.
 ///
 /// Checks the package registry cache first, then consults manifest
@@ -41,7 +59,7 @@ pub(super) fn resolve_package(
         match dep {
             crate::avens::MireDependency::PathOnly { path }
             | crate::avens::MireDependency::WithPath { path, .. } => {
-                let p = PathBuf::from(path);
+                let p = expand_tilde(path);
                 if p.is_absolute() {
                     p
                 } else {
@@ -64,11 +82,25 @@ pub(super) fn resolve_package(
             }
         }
     } else {
-        return Err(resolver.loader_error(span, format!(
-            "Package '{}' not found in [dependencies] of {}",
-            name,
-            resolver.project_root.join("owl.toml").display()
-        )));
+        // Try --lib-dir fallback
+        if let Some(fallback) = lib_dir_fallback() {
+            let fallback_path = fallback.join(name);
+            if fallback_path.exists() {
+                fallback_path
+            } else {
+                return Err(resolver.loader_error(span, format!(
+                    "Package '{}' not found in [dependencies] of {}",
+                    name,
+                    resolver.project_root.join("owl.toml").display()
+                )));
+            }
+        } else {
+            return Err(resolver.loader_error(span, format!(
+                "Package '{}' not found in [dependencies] of {}",
+                name,
+                resolver.project_root.join("owl.toml").display()
+            )));
+        }
     };
 
     let canonical_root = package_root.canonicalize().map_err(|err| {

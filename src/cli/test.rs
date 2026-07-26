@@ -10,7 +10,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     let mut run = true;
     let mut verbose = false;
     let mut jobs: usize = 0;
-    let mut owl_home = None;
     let mut paths: Vec<String> = Vec::new();
     let mut opt_level = OptLevel::O0;
     let mut categorize = true;
@@ -31,7 +30,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 println!("  --verbose, -v       Show per-test results");
                 println!("  --no-categorize     Disable directory-based category grouping");
                 println!("  --jobs, -j <n>      Parallel compilation jobs (0 = logical CPUs)");
-                println!("  --owl-home <path>   Override the Owl module cache root");
                 println!("  -O, --opt-level <n> Optimization level for test binaries (0,1,2,3,s,z)");
                 println!("  -r, --release       Shorthand for --opt-level 3");
                 println!("  -d, --debug         Shorthand for --opt-level 0 (default)");
@@ -60,13 +58,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                     cli_msg("--jobs must be a positive integer")
                 })?;
             }
-            "--owl-home" => {
-                i += 1;
-                let value = args
-                    .get(i)
-                    .ok_or_else(|| cli_msg("Missing value for --owl-home"))?;
-                owl_home = Some(PathBuf::from(value));
-            }
             "-O" | "--opt-level" => {
                 i += 1;
                 let value = args
@@ -91,8 +82,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         }
         i += 1;
     }
-
-    set_owl_home_env(owl_home.as_ref());
 
     // --- helpers ---------------------------------------------------
     fn read_owl_test_paths(cwd: &Path) -> Vec<(String, PathBuf)> {

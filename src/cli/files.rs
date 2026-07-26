@@ -39,10 +39,10 @@ pub(crate) fn runtime_err(err: std::io::Error) -> MireError {
     MireError::runtime(err.to_string())
 }
 
-pub(crate) fn set_owl_home_env(path: Option<&PathBuf>) {
-    if let Some(path) = path {
+pub(crate) fn set_lib_dir_env(lib_dir: &Option<String>) {
+    if let Some(dir) = lib_dir {
         unsafe {
-            std::env::set_var("MIRE_OWL_HOME", path);
+            std::env::set_var("MIRE_LIB_DIR", dir);
         }
     }
 }

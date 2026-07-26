@@ -13,7 +13,7 @@ pub(crate) struct CommonOptions {
     pub(crate) opt_level: OptLevel,
     pub(crate) output: Option<PathBuf>,
     pub(crate) cache: CacheOverrides,
-    pub(crate) owl_home: Option<PathBuf>,
+    pub(crate) lib_dir: Option<String>,
     pub(crate) warn: WarningCliOptions,
     pub(crate) verbose: bool,
 }
@@ -66,7 +66,7 @@ pub(crate) fn parse_common_with_file(
     let mut output = None;
     let mut file = None;
     let mut cache = CacheOverrides::default();
-    let mut owl_home = None;
+    let mut lib_dir = None;
     let mut verbose = false;
     let mut show_warn = false;
     let mut position = false;
@@ -108,12 +108,12 @@ pub(crate) fn parse_common_with_file(
                     .ok_or_else(|| cli_msg("Missing output path after -o/--output"))?;
                 output = Some(PathBuf::from(value));
             }
-            "--owl-home" => {
+            "--lib-dir" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| cli_msg("Missing value for --owl-home"))?;
-                owl_home = Some(PathBuf::from(value));
+                    .ok_or_else(|| cli_msg("Missing value for --lib-dir"))?;
+                lib_dir = Some(value.to_string());
             }
             "--cache-max-units" => {
                 i += 1;
@@ -192,7 +192,7 @@ pub(crate) fn parse_common_with_file(
             opt_level,
             output,
             cache,
-            owl_home,
+            lib_dir,
             warn: WarningCliOptions {
                 filter: warning_filter,
                 deny: deny_codes,

@@ -14,7 +14,7 @@ use std::process::Command;
 pub(crate) fn run_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     let (common, file, pass_through) = parse_run_options(cwd, args)?;
     let path = resolve_source_path(cwd, file)?;
-    set_owl_home_env(common.owl_home.as_ref());
+    set_lib_dir_env(&common.lib_dir);
     let test_roots = read_test_roots(cwd);
     let suppress_warn = is_under_test_path(&path, &test_roots);
     let options = BuildOptions {
@@ -61,7 +61,7 @@ pub(crate) fn build_help() {
     println!("  -W <code>             Promote warning to error");
     println!("  --deny <code>         Deny specific warning code");
     println!("\nOther:");
-    println!("  --owl-home <path>     Override the Owl module cache root");
+    println!("  --lib-dir <path>      Extra fallback package directory");
     println!("  --verbose, -v         Debug dump");
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn build_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
     }
     let (common, file) = parse_common_with_file(cwd, args)?;
     let path = resolve_source_path(cwd, file)?;
-    set_owl_home_env(common.owl_home.as_ref());
+    set_lib_dir_env(&common.lib_dir);
     let test_roots = read_test_roots(cwd);
     let suppress_warn = is_under_test_path(&path, &test_roots);
     let options = BuildOptions {
@@ -106,7 +106,7 @@ pub(crate) fn check_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
     }
     let (common, file) = parse_common_with_file(cwd, args)?;
     let path = resolve_source_path(cwd, file)?;
-    set_owl_home_env(common.owl_home.as_ref());
+    set_lib_dir_env(&common.lib_dir);
     let test_roots = read_test_roots(cwd);
     let suppress_warn = is_under_test_path(&path, &test_roots);
     let warn_filter_off = matches!(common.warn.filter, WarningFilter::Off);
@@ -159,7 +159,7 @@ pub(crate) fn check_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
 pub(crate) fn debug_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     let options = parse_debug_options(cwd, args)?;
     let path = resolve_source_path(cwd, options.file.clone())?;
-    set_owl_home_env(options.common.owl_home.as_ref());
+    set_lib_dir_env(&options.common.lib_dir);
     let source = fs::read_to_string(&path).map_err(runtime_err)?;
 
     if options.show_tokens {
