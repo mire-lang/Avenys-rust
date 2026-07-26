@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.0** · 66 examples
+Version: **3.24.1** · 66 examples
 
 ---
 

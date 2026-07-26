@@ -256,10 +256,10 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
     for stmt in &program.statements {
         match stmt {
             Statement::Let { name, .. } => {
-                if let Some(ty) = top_level_global_type(stmt) {
-                    if is_global_compatible(&ty) {
-                        globals.insert(name.clone(), ty);
-                    }
+                if let Some(ty) = top_level_global_type(stmt)
+                    && is_global_compatible(&ty)
+                {
+                    globals.insert(name.clone(), ty);
                 }
                 top_level_binding_stmts.push(stmt.clone());
             }
@@ -267,10 +267,10 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 target: AssignmentTarget::Variable(name),
                 ..
             } => {
-                if let Some(ty) = top_level_global_type(stmt) {
-                    if is_global_compatible(&ty) {
-                        globals.entry(name.clone()).or_insert(ty);
-                    }
+                if let Some(ty) = top_level_global_type(stmt)
+                    && is_global_compatible(&ty)
+                {
+                    globals.entry(name.clone()).or_insert(ty);
                 }
                 top_level_binding_stmts.push(stmt.clone());
             }

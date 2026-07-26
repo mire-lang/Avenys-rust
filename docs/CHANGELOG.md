@@ -2,6 +2,27 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.1] - 2026-07-26 (Loader Modularization & Clippy Cleanup)
+
+### Added
+
+- **Loader module split**: Modularized `loader.rs` (1887 lines) into 6 focused files:
+  - `mod.rs` — types, public API, `load_file` dispatcher
+  - `files.rs` — file I/O, parsing, cache, dependency candidates
+  - `load.rs` — regular `load`/`use` package resolution
+  - `lload.rs` — local `load!`/`use!` resolution
+  - `select.rs` — import selection and transitive dependency resolution
+  - `rename.rs` — `ModuleRenamer` (scoped prefix renaming)
+
+### Fixed
+
+- **Zero clippy warnings**: Resolved all 40 lib + 4 bin clippy warnings across the
+  codebase — collapsed nested `if` blocks, replaced manual pattern matching with
+  `unwrap_or`/`is_some_and`/`next_back`/`strip_prefix`, removed redundant dereferences,
+  eliminated identical if-else branches, and fixed unused variable warnings.
+- **`canonical_fn_name` centralized**: All 12 scattered `name.replace("::", ".")` calls
+  replaced with a single utility function in `lib.rs`.
+
 ## [3.24.0] - 2026-07-26 (`::` Preservation & Normalization)
 
 ### Fixed

@@ -1,21 +1,21 @@
-//! Teoría de tipos de Mire: unificación, coerción, promoción, rangos y predicados.
+//! Mire's type theory: unification, coercion, promotion, ranges, and predicates.
 //!
-//! Este módulo es la FUENTE DE VERDAD de la teoría de tipos. El typechecker
-//! (`compiler::typeck`) delega aquí. Las funciones son `pub(crate)` y NO dependen
-//! de `TypeChecker`, de modo que pueden testearse de forma aislada (ver `tests`).
+//! This module is the SOURCE OF TRUTH for type theory. The typechecker
+//! (`compiler::typeck`) delegates here. Functions are `pub(crate)` and do NOT depend
+//! on `TypeChecker`, so they can be tested in isolation (see `tests`).
 
 use crate::error::{Result, type_error};
 use crate::parser::ast::{DataType, Expression, Literal};
 
-/// Resuelve el tipo resultante de un operador binario.
+/// Resolves the resulting type of a binary operator.
 ///
-/// Reglas:
-/// - Aritmética entre numéricos → tipo promovido (ver [`promote_numeric`]).
-/// - `+` entre `str` → `str` (concatenación).
-/// - `+` entre vectores → vector unificado.
-/// - Comparadores → `bool`.
-/// - Lógicos (`&&`, `||`) → `bool`.
-/// - Bitwise / shifts → tipo entero del operando izquierdo.
+/// Rules:
+/// - Arithmetic between numerics → promoted type (see [`promote_numeric`]).
+/// - `+` between `str` → `str` (concatenation).
+/// - `+` between vectors → unified vector.
+/// - Comparators → `bool`.
+/// - Logical (`&&`, `||`) → `bool`.
+/// - Bitwise / shifts → integer type of the left operand.
 pub fn resolve_binary_type(operator: &str, left: &DataType, right: &DataType) -> Result<DataType> {
     match operator {
         "+" | "-" | "*" | "/" | "%" => {
@@ -168,7 +168,7 @@ pub fn literal_type(lit: &Literal) -> DataType {
     }
 }
 
-/// Valida que un literal entero cabe en el rango del tipo declarado.
+/// Validates that an integer literal fits within the range of the declared type.
 pub fn validate_int_literal_range(
     data_type: &DataType,
     value: i64,
@@ -193,7 +193,7 @@ pub fn validate_int_literal_range(
     Ok(())
 }
 
-/// Unifica dos tipos, devolviendo el tipo común o un error si son incompatibles.
+/// Unifies two types, returning the common type or an error if they are incompatible.
 pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
     if left == right {
         return Ok(left.clone());
@@ -368,7 +368,7 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
     ))
 }
 
-/// Ancho en bits de un tipo entero/float Mire (utilidad compartida).
+/// Bit width of a Mire integer/float type (shared utility).
 pub fn numeric_bit_width(dt: &DataType) -> Option<u32> {
     match dt {
         DataType::I8 | DataType::U8 => Some(8),
@@ -383,16 +383,16 @@ pub fn numeric_bit_width(dt: &DataType) -> Option<u32> {
     }
 }
 
-/// Promueve dos tipos numéricos al tipo común de mayor ancho (sin pérdida).
+/// Promotes two numeric types to the common wider type (without loss).
 ///
-/// Reglas:
-/// - Si alguno es `f64`, el resultado es `f64`.
-/// - Si alguno es `f32` (y ninguno `f64`), el resultado es `f32`.
-/// - Si ambos son enteros, el resultado es el entero de mayor ancho/rango.
+/// Rules:
+/// - If either is `f64`, the result is `f64`.
+/// - If either is `f32` (and neither is `f64`), the result is `f32`.
+/// - If both are integers, the result is the integer with greater width/range.
 ///
-/// Esta función SÓLO se usa cuando la promoción no pierde información (p.ej. en
-/// operadores aritméticos). La asignación con pérdida de precisión es un error
-/// aparte (ver `is_assignable`).
+/// This function is ONLY used when promotion does not lose information (e.g. in
+/// arithmetic operators). Assignment with precision loss is a separate error
+/// (see `is_assignable`).
 pub fn promote_numeric(left: &DataType, right: &DataType) -> DataType {
     use DataType::*;
     let is_float = |t: &DataType| matches!(t, F32 | F64);
@@ -447,13 +447,13 @@ pub fn is_bool_like(dtype: &DataType) -> bool {
     matches!(dtype, DataType::Bool | DataType::Anything | DataType::Unknown)
 }
 
-/// ¿La asignación `actual` a `expected` es válida?
+/// Is the assignment of `actual` to `expected` valid?
 ///
-/// Reglas de precisión (Fase 0): una asignación entre tipos numéricos de distinto
-/// ancho/signo es válida SOLO si no hay pérdida de información (el tipo destino es
-/// más ancho o igual en rango). Si hay pérdida (p.ej. `i64` -> `i8`, `f64` -> `f32`,
-/// `i32` -> `u8`), se requiere una ascripción de tipo/conversión explícita; en caso
-/// contrario es un error de typecheck (no un widening silencioso).
+/// Precision rules (Phase 0): an assignment between numeric types of different
+/// width/sign is valid ONLY if there is no information loss (the target type is
+/// wider or equal in range). If there is loss (e.g. `i64` -> `i8`, `f64` -> `f32`,
+/// `i32` -> `u8`), an explicit type ascription/conversion is required; otherwise
+/// it is a typecheck error (not a silent widening).
 pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
     if matches!(expected, DataType::Generic(_)) || matches!(actual, DataType::Generic(_)) {
         return true;
@@ -581,7 +581,7 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
         _ => {}
     }
 
-    // Asignación numérica: solo válida sin pérdida de precisión.
+    // Numeric assignment: only valid without precision loss.
     if is_numeric(expected) && is_numeric(actual) {
         return numeric_bit_width(expected) >= numeric_bit_width(actual)
             && float_to_int_preserves_sign(expected, actual);
@@ -590,24 +590,24 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
     false
 }
 
-/// Comprueba que al asignar no se cruza la frontera signed/unsigned de forma
-/// pérdida (p.ej. `u64` -> `i64` es válido por ancho, pero `u64` -> `i32` no).
+/// Checks that assigning does not cross the signed/unsigned boundary in a lossy
+/// manner (e.g. `u64` -> `i64` is valid by width, but `u64` -> `i32` is not).
 fn float_to_int_preserves_sign(expected: &DataType, actual: &DataType) -> bool {
     use DataType::*;
     let is_signed = |t: &DataType| matches!(t, I8 | I16 | I32 | I64 | I128 | F32 | F64 | Char);
     let is_unsigned = |t: &DataType| matches!(t, U8 | U16 | U32 | U64 | U128);
     match (expected, actual) {
-        // float -> int siempre requiere conversión explícita (pérdida de fracción).
+        // float -> int always requires explicit conversion (fractional loss).
         (I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128, F32 | F64) => false,
-        // int -> float es seguro solo si el float es más ancho (f64 cubre i64/u64).
+        // int -> float is only safe if the float is wider (f64 covers i64/u64).
         (F32 | F64, I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128) => {
             numeric_bit_width(expected) >= numeric_bit_width(actual)
         }
-        // signed -> unsigned de igual ancho: válido (la representación bit a bit es la misma).
+        // signed -> unsigned of same width: valid (bitwise representation is the same).
         (e, a) if is_unsigned(e) && is_signed(a) && numeric_bit_width(e) == numeric_bit_width(a) => {
             true
         }
-        // unsigned -> signed de igual ancho: válido por ancho.
+        // unsigned -> signed of same width: valid by width.
         (e, a) if is_signed(e) && is_unsigned(a) && numeric_bit_width(e) == numeric_bit_width(a) => {
             true
         }

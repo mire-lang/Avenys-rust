@@ -199,10 +199,10 @@ impl TypeChecker {
 
     fn collect_load_local_modules(&mut self, statements: &[Statement]) {
         for statement in statements {
-            if let Statement::LoadLocal { rel_path, .. } = statement {
-                if let Some(prefix) = rel_path.last() {
-                    self.load_local_modules.insert(prefix.clone());
-                }
+            if let Statement::LoadLocal { rel_path, .. } = statement
+                && let Some(prefix) = rel_path.last()
+            {
+                self.load_local_modules.insert(prefix.clone());
             }
         }
     }

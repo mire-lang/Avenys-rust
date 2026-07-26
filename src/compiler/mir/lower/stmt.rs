@@ -102,10 +102,10 @@ impl MirLower {
                 let last = self.current_block;
                 match target {
                     AssignmentTarget::Variable(name) => {
-                        if let Some(target_ty) = self.var_types.get(name).cloned() {
-                            if needs_convert(&val_ty, &target_ty) {
-                                v = self.emit_convert(v, &val_ty, &target_ty, loc);
-                            }
+                        if let Some(target_ty) = self.var_types.get(name).cloned()
+                            && needs_convert(&val_ty, &target_ty)
+                        {
+                            v = self.emit_convert(v, &val_ty, &target_ty, loc);
                         }
                         if self.globals.contains_key(name) {
                             self.func.blocks[last].push(

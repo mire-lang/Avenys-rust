@@ -1950,25 +1950,25 @@ impl MirLower {
         }
         use DataType::*;
         let op = match (src_type, target_type) {
-            // Entero -> Flotante (con signo)
+            // Integer -> Float (signed)
             (
                 I64 | I128 | I32 | I16 | I8 | Char,
                 F64 | F32,
             ) => MirOp::Sitofp(src_val, MirType { data_type: target_type.clone() }),
-            // Flotante -> Entero (truncamiento de fracción)
+            // Float -> Integer (fractional truncation)
             (
                 F64 | F32,
                 I64 | I128 | I32 | I16 | I8 | U64 | U128 | U32 | U16 | U8 | Char,
             ) => MirOp::Fptosi(src_val, MirType { data_type: target_type.clone() }),
-            // Flotante -> Flotante (cambio de ancho)
+            // Float -> Float (width change)
             (F64, F32) => MirOp::Fptrunc(src_val, MirType { data_type: target_type.clone() }),
             (F32, F64) => MirOp::Fpext(src_val, MirType { data_type: target_type.clone() }),
-            // Entero -> Entero de distinto ancho / signo
+            // Integer -> Integer of different width / sign
             (s, t) if is_int_or_char(s) && is_int_or_char(t) => {
                 let s_w = int_width(s);
                 let t_w = int_width(t);
                 if t_w >= s_w {
-                    // Extensión: con signo para tipos signed, sin signo para unsigned.
+                    // Extension: sign-extended for signed types, zero-extended for unsigned.
                     if is_signed_int(s) {
                         MirOp::SExt(src_val, MirType { data_type: target_type.clone() })
                     } else {

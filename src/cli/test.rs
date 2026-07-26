@@ -128,10 +128,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 } else if let Some((key, val)) = parse_generic_kv(line) {
                     found.push((key, val));
                 }
-            } else if in_section == "paths" {
-                if let Some(v) = kv_string(line, "tests") {
-                    found.push(("paths".to_string(), v));
-                }
+            } else if in_section == "paths"
+                && let Some(v) = kv_string(line, "tests")
+            {
+                found.push(("paths".to_string(), v));
             }
         }
         if found.is_empty() {
@@ -144,9 +144,9 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         let prefix = format!("{}=", key);
         let rest = line.strip_prefix(&prefix)?;
         let rest = rest.trim();
-        if rest.starts_with('"') {
-            let end = rest[1..].find('"')?;
-            return Some(rest[1..1 + end].to_string());
+        if let Some(stripped) = rest.strip_prefix('"') {
+            let end = stripped.find('"')?;
+            return Some(stripped[..end].to_string());
         }
         if rest.starts_with('[') {
             let inner = rest.trim_start_matches('[').trim_end_matches(']');
@@ -240,10 +240,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 ));
             }
         }
-        if let Some(exp) = expect.exit {
-            if code != exp {
-                mismatches.push(format!("exit code mismatch: expected {} got {}", exp, code));
-            }
+        if let Some(exp) = expect.exit
+            && code != exp
+        {
+            mismatches.push(format!("exit code mismatch: expected {} got {}", exp, code));
         }
         if mismatches.is_empty() {
             UnitStatus::Pass
@@ -697,9 +697,9 @@ pub(crate) fn kv_string(line: &str, key: &str) -> Option<String> {
     let prefix = format!("{}=", key);
     let rest = line.strip_prefix(&prefix)?;
     let rest = rest.trim();
-    if rest.starts_with('"') {
-        let end = rest[1..].find('"')?;
-        return Some(rest[1..1 + end].to_string());
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
     }
     if rest.starts_with('[') {
         let inner = rest.trim_start_matches('[').trim_end_matches(']');

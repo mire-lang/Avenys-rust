@@ -59,5 +59,5 @@ impl TypeChecker {
     }
 }
 
-// Re-exporta las funciones de codegen canónicas para mantener compatibilidad con
-// los call sites que usan `crate::compiler::typeck::...` o imports directos.
+// Re-exports the canonical codegen functions to maintain compatibility with
+// call sites that use `crate::compiler::typeck::...` or direct imports.

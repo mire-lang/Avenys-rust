@@ -173,7 +173,7 @@ impl WarningAnalyzer {
         let imported_modules = self.imported_modules.clone();
         for load in &imported_modules {
             let _loc = if load.line == 0 && load.column == 0 {
-                find_position_for_load(source, &load.name).unwrap_or(Span::unknown())
+                find_position_for_load(source, &load.name).unwrap_or_default()
             } else {
                 Span::new(load.line, load.column)
             };
@@ -607,12 +607,11 @@ impl WarningAnalyzer {
             }
             Expression::Call { name, args, .. } => {
                 self.used_functions.insert(name.clone());
-                if name.contains('.') {
-                    if let Some(base) = name.split('.').next() {
-                        if self.defined_variables.contains(base) {
-                            self.used_variables.insert(base.to_string());
-                        }
-                    }
+                if name.contains('.')
+                    && let Some(base) = name.split('.').next()
+                    && self.defined_variables.contains(base)
+                {
+                    self.used_variables.insert(base.to_string());
                 }
                 let bare_name = name.split("::").last().unwrap_or(name);
                 let dot_name = name.split('.').next_back().unwrap_or(name);

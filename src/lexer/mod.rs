@@ -665,7 +665,7 @@ impl<'a> Lexer<'a> {
                     if self.peek(0) == Some('=') {
                         self.advance();
                         Token::new(TokenType::MinusAssign, start_line, start_col)
-                    } else if self.peek(0).map_or(false, |ch| ch.is_ascii_digit()) {
+                    } else if self.peek(0).is_some_and(|ch| ch.is_ascii_digit()) {
                         let num = if self.peek(0) == Some('0')
                             && matches!(
                                 self.peek(1),

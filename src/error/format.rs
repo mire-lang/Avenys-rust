@@ -37,14 +37,7 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
 
     let display_line = span.line.max(1);
     let display_col = span.column.max(1);
-    if span.is_unknown() && diag.filename.is_some() {
-        out.push_str(&format!(
-            "{}╭─[ {} ]{}\n",
-            c(use_color, "\x1b[1;36m"),
-            filename,
-            c(use_color, "\x1b[0m")
-        ));
-    } else if span.is_unknown() {
+    if span.is_unknown() {
         out.push_str(&format!(
             "{}╭─[ {} ]{}\n",
             c(use_color, "\x1b[1;36m"),
@@ -76,9 +69,7 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
             out.push_str("│     │ <no source text available>\n");
         }
     } else {
-        out.push_str(&format!(
-            "│     │ <no source location available>\n"
-        ));
+        out.push_str("│     │ <no source location available>\n");
     }
 
     out.push_str(&format!("╰─ {}\n", diag.message));

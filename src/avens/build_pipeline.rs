@@ -656,8 +656,8 @@ fn compile_file_inner(
     let mut cache = IncrementalCache::load_with_settings(source_path, cache_settings)?;
     let loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
     let phase_load = build_start.elapsed().as_millis() as u64;
-    progress_phase("load", &source_filename, phase_load, phase_load);
-    let source_file_hash = source_hash(&source);
+    progress_phase("load", source_filename, phase_load, phase_load);
+    let source_file_hash = source_hash(source);
     let dep_fingerprint = dependency_fingerprint(&loaded.files);
     if options.debug_dump
         && let Some(report) =
@@ -755,7 +755,7 @@ fn compile_file_inner(
             } else {
                 analyze_program_with_origins_partial(
                     &mut program,
-                    &source,
+                    source,
                     &loaded.statement_origins,
                     &loaded.sources,
                     &selection,
@@ -765,7 +765,7 @@ fn compile_file_inner(
         } else {
             analyze_program_with_origins(
                 &mut program,
-                &source,
+                source,
                 &loaded.statement_origins,
                 &loaded.sources,
             )
@@ -791,7 +791,7 @@ fn compile_file_inner(
         phase_analyse_time = build_start.elapsed().as_millis() as u64;
         progress_phase(
             "analyse",
-            &source_filename,
+            source_filename,
             phase_analyse_time - phase_load,
             phase_analyse_time,
         );
@@ -800,8 +800,8 @@ fn compile_file_inner(
 
     let warnings = check_warnings_with_origins(
         &program,
-        &source,
-        Some(&source_filename),
+        source,
+        Some(source_filename),
         options.warning_filter.clone(),
         options.deny_warnings.clone(),
         &loaded.statement_origins,
@@ -817,7 +817,7 @@ fn compile_file_inner(
     }
 
     let (mut ir, extern_libs) = {
-        let mut mir = lower_program_with_filename(&program, &source_filename);
+        let mut mir = lower_program_with_filename(&program, source_filename);
 
         // Compute combined hash of all MIR function bodies for caching
         let mir_hash: u64 = {
@@ -857,11 +857,11 @@ fn compile_file_inner(
                     }
                 }
             }
-            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, &source_filename);
+            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, source_filename);
             phase_mir_time = build_start.elapsed().as_millis() as u64;
             progress_phase(
                 "mir",
-                &source_filename,
+                source_filename,
                 phase_mir_time - phase_analyse_time,
                 phase_mir_time,
             );
@@ -921,12 +921,12 @@ fn compile_file_inner(
     let final_ir = if matches!(options.opt_level, OptLevel::O0) {
         ir
     } else {
-        optimize_ir(&ir, options.opt_level, &source_filename)?
+        optimize_ir(&ir, options.opt_level, source_filename)?
     };
     let phase_llvm = build_start.elapsed().as_millis() as u64;
     progress_phase(
         "llvm",
-        &source_filename,
+        source_filename,
         phase_llvm - phase_mir_time,
         phase_llvm,
     );
@@ -997,18 +997,18 @@ fn compile_file_inner(
             &extern_libs,
             &pal_backend,
             options.opt_level,
-            &source_filename,
+            source_filename,
         )?;
         let phase_link = build_start.elapsed().as_millis() as u64;
         progress_phase(
             "link",
-            &source_filename,
+            source_filename,
             phase_link - phase_llvm,
             phase_link,
         );
     }
     let phase_done = build_start.elapsed().as_millis() as u64;
-    progress_phase("done", &source_filename, 0, phase_done);
+    progress_phase("done", source_filename, 0, phase_done);
 
     cache.store_build(
         source_path,

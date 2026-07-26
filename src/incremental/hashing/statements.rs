@@ -163,7 +163,6 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             lib_name,
             params,
             return_type,
-            visibility: _,
             ..
         } => {
             hasher.write_u8(19);

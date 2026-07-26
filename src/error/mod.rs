@@ -169,7 +169,7 @@ impl MireError {
 
     /// Create a MireError from an existing Diagnostic, preserving its code and span.
     pub fn from_diagnostic(diag: &Diagnostic) -> Self {
-        let span = diag.labels.first().map(|l| l.span).unwrap_or(Span::unknown());
+        let span = diag.labels.first().map(|l| l.span).unwrap_or_default();
         let kind = ErrorKind::Runtime {
             span,
             message: diag.message.clone(),

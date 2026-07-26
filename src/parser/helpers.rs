@@ -438,17 +438,16 @@ pub fn apply_map_type_to_dict(
         elements,
         ..
     } = expr
+        && elements.is_empty()
     {
-        if elements.is_empty() {
-            *expr = Expression::Dict {
-                entries: Vec::new(),
-                key_type: (*key_type).clone(),
-                value_type: (*value_type).clone(),
-                data_type: DataType::Map {
-                    key_type,
-                    value_type,
-                },
-            };
-        }
+        *expr = Expression::Dict {
+            entries: Vec::new(),
+            key_type: (*key_type).clone(),
+            value_type: (*value_type).clone(),
+            data_type: DataType::Map {
+                key_type,
+                value_type,
+            },
+        };
     }
 }

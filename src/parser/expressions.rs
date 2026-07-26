@@ -50,7 +50,6 @@ impl Parser {
             }
             | Expression::List {
                 data_type: slot,
-                element_type: _,
                 ..
             }
             | Expression::Dict {
@@ -864,7 +863,7 @@ impl Parser {
                     }
 
                     if self.check(TokenType::Dot) && self.peek_n(1).ttype == TokenType::Ident {
-                        let last_part = full_name.split('.').last().unwrap_or("");
+                        let last_part = full_name.split('.').next_back().unwrap_or("");
                         if self.enum_names.contains(last_part) {
                             self.advance();
                             let variant_name = self.advance().value.unwrap_or_default();
@@ -1187,10 +1186,10 @@ impl Parser {
             self.advance();
             let mut stmts = self.parse_block()?;
             self.expect_block_close()?;
-            if let Some(Statement::Expression(_)) = stmts.last() {
-                if let Statement::Expression(expr) = stmts.pop().unwrap() {
-                    stmts.push(Statement::Return(Some(expr)));
-                }
+            if let Some(Statement::Expression(_)) = stmts.last()
+                && let Statement::Expression(expr) = stmts.pop().unwrap()
+            {
+                stmts.push(Statement::Return(Some(expr)));
             }
             Ok(stmts)
         } else {

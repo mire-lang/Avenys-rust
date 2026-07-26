@@ -1,31 +1,31 @@
-//! Mapeo canónico de `DataType` -> representación LLVM IR.
+//! mapping from `DataType` -> LLVM IR representation.
 //!
-//! Regla de oro: el ancho en LLVM debe coincidir EXACTAMENTE con el ancho del tipo
-//! Mire declarado. No hay "maquillaje" (p.ej. `u8` NUNCA se codegen como `i64`).
-//! Si un tipo no tiene representación directa en LLVM, se documenta explícitamente.
+//! rule: the LLVM width must EXACTLY match the width of the declared
+//! Mire type. No "fudging" (e.g., `u8` is NEVER codegened as `i64`).
+//! If a type does not have a direct representation in LLVM, it is explicitly documented.
 //!
-//! Tabla de verdad (auditable):
-//! | Tipo Mire   | LLVM IR     | Ancho | Notas                              |
+//! Truth table (auditable):
+//! | Mire Type   | LLVM IR     | Width | Notes                              |
 //! |-------------|-------------|-------|------------------------------------|
-//! | `i8`        | `i8`        | 8b   |                                    |
-//! | `i16`       | `i16`       | 16b  |                                    |
-//! | `i32`       | `i32`       | 32b  |                                    |
-//! | `i64`       | `i64`       | 64b  |                                    |
-//! | `i128`      | `i128`      | 128b |                                    |
-//! | `u8`        | `i8`        | 8b   | sin signo preservado en operaciones|
-//! | `u16`       | `i16`       | 16b  |                                    |
-//! | `u32`       | `i32`       | 32b  |                                    |
-//! | `u64`       | `i64`       | 64b  |                                    |
-//! | `u128`      | `i128`      | 128b |                                    |
-//! | `f32`       | `float`     | 32b  |                                    |
-//! | `f64`       | `double`    | 64b  |                                    |
-//! | `bool`      | `i1`        | 1b   |                                    |
-//! | `char`      | `i32`       | 32b  | codepoint UTF-32                   |
-//! | `str`       | `ptr`       | ---  | puntero a buffer UTF-8 gestionado |
+//! | `i8`        | `i8`        | 8b    |                                    |
+//! | `i16`       | `i16`       | 16b   |                                    |
+//! | `i32`       | `i32`       | 32b   |                                    |
+//! | `i64`       | `i64`       | 64b   |                                    |
+//! | `i128`      | `i128`      | 128b  |                                    |
+//! | `u8`        | `i8`        | 8b    | unsignedness preserved in ops      |
+//! | `u16`       | `i16`       | 16b   |                                    |
+//! | `u32`       | `i32`       | 32b   |                                    |
+//! | `u64`       | `i64`       | 64b   |                                    |
+//! | `u128`      | `i128`      | 128b  |                                    |
+//! | `f32`       | `float`     | 32b   |                                    |
+//! | `f64`       | `double`    | 64b   |                                    |
+//! | `bool`      | `i1`        | 1b    |                                    |
+//! | `char`      | `i32`       | 32b   | UTF-32 code point                  |
+//! | `str`       | `ptr`       | ---   | pointer to managed UTF-8 buffer    |
 
 use crate::parser::ast::DataType;
 
-/// Ancho en bits de un tipo entero/flotante Mire real (None para tipos no escalares).
+/// Bit width of an actual Mire integer/float type (None for non-scalar types).
 #[allow(dead_code)]
 pub(crate) fn integer_bit_width(dt: &DataType) -> Option<u32> {
     match dt {
@@ -42,16 +42,16 @@ pub(crate) fn integer_bit_width(dt: &DataType) -> Option<u32> {
     }
 }
 
-/// ¿El tipo es de punto flotante?
+/// Is the type floating point?
 #[allow(dead_code)]
 pub(crate) fn is_float_type(dt: &DataType) -> bool {
     matches!(dt, DataType::F32 | DataType::F64)
 }
 
-/// Mapea un `DataType` a su tipo escalar LLVM IR (string).
+/// Maps a `DataType` to its LLVM IR scalar type (string).
 ///
-/// Para tipos compuestos (`Array`, `Slice`, `Pointer`, `Struct`, `Closure`, etc.)
-/// se usa el tipo correspondiente; los tipos de caja (managed) son punteros.
+/// For composite types (`Array`, `Slice`, `Pointer`, `Struct`, `Closure`, etc.),
+/// the corresponding type is used; box (managed) types are pointers.
 pub fn llvm_type_str(dt: &DataType) -> String {
     match dt {
         DataType::I8 => "i8".to_string(),
@@ -83,15 +83,15 @@ pub fn llvm_type_str(dt: &DataType) -> String {
     }
 }
 
-/// Renderiza el tipo LLVM de un struct a partir de sus campos, respetando los
-/// anchos reales de cada campo (p.ej. `{ i8, i8, i64 }` para `{ u8, i8, i64 }`).
+/// Renders the LLVM type of a struct from its fields, respecting the
+/// actual widths of each field (e.g., `{ i8, i8, i64 }` for `{ u8, i8, i64 }`).
 pub fn render_struct_llvm_type(fields: &[(String, DataType)]) -> String {
     let tys: Vec<String> = fields.iter().map(|(_, dt)| llvm_type_str(dt)).collect();
     format!("{{ {} }}", tys.join(", "))
 }
 
-/// Tipo de elemento para GEP/codegen de colecciones, con anchos reales.
-/// Debe coincidir con `llvm_type_str` para escalares.
+/// Element type for GEP/codegen of collections, with actual widths.
+/// Must match `llvm_type_str` for scalars.
 pub fn llvm_type_byte_size(llvm_type: &str) -> i64 {
     match llvm_type {
         "i8" | "i1" => 1,
@@ -99,13 +99,7 @@ pub fn llvm_type_byte_size(llvm_type: &str) -> i64 {
         "i32" | "float" => 4,
         "i64" | "double" | "ptr" | "i8*" => 8,
         "i128" => 16,
-        _ => {
-            if llvm_type.contains('*') {
-                8
-            } else {
-                8
-            }
-        }
+        _ => 8,
     }
 }
 

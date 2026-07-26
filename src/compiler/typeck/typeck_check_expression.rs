@@ -163,16 +163,16 @@ impl TypeChecker {
                         .split_once("::")
                         .or_else(|| name.split_once('.'))
                         .map(|(q, _)| q.to_string());
-                    if let Some(qualifier) = qualifier {
-                        if self.load_local_modules.contains(&qualifier) {
-                            return Err(type_error_at_span(
-                                self.current_span,
-                                format!(
-                                    "calls into module '{qualifier}' require `use!` \
-                                     (e.g. `set x = use! {qualifier}::symbol(...)`)"
-                                ),
-                            ));
-                        }
+                    if let Some(qualifier) = qualifier
+                        && self.load_local_modules.contains(&qualifier)
+                    {
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            format!(
+                                "calls into module '{qualifier}' require `use!` \
+                                 (e.g. `set x = use! {qualifier}::symbol(...)`)"
+                            ),
+                        ));
                     }
                 }
                 if name == "ireru" && *data_type != DataType::Unknown {
@@ -508,34 +508,34 @@ impl TypeChecker {
                     return Ok(DataType::EnumNamed(enum_name));
                 }
 
-                if let Some((var_type, _)) = self.lookup_var(name) {
-                    if matches!(var_type, DataType::Closure { .. } | DataType::Function) {
-                        let closure_type = var_type.clone();
-                        if let DataType::Closure { params, return_type } = closure_type {
-                            if params.len() != arg_types.len() {
+                if let Some((var_type, _)) = self.lookup_var(name)
+                    && matches!(var_type, DataType::Closure { .. } | DataType::Function)
+                {
+                    let closure_type = var_type.clone();
+                    if let DataType::Closure { params, return_type } = closure_type {
+                        if params.len() != arg_types.len() {
+                            return Err(type_error_at_span(
+                                self.current_span,
+                                format!(
+                                    "Closure expects {} argument(s), got {}",
+                                    params.len(),
+                                    arg_types.len()
+                                ),
+                            ));
+                        }
+                        for (actual_ty, expected_ty) in arg_types.iter().zip(params.iter()) {
+                            if !self.is_assignable(expected_ty, actual_ty) {
                                 return Err(type_error_at_span(
                                     self.current_span,
                                     format!(
-                                        "Closure expects {} argument(s), got {}",
-                                        params.len(),
-                                        arg_types.len()
+                                        "Closure expects {:?}, got {:?}",
+                                        expected_ty, actual_ty
                                     ),
                                 ));
                             }
-                            for (actual_ty, expected_ty) in arg_types.iter().zip(params.iter()) {
-                                if !self.is_assignable(expected_ty, actual_ty) {
-                                    return Err(type_error_at_span(
-                                        self.current_span,
-                                        format!(
-                                            "Closure expects {:?}, got {:?}",
-                                            expected_ty, actual_ty
-                                        ),
-                                    ));
-                                }
-                            }
-                            *data_type = return_type.as_ref().clone();
-                            return Ok(return_type.as_ref().clone());
                         }
+                        *data_type = return_type.as_ref().clone();
+                        return Ok(return_type.as_ref().clone());
                     }
                 }
 
