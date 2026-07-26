@@ -2,6 +2,31 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.3] - 2026-07-26 (Nested Function Flattening)
+
+### Added
+
+- **Nested function definitions**: Functions can now be defined inside other
+  function bodies. A flattening pass automatically promotes nested `fn`
+  declarations to top-level with `parent::child` naming:
+  - Single level: `pub fn unwrap: () { pub fn i64: ... }` → `unwrap::i64`
+  - Multi-level: `unwrap::i64::or` via deeper nesting
+  - Parent functions with ONLY nested fn children become empty namespace anchors
+  - Mixed bodies supported — parent keeps executable statements, children promoted
+  - Flat (`pub fn unwrap::i64:`) and nested styles coexist (backward compatible)
+  - Flattening runs inside `parse()` — all parse paths get it automatically
+  - Visibility modifiers (`pub`/`fn`) preserved through flattening
+- **Loader prefix-group fallback**: `load mire::maybe::unwrap` (3+ segments)
+  falls back to loading the parent module (`mire::maybe`) and filtering exports
+  by prefix (`unwrap::`), enabling targeted imports of grouped functions.
+- **7 unit tests** in `src/parser/flatten.rs` + **8 integration tests** in
+  `tests/nested_functions.rs`
+
+### Changed
+
+- **`mire::maybe` stdlib module**: Rewritten with nested function grouping
+  (`some`, `is`, `unwrap` groups). All 27 functions preserved.
+
 ## [3.24.2] - 2026-07-26 (Stdlib Consolidation & Crypto Removal)
 
 ### Removed

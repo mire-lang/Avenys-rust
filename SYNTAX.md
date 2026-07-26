@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.2** · 66 examples
+Version: **3.24.3** · 68 examples
 
 ---
 
@@ -348,7 +348,49 @@ set mapped = lists::map(nums (x :i64) => x * 10)
 The `=>` arrow distinguishes closures from regular blocks. Closures can
 capture variables from their enclosing scope without explicit syntax.
 
-### 5.5 Static / associated methods
+### 5.5 Nested functions
+
+Functions can be defined inside other functions. The nested functions are
+automatically promoted to top-level with `parent::child` naming:
+
+```mire
+pub fn unwrap: () {
+    pub fn i64: (val :i64) :i64 { return val }
+    pub fn str: (val :str) :str { return val }
+}
+
+// After flattening, these are top-level:
+unwrap::i64(42)  // → 42
+unwrap::str("hi") // → "hi"
+```
+
+Multi-level nesting works too:
+
+```mire
+pub fn unwrap: () {
+    pub fn i64: () {
+        pub fn or: (val :i64) :i64 { return val }
+    }
+}
+// Becomes: unwrap::i64::or(42) → 42
+```
+
+If a parent function only contains nested functions (no other statements),
+it becomes an empty namespace anchor. Mixed bodies are supported — the
+parent keeps executable statements while nested functions are promoted:
+
+```mire
+pub fn math: () {
+    pub fn add: (a :i64, b :i64) :i64 { return a + b }
+    set x = 10
+}
+// math::add(1 2) works; x is local to math body
+```
+
+Both flat (`pub fn unwrap::i64:`) and nested styles can coexist in the
+same module. The flattening pass preserves visibility modifiers (`pub`/`fn`).
+
+### 5.6 Static / associated methods
 
 ```mire
 impl Point {

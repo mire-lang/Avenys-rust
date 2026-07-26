@@ -189,7 +189,21 @@ impl<'a> ImportResolver<'a> {
         dep_set: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         let load_span = Span::new(line, column);
-        let target = load::resolve_load_path(self, &path, load_span)?;
+        let target = match load::resolve_load_path(self, &path, load_span) {
+            Ok(target) => target,
+            // Fallback for3+ segment paths: try loading the parent module
+            // and filtering exports by the last segment as a prefix.
+            // e.g. `load mire::maybe::unwrap` → load `maybe/mod.mire`,
+            // filter to `unwrap::*` exports.
+            Err(_) if path.len() >= 3 => {
+                return self.expand_load_prefix_group(
+                    path, alias, line, column,
+                    imported_symbol_candidates,
+                    expanded, direct_dependencies, dep_set,
+                );
+            }
+            Err(e) => return Err(e),
+        };
 
         let selected = if items.is_some() {
             items
@@ -224,6 +238,67 @@ impl<'a> ImportResolver<'a> {
             }
             expanded.extend(prefixed);
         }
+        Ok(())
+    }
+
+    /// Fallback for 3+ segment `load` paths that don't resolve as file paths.
+    ///
+    /// When `load mire::maybe::unwrap` fails to find `unwrap` as a sub-module,
+    /// this method loads the parent module (`maybe/mod.mire`) and filters its
+    /// exports to those matching the last segment as a prefix (`unwrap::*`).
+    ///
+    /// This enables function-group loading: `load pkg::module::group` loads
+    /// all functions in `module` whose names start with `group::`.
+    #[allow(clippy::too_many_arguments)]
+    fn expand_load_prefix_group(
+        &mut self,
+        path: Vec<String>,
+        _alias: Option<String>,
+        line: usize,
+        column: usize,
+        _imported_symbol_candidates: &HashSet<String>,
+        expanded: &mut Vec<ExpandedStatement>,
+        direct_dependencies: &mut Vec<PathBuf>,
+        dep_set: &mut HashSet<PathBuf>,
+    ) -> Result<()> {
+        let load_span = Span::new(line, column);
+        let group_name = path.last().cloned().unwrap_or_default();
+        let parent_path = &path[..path.len() - 1];
+
+        // Resolve the parent module (e.g. `load mire::maybe` → `core/maybe/mod.mire`)
+        let target = load::resolve_load_path(self, parent_path, load_span)?;
+
+        // Load the parent to discover its exports
+        let all_imported = self.load_file(&target, load_span)?;
+
+        // Collect export names that start with `group_name::`
+        let prefix_filter = format!("{}::", group_name);
+        let matching_items: Vec<String> = all_imported
+            .iter()
+            .filter_map(|stmt| {
+                crate::incremental::statement_export_name(&stmt.statement)
+                    .map(ToString::to_string)
+            })
+            .filter(|name| name.starts_with(&prefix_filter))
+            .collect();
+
+        if matching_items.is_empty() {
+            return Err(self.loader_error(load_span, format!(
+                "Module '{}' has no exports matching prefix '{}'",
+                parent_path.join("::"),
+                group_name
+            )));
+        }
+
+        // Re-load with the filtered items list so transitive deps are resolved
+        let imported = self.load_selected_imports(&target, Some(&matching_items), load_span)?;
+
+        // Don't prefix — the flattened names already contain the group prefix
+        // (e.g. `unwrap::i64`). Just add the statements directly.
+        if dep_set.insert(target.clone()) {
+            direct_dependencies.push(target);
+        }
+        expanded.extend(imported);
         Ok(())
     }
 

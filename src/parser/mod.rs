@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod flatten;
 mod expressions;
 pub(crate) mod helpers;
 mod imports;
@@ -16,7 +17,9 @@ pub use helpers::{apply_map_type_to_dict, apply_vector_type_to_list};
 
 pub fn parse(source: &str) -> Result<Program> {
     let tokens = tokenize(source)?;
-    Parser::new(tokens).parse()
+    let mut program = Parser::new(tokens).parse()?;
+    flatten::flatten_nested_functions(&mut program.statements);
+    Ok(program)
 }
 
 /// Parses source with error recovery: on parse error, skips to the next
@@ -24,7 +27,13 @@ pub fn parse(source: &str) -> Result<Program> {
 /// collected errors.
 pub fn parse_with_recovery(source: &str) -> (Program, Vec<MireError>) {
     match tokenize(source) {
-        Ok(tokens) => Parser::new(tokens).parse_with_recovery(),
+        Ok(tokens) => {
+            let (mut program, errors) = Parser::new(tokens).parse_with_recovery();
+            if errors.is_empty() {
+                flatten::flatten_nested_functions(&mut program.statements);
+            }
+            (program, errors)
+        }
         Err(e) => (
             Program {
                 file_attributes: vec![],
