@@ -159,10 +159,10 @@ The LLVM declaration follows this pattern:
 ### Step 5: Declare in Mire module (kioto)
 
 ```mire
-# kioto/core/net/mod.mire
+// kioto/core/net/mod.mire
 
-# Private implementation detail — not exported to other modules.
-# Use `pub extern fn` if the symbol must be visible externally.
+// Private implementation detail — not exported to other modules.
+// Use `pub extern fn` if the symbol must be visible externally.
 extern fn pal_dns_lookup: (host :str) :str lib "c"
 ```
 

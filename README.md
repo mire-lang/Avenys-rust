@@ -1,8 +1,8 @@
-# Mire
+# Avenys v3.24.3
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
-Mire is a statically typed programming language designed for clarity and control.
+Avenys is a statically typed programming language designed for clarity and control.
 It gives you structs, enums, generics, closures, pattern matching, and a borrow
 checker that tracks ownership at compile time — no garbage collector, no runtime
 overhead beyond what you ask for.
@@ -111,7 +111,7 @@ owl run
 ## Quick start
 
 ```bash
-# Build the compiler (dev)
+# Build the compiler
 cargo build --release
 
 # Run the test suite
@@ -257,6 +257,8 @@ Warnings are **off by default**. Enable with:
 | Document | Description |
 |----------|-------------|
 | [SYNTAX.md](./SYNTAX.md) | Complete language reference with examples |
+| [docs/FFI.md](./docs/FFI.md) | Foreign Function Interface reference |
+| [docs/LIBRARIES.md](./docs/LIBRARIES.md) | Module loading, owl.toml, and exports |
 | [docs/PAL-ABI.md](./docs/PAL-ABI.md) | Platform Abstraction Layer architecture |
 | [docs/ERROR_CODES.md](./docs/ERROR_CODES.md) | All compiler error and warning codes |
 | [docs/CHANGELOG.md](./docs/CHANGELOG.md) | Version history |

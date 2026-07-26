@@ -13,22 +13,22 @@ via `load`.
 ## Quick Reference
 
 ```mire
-# Load the mire stdlib (vec, map, str modules)
+// Load the mire stdlib (vec, map, str modules)
 load mire
 
-# Load kioto (extended stdlib: net, async, json, etc.)
+// Load kioto (extended stdlib: net, async, json, etc.)
 load kioto
 
-# Load a specific module
+// Load a specific module
 load kioto::net
 
-# Call functions with module prefix
+// Call functions with module prefix
 set v = [10 20 30] : vec[i64]
 set len = lists::len(v)
 set s = strings::trim("  hello  ")
-set m = maps::set(0 "key" 42)
+set m = maps::set(m "key" 42)
 
-# use executes a function for side effects (discards result):
+// use executes a function for side effects (discards result):
 use dasu("hello")
 use proc::exit(1)
 ```
@@ -53,7 +53,7 @@ Avenys looks for libraries in these locations (in order):
 ### Step 2: Read the library's `owl.toml`
 
 ```toml
-# kioto/owl.toml
+// kioto/owl.toml
 [project]
 name = "kioto"
 version = "3.11.12"
@@ -65,7 +65,7 @@ lists = "core/lists"
 dicts = "core/dicts"
 net = "core/net"
 ws = "ext/ws"
-# ...
+// ...
 ```
 
 ### Step 3: Load the entry point
@@ -77,13 +77,13 @@ Avenys opens `mod.mire` (the `entry` file). This is the library's root module.
 `mod.mire` typically contains `load` statements for all sub-modules:
 
 ```mire
-# kioto/mod.mire
+// kioto/mod.mire
 module kioto
 load kioto::strings
 load kioto::lists
 load kioto::net
 load kioto::ws
-# ...
+// ...
 ```
 
 Each `load kioto::<name>` is resolved via the `[exports]` table:
@@ -135,7 +135,7 @@ namespace prefix. All `pub fn` in that file become `net::<fn_name>`.
 Projects declare their dependencies in `owl.toml`:
 
 ```toml
-# mire-owl/owl.toml
+// mire-owl/owl.toml
 [project]
 name = "owl"
 version = "0.14.0"
@@ -191,10 +191,10 @@ functions with their module prefix.
 Kioto modules call C functions via `extern fn`:
 
 ```mire
-# kioto/core/net/mod.mire
+// kioto/core/net/mod.mire
 extern fn pal_tls_connect: (host :str, port :i64) :i64 lib "c"
 extern fn pal_tls_send: (fd :i64, data :str) lib "c"
-# ...
+// ...
 ```
 
 The `lib "c"` tells Avenys: "this is an external C function, generate an
