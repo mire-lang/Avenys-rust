@@ -2,6 +2,13 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.12] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split conditional statements, loops, `find`, and `unsafe` parsing into `parser/statement_control.rs`.
+- Reduced `parser/statements.rs` below 700 lines while preserving statement dispatch behavior.
+
 ## [3.24.11] - 2026-07-28 (Avenys parser modularization)
 
 ### Changed

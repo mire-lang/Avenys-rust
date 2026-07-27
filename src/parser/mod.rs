@@ -8,6 +8,7 @@ mod loads;
 mod metadata;
 mod statements;
 mod statement_declarations;
+mod statement_control;
 mod syntax;
 mod types;
 
