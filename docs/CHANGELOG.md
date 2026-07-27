@@ -2,6 +2,12 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.13] - 2026-07-28 (Avenys type checking)
+
+### Changed
+
+- Moved the type-checker test suite to `compiler/typeck_tests.rs`; production type checking no longer shares a 900-line test block in `typeck.rs`.
+
 ## [3.24.12] - 2026-07-28 (Avenys parser modularization)
 
 ### Changed
