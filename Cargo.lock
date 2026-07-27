@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Avenys"
-version = "3.24.14"
+version = "3.24.15"
 dependencies = [
  "bincode",
  "libc",

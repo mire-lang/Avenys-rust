@@ -2,6 +2,13 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.15] - 2026-07-28 (Avenys loader modularization)
+
+### Changed
+
+- Split expression, query-operation, and enum-variant renaming into `loader/rename_expression.rs`.
+- Kept module prefixing, declaration renaming, scope tracking, and type-name handling in `loader/rename.rs`.
+
 ## [3.24.14] - 2026-07-28 (Avenys MIR modularization)
 
 ### Changed

@@ -18,6 +18,7 @@ mod files;
 mod load;
 mod lload;
 mod rename;
+mod rename_expression;
 mod select;
 
 use crate::avens::{ImportMode, MireDependency, find_project_root, load_manifest_dependencies};
