@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.10] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split expression precedence and unary parsing into `parser/expression_precedence.rs`.
+- Split primary expressions, closures, lifecycle expressions, and conditional expressions into `parser/expression_primary.rs`.
+- Reduced `parser/expressions.rs` to postfix, calls, literals, interpolation, and assignment-target responsibilities.
+
 ## [3.24.9] - 2026-07-28 (Avenys diagnostics)
 
 ### Fixed

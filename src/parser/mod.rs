@@ -1,6 +1,8 @@
 pub mod ast;
 pub mod flatten;
 mod expressions;
+mod expression_precedence;
+mod expression_primary;
 pub(crate) mod helpers;
 mod loads;
 mod metadata;
