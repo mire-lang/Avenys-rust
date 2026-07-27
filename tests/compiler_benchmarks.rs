@@ -266,7 +266,7 @@ fn benchmark_smoke() {
     // 11) Kioto.fs benchmark (file read/write)
     bench_compile(
         "kioto_fs_ops",
-        "load kioto\npub fn main: () {\n  fs::write(\"/tmp/b.txt\" \"x\")\n  use dasu(fs::read(\"/tmp/b.txt\"))\n}\n",
+        "load kioto\npub fn main: () {\n  set root = fs::root_open(\".\")\n  use dasu(str(root.handle))\n}\n",
         OptLevel::O0,
     );
 

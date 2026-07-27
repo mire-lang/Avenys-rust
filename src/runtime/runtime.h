@@ -124,11 +124,12 @@ char   *rt_strings_trim(const char *input);
 char   *rt_strings_split_list(const char *input, const char *delimiter);
 char   *rt_strings_join(char **parts, int64_t count, const char *delimiter);
 int64_t rt_strings_index_of(const char *s, const char *sub);
+int64_t rt_strings_char_at(const char *s, int64_t index);
 
 // String module convenience aliases
-int64_t rt_strings_to_upper(const char *s);
-int64_t rt_strings_to_lower(const char *s);
-int64_t rt_strings_strip(const char *s);
+char   *rt_strings_to_upper(const char *s);
+char   *rt_strings_to_lower(const char *s);
+char   *rt_strings_strip(const char *s);
 void   *rt_strings_split(const char *s, const char *sep);
 char   *rt_strings_join_list(void *parts, const char *sep);
 
@@ -191,6 +192,10 @@ char   *rt_vec_get_str(void *list, int64_t index);
 int64_t rt_vec_len(void *list);
 void   *rt_lists_push_i64(void *list, int64_t value);
 void   *rt_lists_push_ptr(void *list, void *value);
+
+// Process argv builder
+char  **rt_build_argv(const char *cmd, void *args_vec, int64_t *argc_out);
+void   rt_free_argv(char **argv, int64_t argc);
 int64_t rt_lists_pop(void *list);
 void   *rt_lists_slice(void *list, int64_t start, int64_t end);
 void   *rt_lists_concat(void *a, void *b);

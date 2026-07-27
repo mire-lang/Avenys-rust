@@ -4,9 +4,8 @@
 //! emitted by the MIR codegen — against the C implementation:
 //!
 //! 1. Every catalogued symbol is defined in its C source
-//!    (`src/pal/linux` + `src/pal/wasm` for `pal_*`, `src/runtime` for `rt_*`/`ireru`).
-//! 2. Every catalogued `pal_*` symbol has a WASM stub under `src/pal/wasm`.
-//! 3. The catalogue is complete and not stale: it matches exactly the set of
+//!    (`src/pal/linux` for `pal_*`, `src/runtime` for `rt_*`/`ireru`).
+//! 2. The catalogue is complete and not stale: it matches exactly the set of
 //!    `pal_*`/`rt_*`/`ireru` symbols declared by the codegen in
 //!    `src/compiler/mir/codegen/builtins.rs`.
 
@@ -25,8 +24,6 @@ struct Meta {
 struct Symbol {
     target: String,
     category: String,
-    #[serde(default)]
-    wasm: bool,
 }
 
 #[derive(Deserialize)]
@@ -92,7 +89,7 @@ fn emitted_symbols() -> HashSet<String> {
     let mut set = HashSet::new();
     for line in src.lines() {
         if let Some(idx) = line.find("declare") {
-                if let Some(at) = line[idx..].find('@') {
+            if let Some(at) = line[idx..].find('@') {
                 let after = &line[idx + at + 1..];
                 let sym = after
                     .split(|c: char| c == '(' || c.is_whitespace())
@@ -121,8 +118,8 @@ fn abi_catalogue_matches_codegen_and_c_sources() {
         "meta.symbol_count disagrees with the number of [symbol.*] entries"
     );
 
+    let core = read_c_sources(&root().join("src/pal/core"));
     let linux = read_c_sources(&root().join("src/pal/linux"));
-    let wasm = read_c_sources(&root().join("src/pal/wasm"));
     let runtime = read_c_sources(&root().join("src/runtime"));
 
     let emitted = emitted_symbols();
@@ -132,17 +129,14 @@ fn abi_catalogue_matches_codegen_and_c_sources() {
 
         match sym.category.as_str() {
             "pal" => {
+                // pal_* symbols can be in core (error, alloc) or linux (backend)
+                let in_core = source_defines(&core, &sym.target);
+                let in_linux = source_defines(&linux, &sym.target);
                 assert!(
-                    source_defines(&linux, &sym.target),
-                    "pal symbol `{}` is not defined in src/pal/linux",
+                    in_core || in_linux,
+                    "pal symbol `{}` is not defined in src/pal/core or src/pal/linux",
                     sym.target
                 );
-                assert!(
-                    source_defines(&wasm, &sym.target),
-                    "pal symbol `{}` has no WASM stub under src/pal/wasm",
-                    sym.target
-                );
-                assert!(sym.wasm, "pal symbol `{}` must set wasm = true", sym.target);
             }
             "runtime" | "ireru" => {
                 assert!(
@@ -151,6 +145,9 @@ fn abi_catalogue_matches_codegen_and_c_sources() {
                     sym.category,
                     sym.target
                 );
+            }
+            "libc" => {
+                // libc symbols are provided by the system; no source check needed
             }
             other => panic!("unknown category `{other}` for symbol `{}`", sym.target),
         }

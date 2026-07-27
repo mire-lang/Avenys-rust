@@ -209,13 +209,11 @@ pub fn default_builtin_returns() -> HashMap<String, DataType> {
         "trim",
         "ltrim",
         "rtrim",
-        "substr",
         "pad_left",
         "pad_right",
         "first",
         "last",
         "slice",
-        "concat",
         "flatten",
         "is_int",
         "is_float",
@@ -234,6 +232,9 @@ pub fn default_builtin_returns() -> HashMap<String, DataType> {
     ] {
         builtins.insert(name.to_string(), DataType::Anything);
     }
+
+    builtins.insert("substr".to_string(), DataType::Str);
+    builtins.insert("concat".to_string(), DataType::Str);
 
     builtins.insert("str".to_string(), DataType::Str);
     builtins.insert("range".to_string(), DataType::List);

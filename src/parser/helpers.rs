@@ -191,6 +191,7 @@ impl Parser {
             ttype,
             TokenType::Ident
                 | TokenType::Set
+                | TokenType::Cons
                 | TokenType::NewKw
                 | TokenType::DropKw
                 | TokenType::MoveKw

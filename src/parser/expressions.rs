@@ -13,7 +13,7 @@ impl Parser {
         self.parse_optional_type_ascription(expr)
     }
 
-    fn parse_pipeline_free_expression(&mut self) -> Result<Expression> {
+    pub(super) fn parse_pipeline_free_expression(&mut self) -> Result<Expression> {
         self.parse_or()
     }
 

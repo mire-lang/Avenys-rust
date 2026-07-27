@@ -15,6 +15,7 @@ impl TypeChecker {
         data_type: &mut DataType,
         value: &mut Option<Expression>,
         is_mutable: bool,
+        is_constant: bool,
     ) -> Result<()> {
         if let Some(expr) = value
             && let Expression::Literal { lit: Literal::Int(int_val), .. } = expr
@@ -57,6 +58,9 @@ impl TypeChecker {
         };
 
         *data_type = final_type.clone();
+        if is_constant {
+            self.insert_constant(name.to_string());
+        }
         self.insert_var(name.to_string(), final_type, is_mutable);
         self.refresh_binding_metadata(name, data_type, value.as_ref());
         Ok(())
@@ -84,6 +88,18 @@ impl TypeChecker {
                     target, target_type, value_type
                 ),
             ));
+        }
+
+        if let AssignmentTarget::Variable(name) = target {
+            if self.is_constant(name) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!(
+                        "Cannot reassign constant '{}'",
+                        name
+                    ),
+                ));
+            }
         }
 
         if !is_target_mutable {

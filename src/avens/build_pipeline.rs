@@ -595,44 +595,16 @@ fn compile_file_inner(
         .persist_ir
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let runtime_base = runtime_base();
-    let pal_backend = std::env::var("MIRE_PAL").unwrap_or_else(|_| "linux".to_string());
     let (c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files = Vec::new();
-        for entry in std::fs::read_dir(runtime_base.join("runtime")).map_err(|err| {
-            MireError::new(ErrorKind::Runtime {
-                span: crate::error::Span::unknown(),
-                message: format!("Could not read runtime/: {}", err),
-            })
-        })? {
-            let entry = entry.map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("Could not read entry: {}", err),
-                })
-            })?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "c") {
-                files.push(path.to_string_lossy().to_string());
-            }
-        }
-        for entry in
-            std::fs::read_dir(runtime_base.join(format!("pal/{pal_backend}"))).map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("Could not read pal/{pal_backend}: {}", err),
-                })
-            })?
-        {
-            let entry = entry.map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("Could not read entry: {}", err),
-                })
-            })?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "c") {
-                files.push(path.to_string_lossy().to_string());
-            }
+        for directory in ["runtime", "pal/core", "pal/linux"] {
+            super::toolchain::collect_c_files(&runtime_base.join(directory), &mut files)
+                .map_err(|err| {
+                    MireError::new(ErrorKind::Runtime {
+                        span: crate::error::Span::unknown(),
+                        message: format!("Could not collect C sources from {directory}: {err}"),
+                    })
+                })?;
         }
         files.sort();
         files.dedup();
@@ -995,7 +967,6 @@ fn compile_file_inner(
             &c_objects,
             &binary_path,
             &extern_libs,
-            &pal_backend,
             options.opt_level,
             source_filename,
         )?;

@@ -1,5 +1,21 @@
 use super::*;
 
+pub(super) fn collect_c_files(
+    dir: &std::path::Path,
+    files: &mut Vec<String>,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_c_files(&path, files)?;
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("c") {
+            files.push(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn optimize_ir(ir: &str, opt_level: OptLevel, source_filename: &str) -> Result<String> {
     let mut command = Command::new("opt");
     command
@@ -50,7 +66,6 @@ pub(super) fn compile_binary_from_ir(
     c_object_files: &[String],
     binary_path: &Path,
     extern_libs: &[(String, String)],
-    pal_backend: &str,
     opt_level: OptLevel,
     source_filename: &str,
 ) -> Result<()> {
@@ -76,12 +91,11 @@ pub(super) fn compile_binary_from_ir(
     clang.arg("-o").arg(binary_path);
     clang.arg(opt_level.as_opt_flag());
 
-    if pal_backend != "wasm" {
-        clang.arg("-lm");
-        clang.arg("-lssl");
-        clang.arg("-lcrypto");
-        clang.arg("-pthread");
-    }
+    clang.arg("-lm");
+    clang.arg("-lssl");
+    clang.arg("-lcrypto");
+    clang.arg("-lsodium");
+    clang.arg("-pthread");
 
     for (lib_name, lib_path) in extern_libs {
         let clean_name = if lib_name.contains('.') {

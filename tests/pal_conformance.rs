@@ -64,7 +64,9 @@ fn find_c_files(dir: &str) -> Vec<String> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "c") {
+            if path.is_dir() {
+                files.extend(find_c_files(&path.display().to_string()));
+            } else if path.is_file() && path.extension().map_or(false, |e| e == "c") {
                 files.push(path.display().to_string());
             }
         }
@@ -109,14 +111,20 @@ fn abi_map_meta_count_accurate() {
 #[test]
 fn every_pal_symbol_has_linux_impl() {
     let symbols = parse_abi_map();
-    let linux_files = find_c_files("src/pal/linux");
+    let mut linux_files = find_c_files("src/pal/linux");
+    linux_files.extend(find_c_files("src/pal/core"));
 
     for (target, category, impl_path, _) in &symbols {
         if category != "pal" {
             continue;
         }
-        let impl_file = impl_path.split('/').last().unwrap_or("");
-        let found = linux_files.iter().any(|f| f.ends_with(impl_file));
+        let found = if impl_path.is_empty() {
+            linux_files.iter().any(|f| file_contains_symbol(f, target))
+        } else {
+            let impl_file = impl_path.split('/').last().unwrap_or("");
+            linux_files.iter().any(|f| f.ends_with(impl_file))
+                && file_contains_symbol(impl_path, target)
+        };
         assert!(
             found,
             "PAL symbol '{}' impl '{}' not found in src/pal/linux/",
@@ -146,9 +154,14 @@ fn every_wasm_true_symbol_has_wasm_stub() {
 #[test]
 fn every_runtime_symbol_has_impl() {
     let symbols = parse_abi_map();
+    let runtime_files = find_c_files("src/runtime");
     for (target, category, impl_path, _) in &symbols {
         if category == "runtime" || category == "ireru" {
-            let found = file_contains_symbol(impl_path, target);
+            let found = if impl_path.is_empty() {
+                runtime_files.iter().any(|f| file_contains_symbol(f, target))
+            } else {
+                file_contains_symbol(impl_path, target)
+            };
             assert!(
                 found,
                 "Runtime symbol '{}' impl '{}' not found",

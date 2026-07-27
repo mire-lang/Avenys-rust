@@ -8,14 +8,25 @@ impl TypeChecker {
         self.ref_scopes.push(HashMap::new());
         self.function_alias_scopes.push(HashMap::new());
         self.function_value_sig_scopes.push(HashMap::new());
+        self.constant_scopes.push(HashSet::new());
     }
 
     pub(super) fn pop_scope(&mut self) {
+        let child_constants = if self.constant_scopes.len() > 1 {
+            self.constant_scopes.pop().unwrap()
+        } else {
+            HashSet::new()
+        };
         if self.scopes.len() > 1 {
             let vars = self.scopes.pop().unwrap();
             if let Some(parent) = self.scopes.last_mut() {
                 for (name, entry) in vars {
-                    parent.insert(name, entry);
+                    parent.insert(name.clone(), entry);
+                    if !child_constants.contains(&name)
+                        && let Some(constants) = self.constant_scopes.last_mut()
+                    {
+                        constants.remove(&name);
+                    }
                 }
             }
         }
@@ -51,12 +62,30 @@ impl TypeChecker {
                 }
             }
         }
+        if let Some(parent) = self.constant_scopes.last_mut() {
+            parent.extend(child_constants);
+        }
     }
 
     pub(super) fn insert_var(&mut self, name: String, data_type: DataType, is_mutable: bool) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, (data_type, is_mutable));
         }
+    }
+
+    pub(super) fn insert_constant(&mut self, name: String) {
+        if let Some(scope) = self.constant_scopes.last_mut() {
+            scope.insert(name);
+        }
+    }
+
+    pub(super) fn is_constant(&self, name: &str) -> bool {
+        for (variables, constants) in self.scopes.iter().zip(&self.constant_scopes).rev() {
+            if variables.contains_key(name) {
+                return constants.contains(name);
+            }
+        }
+        false
     }
 
     pub(super) fn refresh_binding_metadata(

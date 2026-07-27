@@ -926,4 +926,51 @@ mod tests {
         let program = parse(source);
         assert!(program.is_err(), "legacy angle blocks should be rejected");
     }
+
+    #[test]
+    fn parses_cons_statement() {
+        let source = "cons MAX = 100 :i64\n";
+        let program = parse(source).expect("parse should accept cons");
+        let Statement::Let {
+            name,
+            data_type,
+            value,
+            is_constant,
+            is_mutable,
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("expected let");
+        };
+        assert_eq!(name, "MAX");
+        assert_eq!(*data_type, DataType::I64);
+        assert!(*is_constant);
+        assert!(!*is_mutable);
+        assert!(value.is_some());
+    }
+
+    #[test]
+    fn parses_cons_statement_without_type() {
+        let source = "cons X = 42\n";
+        let program = parse(source).expect("parse should accept cons without type");
+        let Statement::Let {
+            name,
+            data_type,
+            is_constant,
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("expected let");
+        };
+        assert_eq!(name, "X");
+        assert_eq!(*data_type, DataType::Unknown);
+        assert!(*is_constant);
+    }
+
+    #[test]
+    fn rejects_cons_with_mut() {
+        let source = "cons X = 5 :i64 mut\n";
+        let result = parse(source);
+        assert!(result.is_err(), "cons with mut should be rejected");
+    }
 }

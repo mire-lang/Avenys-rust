@@ -45,6 +45,7 @@ pub enum TokenType {
     Pub,
     Priv,
     Const,
+    Cons,
     Mut,
     As,
     Is,
@@ -578,6 +579,8 @@ impl<'a> Lexer<'a> {
                         .with_value("pub".to_string()),
                     "priv" => Token::new(TokenType::Priv, self.line, self.column),
                     "const" => Token::new(TokenType::Const, self.line, self.column),
+                    "cons" => Token::new(TokenType::Cons, self.line, self.column)
+                        .with_value("cons".to_string()),
                     "mut" => Token::new(TokenType::Mut, self.line, self.column)
                         .with_value("mut".to_string()),
                     "as" => Token::new(TokenType::As, self.line, self.column),

@@ -2,6 +2,54 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.5] - 2026-07-27 (Avenys stabilization)
+
+### Fixed
+
+- C source discovery now propagates filesystem errors instead of silently producing an incomplete runtime link set.
+- `rt_build_argv` validates inputs and arithmetic, checks every allocation, and releases partially built argv arrays on failure.
+- Process cleanup no longer kills or waits on a process after it has already been reaped.
+
+### Changed
+
+- C source collection is recursive and owned by the toolchain module rather than the build pipeline.
+- PAL conformance checks resolve implementations from the current PAL Core/runtime tree, matching the PAL v4 layout.
+
+## [3.24.4] - 2026-07-27 (PAL v4 Handle Safety & Kioto proc/fs Fixes)
+
+### Fixed
+
+- **PAL slot table recycling**: `pal_core_reserve` now uses `in_use` flag for the free
+  list instead of generation wraparound. `pal_core_release` clears `in_use` without
+  resetting `generation`, eliminating ABA-style handle reuse bugs.
+- **`pal_core_validate(slot, generation, type)`** added as the canonical handle validity
+  check — verifies `in_use && generation match && type match`. Wired up in all 30+
+  handle-based dispatch functions in `pal_dispatch.c`.
+- **`pal_dir_next` ABI mismatch** (memory corruption on every directory iteration):
+  The C function `pal_dir_next(pal_dir_t dir)` returns `pal_dir_entry_t` (259 bytes)
+  by value, requiring a hidden pointer on x86-64 SysV ABI. Kioto's Mire FFI declared it
+  as `(dir :i64, entry :&str) :i64` — completely wrong return model and ghost parameter.
+  Added `pal_dir_next_into(pal_dir_t dir, pal_dir_entry_t *out)` (struct-pointer out-param)
+  and `pal_dir_next_name(dir, out_buf, cap)` (Kioto-friendly name-only helper) to
+  `pal_dispatch.c` and `pal.h`. Updated Kioto `fs.mod.mire` to use `pal_dir_next_name`.
+- **`proc.spawn` was using shell via `pal_proc_system`**, ignoring `args` and leaking
+  shell injection surface. Now uses `pal_proc_create(argv, PAL_SPAWN_WAIT, ...)` via
+  `rt_build_argv(cmd, args)` — proper argv construction, no shell, blocking exit code.
+- **`proc.wait` was calling `pal_proc_wait_pid` with a PAL handle** instead of PID.
+  Fixed to use `pal_proc_wait(pal_process_t proc)` (handle-based wait).
+- **`pal_proc_create` ABI mismatch** — Kioto declared `argv :&str` (`const char *`) but
+  C expects `const char **`. Added `rt_build_argv(cmd, args_vec, argc_out)` runtime helper
+  that marshals `vec[str]` → `char **argv` with NULL terminator, plus `rt_free_argv` for cleanup.
+- **Kioto `fs.join`/`fs.dir`/`fs.name`/`fs.ext`**: replaced broken builtins `concat(a,b)`
+  and `substr(s,i,n)` with `rt_string_concat` and `rt_strings_substr` respectively.
+  Also added `"concat"` and `"substr"` to the MIR lowerer's `builtin_names` protection list.
+- **Dead code cleanup**: Removed unused `g_proc_buf[65536]` and dead `pal_slot_t *s`
+  in `pal_dispatch.c`.
+
+### Changed
+
+- **Kioto version**: 2.3.2 → 2.4.0
+
 ## [3.24.3] - 2026-07-26 (Nested Function Flattening)
 
 ### Added

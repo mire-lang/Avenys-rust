@@ -1,0 +1,621 @@
+# ABI Map — authoritative catalogue of LLVM symbols emitted by the MIR codegen.
+#
+# MIR no longer emits any @mire_* symbol. The codegen declares the symbols
+# below (see src/compiler/mir/codegen/builtins.rs :: pal_extern_decls), which
+# are implemented in C and linked per-build by clang. This file is the
+# source of truth for tests/abi_consistency.rs, which asserts that every
+# catalogued symbol is defined in its C source and (for pal_*) has a WASM stub.
+#
+# Fields per entry:
+#   target    = LLVM symbol name (without the leading @)
+#   category  = pal | runtime | ireru
+#   impl      = C file that defines the symbol (linux/posix backend or runtime)
+#   wasm      = true if a WASM stub must exist under src/pal/wasm
+
+[meta]
+generated_from = "src/compiler/mir/codegen/builtins.rs"
+symbol_count = 112
+
+[symbol.ireru]
+target = "ireru"
+category = "ireru"
+impl = "src/runtime/runtime.h"
+
+[symbol.pal_cpu_count]
+target = "pal_cpu_count"
+category = "pal"
+impl = "src/pal/linux/pal_cpu.c"
+wasm = true
+
+[symbol.pal_env_all]
+target = "pal_env_all"
+category = "pal"
+impl = "src/pal/linux/pal_env.c"
+wasm = true
+
+[symbol.pal_env_cwd]
+target = "pal_env_cwd"
+category = "pal"
+impl = "src/pal/linux/pal_env.c"
+wasm = true
+
+[symbol.pal_env_get]
+target = "pal_env_get"
+category = "pal"
+impl = "src/pal/linux/pal_env.c"
+wasm = true
+
+[symbol.pal_env_set]
+target = "pal_env_set"
+category = "pal"
+impl = "src/pal/linux/pal_env.c"
+wasm = true
+
+[symbol.pal_fs_append]
+target = "pal_fs_append"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_copy]
+target = "pal_fs_copy"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_delete]
+target = "pal_fs_delete"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_dir]
+target = "pal_fs_dir"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_exists]
+target = "pal_fs_exists"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_ext]
+target = "pal_fs_ext"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_write_secure]
+target = "pal_fs_write_secure"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_chmod]
+target = "pal_fs_chmod"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_is_dir]
+target = "pal_fs_is_dir"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_is_file]
+target = "pal_fs_is_file"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_join]
+target = "pal_fs_join"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_list]
+target = "pal_fs_list"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_mkdir]
+target = "pal_fs_mkdir"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_move]
+target = "pal_fs_move"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_name]
+target = "pal_fs_name"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_read]
+target = "pal_fs_read"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_rmdir]
+target = "pal_fs_rmdir"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_size]
+target = "pal_fs_size"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_walk]
+target = "pal_fs_walk"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_fs_write]
+target = "pal_fs_write"
+category = "pal"
+impl = "src/pal/linux/pal_fs.c"
+wasm = true
+
+[symbol.pal_mem_used]
+target = "pal_mem_used"
+category = "pal"
+impl = "src/pal/linux/pal_mem.c"
+wasm = true
+
+[symbol.pal_proc_exec]
+target = "pal_proc_exec"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_exists]
+target = "pal_proc_exists"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_exit]
+target = "pal_proc_exit"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_kill]
+target = "pal_proc_kill"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_on]
+target = "pal_proc_on"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_run]
+target = "pal_proc_run"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_spawn]
+target = "pal_proc_spawn"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_wait]
+target = "pal_proc_wait"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_spawn_argv]
+target = "pal_proc_spawn_argv"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_proc_last_signal]
+target = "pal_proc_last_signal"
+category = "pal"
+impl = "src/pal/linux/pal_proc.c"
+wasm = true
+
+[symbol.pal_net_bind]
+target = "pal_net_bind"
+category = "pal"
+impl = "src/pal/linux/pal_net.c"
+wasm = true
+
+[symbol.pal_net_accept]
+target = "pal_net_accept"
+category = "pal"
+impl = "src/pal/linux/pal_net.c"
+wasm = true
+
+[symbol.pal_thread_join]
+target = "pal_thread_join"
+category = "pal"
+impl = "src/pal/linux/pal_thread.c"
+wasm = true
+
+[symbol.pal_thread_detach]
+target = "pal_thread_detach"
+category = "pal"
+impl = "src/pal/linux/pal_thread.c"
+wasm = true
+
+[symbol.pal_time_sleep_ms]
+target = "pal_time_sleep_ms"
+category = "pal"
+impl = "src/pal/linux/pal_time.c"
+wasm = true
+
+[symbol.pal_time_unix_ms]
+target = "pal_time_unix_ms"
+category = "pal"
+impl = "src/pal/linux/pal_time.c"
+wasm = true
+
+[symbol.pal_time_unix_ns]
+target = "pal_time_unix_ns"
+category = "pal"
+impl = "src/pal/linux/pal_time.c"
+wasm = true
+
+[symbol.rt_bool_to_string]
+target = "rt_bool_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_dict_get_i64]
+target = "rt_dict_get_i64"
+category = "runtime"
+impl = "src/runtime/maps.c"
+
+[symbol.rt_dict_get_ptr]
+target = "rt_dict_get_ptr"
+category = "runtime"
+impl = "src/runtime/maps.c"
+
+[symbol.rt_dict_set_i64]
+target = "rt_dict_set_i64"
+category = "runtime"
+impl = "src/runtime/maps.c"
+
+[symbol.rt_dict_set_ptr]
+target = "rt_dict_set_ptr"
+category = "runtime"
+impl = "src/runtime/maps.c"
+
+[symbol.rt_f64_to_string]
+target = "rt_f64_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_get_args]
+target = "rt_get_args"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_i64_to_string]
+target = "rt_i64_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_managed_ensure_managed]
+target = "rt_managed_ensure_managed"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_managed_free]
+target = "rt_managed_free"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_managed_from_cstr]
+target = "rt_managed_from_cstr"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_f32_to_string]
+target = "rt_f32_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_i128_to_string]
+target = "rt_i128_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_u128_to_string]
+target = "rt_u128_to_string"
+category = "runtime"
+impl = "src/runtime/strings.c"
+
+[symbol.rt_math_ceil]
+target = "rt_math_ceil"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_math_floor]
+target = "rt_math_floor"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_math_pow]
+target = "rt_math_pow"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_math_round]
+target = "rt_math_round"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_math_sqrt]
+target = "rt_math_sqrt"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_thread_spawn_closure]
+target = "rt_thread_spawn_closure"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_arr_contains_i64]
+target = "rt_arr_contains_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_first_i64]
+target = "rt_arr_first_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_index_of_i64]
+target = "rt_arr_index_of_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_join]
+target = "rt_arr_join"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_last_i64]
+target = "rt_arr_last_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_len]
+target = "rt_arr_len"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_arr_reverse_i64]
+target = "rt_arr_reverse_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_check_bounds_i64]
+target = "rt_check_bounds_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_div_i64]
+target = "rt_div_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_lists_first]
+target = "rt_lists_first"
+category = "runtime"
+impl = "src/runtime/vecs.c"
+
+[symbol.rt_lists_last]
+target = "rt_lists_last"
+category = "runtime"
+impl = "src/runtime/vecs.c"
+
+[symbol.rt_maybe_free]
+target = "rt_maybe_free"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_is_none]
+target = "rt_maybe_is_none"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_is_some]
+target = "rt_maybe_is_some"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_none_as_ptr]
+target = "rt_maybe_none_as_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_f64]
+target = "rt_maybe_some_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_i64]
+target = "rt_maybe_some_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_ptr]
+target = "rt_maybe_some_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_some_str]
+target = "rt_maybe_some_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_f64]
+target = "rt_maybe_unwrap_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_i64]
+target = "rt_maybe_unwrap_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_f64]
+target = "rt_maybe_unwrap_or_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_i64]
+target = "rt_maybe_unwrap_or_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_ptr]
+target = "rt_maybe_unwrap_or_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_or_str]
+target = "rt_maybe_unwrap_or_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_ptr]
+target = "rt_maybe_unwrap_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_maybe_unwrap_str]
+target = "rt_maybe_unwrap_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_panic_loc]
+target = "rt_panic_loc"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_rem_i64]
+target = "rt_rem_i64"
+category = "runtime"
+impl = "src/runtime/safety.c"
+
+[symbol.rt_result_err_i64]
+target = "rt_result_err_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_payload]
+target = "rt_result_err_payload"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_ptr]
+target = "rt_result_err_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_err_str]
+target = "rt_result_err_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_free]
+target = "rt_result_free"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_is_err]
+target = "rt_result_is_err"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_is_ok]
+target = "rt_result_is_ok"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_i64]
+target = "rt_result_ok_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_ptr]
+target = "rt_result_ok_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_ok_str]
+target = "rt_result_ok_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_err_str]
+target = "rt_result_unwrap_err_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_f64]
+target = "rt_result_unwrap_f64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_i64]
+target = "rt_result_unwrap_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_or_f64]
+target = "rt_result_unwrap_or_f64"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_or_i64]
+target = "rt_result_unwrap_or_i64"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_or_ptr]
+target = "rt_result_unwrap_or_ptr"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_or_str]
+target = "rt_result_unwrap_or_str"
+category = "runtime"
+impl = "src/runtime/runtime.h"
+
+[symbol.rt_result_unwrap_ptr]
+target = "rt_result_unwrap_ptr"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+
+[symbol.rt_result_unwrap_str]
+target = "rt_result_unwrap_str"
+category = "runtime"
+impl = "src/runtime/mire_types.c"
+

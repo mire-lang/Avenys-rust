@@ -4283,15 +4283,15 @@ fn pal_proc_shell_echo() {
 }
 
 #[test]
-fn pal_proc_spawn_wait_exit_code() {
-    let root = make_temp_project_root("mire_pal_proc_sw");
-    let source_path = root.join("proc_sw.mire");
+fn pal_proc_spawn_exit_code() {
+    let root = make_temp_project_root("mire_pal_proc_run");
+    let source_path = root.join("proc_run.mire");
     fs::write(
         root.join("owl.toml"),
-        "[project]\nname = \"proc-sw\"\nversion = \"0.1.0\"\nentry = \"proc_sw.mire\"\n",
+        "[project]\nname = \"proc-run\"\nversion = \"0.1.0\"\nentry = \"proc_run.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set pid = proc.spawn(\"exit 42\" [])\n    set code = proc.wait(pid)\n    use dasu(str(code))\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set code = proc.spawn(\"/bin/true\", [])\n    use dasu(str(code))\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4311,18 +4311,18 @@ fn pal_proc_spawn_wait_exit_code() {
         ..Default::default()
         },
     )
-    .expect("proc spawn/wait should compile");
+    .expect("proc spawn should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
     assert!(
         output.status.success(),
-        "proc spawn/wait failed: {:?}",
+        "proc spawn failed: {:?}",
         output
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "exit code: {stdout}");
+    assert!(stdout.contains("0"), "exit code: {stdout}");
 }
 
 // ── OWL integration tests ─────────────────────────────────────────────

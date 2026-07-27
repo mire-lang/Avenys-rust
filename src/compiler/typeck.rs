@@ -146,6 +146,7 @@ struct TypeChecker {
     load_local_modules: HashSet<String>,
     in_use_macro: bool,
     allowed_builtins: Option<HashSet<String>>,
+    constant_scopes: Vec<HashSet<String>>,
 }
 
 impl TypeChecker {
@@ -177,6 +178,7 @@ impl TypeChecker {
             load_local_modules: HashSet::new(),
             in_use_macro: false,
             allowed_builtins: Self::load_allowed_builtins(),
+            constant_scopes: vec![HashSet::new()],
         }
     }
 
@@ -343,8 +345,9 @@ impl TypeChecker {
                 data_type,
                 value,
                 is_mutable,
+                is_constant,
                 ..
-            } => self.check_let_statement(name, data_type, value, *is_mutable),
+            } => self.check_let_statement(name, data_type, value, *is_mutable, *is_constant),
             Statement::Assignment { target, value, .. } => {
                 self.check_assignment_statement(target, value)
             }
@@ -1292,5 +1295,25 @@ mod tests {
             Some("prototype_typeck_context.mire")
         );
         assert_eq!(err.source(), Some(&source.to_string()));
+    }
+
+    #[test]
+    fn rejects_reassignment_to_constant() {
+        let source = "pub fn main: () {\ncons X = 5 :i64\nset X = 10\n}\n";
+        let mut program = parse(source).expect("parse should succeed");
+        let err = check_program_types(&mut program, source)
+            .expect_err("reassignment to constant should fail");
+        assert!(
+            err.diagnostic().message.contains("Cannot reassign constant"),
+            "error should mention constant: {}",
+            err.diagnostic().message
+        );
+    }
+
+    #[test]
+    fn allows_read_of_constant() {
+        let source = "pub fn main: () {\ncons X = 5 :i64\nuse dasu(str(X))\n}\n";
+        let mut program = parse(source).expect("parse should succeed");
+        check_program_types(&mut program, source).expect("reading a constant should pass");
     }
 }

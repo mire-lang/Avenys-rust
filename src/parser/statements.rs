@@ -134,6 +134,7 @@ impl Parser {
             }
             TokenType::Module => self.parse_module_statement(),
             TokenType::Set => self.parse_set_statement(),
+            TokenType::Cons => self.parse_cons_statement(),
             TokenType::Use => {
                 // use always produces an expression statement (side-effect call).
                 // use dasu("hello"), use foo(), use pipeline => ...
@@ -326,6 +327,57 @@ impl Parser {
             name_line: var_token.line,
             name_column: var_token.column,
         })
+    }
+
+    fn parse_cons_statement(&mut self) -> Result<Statement> {
+        let _cons_token = self.advance(); // cons
+        let var_token = self.peek();
+        let target = self.parse_assignment_target()?;
+
+        let op = self.advance();
+        if op.ttype != TokenType::Assign {
+            return Err(self.error("Expected '=' after constant name"));
+        }
+
+        let value = self.parse_expression()?;
+
+        if self.check(TokenType::Mut) {
+            return Err(self.error("Constants cannot be mutable"));
+        }
+
+        let crate::parser::ast::AssignmentTarget::Variable(target_name) = &target else {
+            return Err(self.error("Constant must be a simple variable name"));
+        };
+
+        let data_type = if let Some(dt) = Self::extract_ascription_type(&value) {
+            dt
+        } else if self.check(TokenType::Colon) {
+            self.advance();
+            self.parse_type()?
+        } else {
+            DataType::Unknown
+        };
+
+        self.declare(target_name);
+        Ok(Statement::Let {
+            name: target_name.clone(),
+            data_type,
+            value: Some(value),
+            is_constant: true,
+            is_mutable: false,
+            is_static: false,
+            visibility: Visibility::Private,
+            name_line: var_token.line,
+            name_column: var_token.column,
+        })
+    }
+
+    fn extract_ascription_type(expr: &crate::parser::ast::Expression) -> Option<DataType> {
+        use crate::parser::ast::Expression;
+        match expr {
+            Expression::Ascription { target, .. } => Some(target.clone()),
+            _ => None,
+        }
     }
 
     fn parse_visibility(&mut self) -> Result<Visibility> {
