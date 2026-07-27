@@ -97,7 +97,8 @@ int64_t rt_strings_len_utf8(const char *s);
 char   *rt_strings_substr_utf8(const char *input, int64_t start_cp, int64_t count_cp);
 int64_t rt_strings_index_of_utf8(const char *s, const char *sub);
 
-// Case conversion
+// Case conversion for the runtime's supported single-byte mappings. These
+// helpers do not provide locale-sensitive or complete Unicode case folding.
 char *rt_string_to_upper(const char *value);
 char *rt_string_to_lower(const char *value);
 char  rt_unicode_to_lower(unsigned char c);

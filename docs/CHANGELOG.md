@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.18] - 2026-07-28 (Avenys UTF-8 traversal correction)
+
+### Fixed
+
+- Corrected UTF-8 codepoint boundary traversal for length, substring, and index operations.
+- Invalid, truncated, overlong, surrogate, and out-of-range byte sequences are treated as individual invalid bytes instead of being misread as valid codepoints.
+- Clarified that the runtime's case conversion helpers are not a complete Unicode case-mapping implementation.
+
 ## [3.24.17] - 2026-07-28 (Avenys runtime, cache, and lexer stabilization)
 
 ### Changed

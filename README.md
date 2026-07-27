@@ -1,4 +1,4 @@
-# Avenys v3.24.17
+# Avenys v3.24.18
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 

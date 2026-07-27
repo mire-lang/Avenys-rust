@@ -137,11 +137,44 @@ MireManagedString *rt_string_header(const char *data) {
     return (MireManagedString *)((char *)data - offsetof(MireManagedString, data));
 }
 
+static size_t utf8_next(const unsigned char *s, size_t offset, size_t byte_len) {
+    unsigned char first = s[offset];
+    size_t width = 1;
+    uint32_t codepoint = first;
+    if ((first & 0x80) == 0) return offset + 1;
+    if ((first & 0xe0) == 0xc0) {
+        width = 2;
+        codepoint = first & 0x1f;
+    } else if ((first & 0xf0) == 0xe0) {
+        width = 3;
+        codepoint = first & 0x0f;
+    } else if ((first & 0xf8) == 0xf0) {
+        width = 4;
+        codepoint = first & 0x07;
+    } else {
+        return offset + 1;
+    }
+    if (offset + width > byte_len) return offset + 1;
+    for (size_t i = 1; i < width; i++) {
+        unsigned char continuation = s[offset + i];
+        if ((continuation & 0xc0) != 0x80) return offset + 1;
+        codepoint = (codepoint << 6) | (continuation & 0x3f);
+    }
+    if ((width == 2 && codepoint < 0x80)
+        || (width == 3 && codepoint < 0x800)
+        || (width == 4 && codepoint < 0x10000)
+        || codepoint > 0x10ffff
+        || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+        return offset + 1;
+    }
+    return offset + width;
+}
+
 static size_t utf8_codepoint_count(const char *s, size_t byte_len) {
     size_t count = 0;
-    for (size_t i = 0; i < byte_len; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (c < 0x80 || c >= 0xC0) count++;
+    for (size_t i = 0; i < byte_len;) {
+        i = utf8_next((const unsigned char *)s, i, byte_len);
+        count++;
     }
     return count;
 }
@@ -309,29 +342,22 @@ char *rt_strings_substr_utf8(const char *input, int64_t start_cp, int64_t count_
     }
     if (start_cp < 0) start_cp = 0;
 
-    // Walk UTF-8 bytes to find start byte offset
     size_t byte_start = 0;
     int64_t cp = 0;
-    for (size_t i = 0; i < byte_len && cp < start_cp; i++) {
-        unsigned char c = (unsigned char)input[i];
-        if (c < 0x80 || c >= 0xC0) {
-            if (cp == start_cp) break;
-            cp++;
-            byte_start = i;
-        }
+    while (byte_start < byte_len && cp < start_cp) {
+        byte_start = utf8_next((const unsigned char *)input, byte_start, byte_len);
+        cp++;
     }
     if (cp < start_cp) return rt_managed_from_slice("", 0);
 
-    // Now find the byte offset where we've counted count_cp codepoints
     size_t byte_end = byte_len;
     if (count_cp > 0) {
         int64_t remaining = count_cp;
         size_t i = byte_start;
         while (i < byte_len && remaining > 0) {
-            unsigned char c = (unsigned char)input[i];
-            if (c < 0x80 || c >= 0xC0) remaining--;
+            i = utf8_next((const unsigned char *)input, i, byte_len);
+            remaining--;
             if (remaining == 0) { byte_end = i; break; }
-            i++;
         }
         if (remaining > 0) byte_end = byte_len;
     }
@@ -350,9 +376,9 @@ int64_t rt_strings_index_of_utf8(const char *s, const char *sub) {
     // Count codepoints from start to pos
     size_t byte_offset = (size_t)(pos - s);
     int64_t cp_count = 0;
-    for (size_t i = 0; i < byte_offset; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (c < 0x80 || c >= 0xC0) cp_count++;
+    for (size_t i = 0; i < byte_offset;) {
+        i = utf8_next((const unsigned char *)s, i, byte_offset);
+        cp_count++;
     }
     return cp_count;
 }
