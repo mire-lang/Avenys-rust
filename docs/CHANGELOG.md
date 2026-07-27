@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.14] - 2026-07-28 (Avenys MIR modularization)
+
+### Changed
+
+- Split MIR list operations (`map`, `filter`, `fold`) into `compiler/mir/lower/expr_collections.rs`.
+- Split literal lowering, element-type lookup, and scalar conversion emission into `compiler/mir/lower/expr_values.rs`.
+- Kept `lower/expr.rs` focused on expression dispatch and scalar expression lowering.
+
 ## [3.24.13] - 2026-07-28 (Avenys type checking)
 
 ### Changed

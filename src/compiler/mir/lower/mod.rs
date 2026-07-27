@@ -7,6 +7,8 @@ use std::collections::HashSet;
 mod collections;
 mod decl;
 mod expr;
+mod expr_values;
+mod expr_collections;
 mod stmt;
 mod types;
 
