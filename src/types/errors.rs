@@ -27,7 +27,7 @@ pub fn precision_loss(
     );
     let mut err = type_error_code(line, column, DiagnosticCode::E0100, msg).with_explanation(format!(
         "Mire does not perform silent widening/narrowing. Use an explicit type ascription \
-         (e.g. `(value :{} )`) or convert the value first.",
+        (e.g. `(value :{} )`) or convert the value first.",
         pretty(expected)
     ));
     if let Some(s) = suggestion {
