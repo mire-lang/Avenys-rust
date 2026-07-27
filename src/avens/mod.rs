@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 mod build_pipeline;
+mod build_support;
 mod config;
 mod manifest;
 mod reuse;

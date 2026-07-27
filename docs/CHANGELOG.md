@@ -2,6 +2,13 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.16] - 2026-07-28 (Avenys build pipeline modularization)
+
+### Changed
+
+- Split runtime declarations, struct constructor generation, C object caching, cfg filtering, and test harness injection into `avens/build_support.rs`.
+- Reduced `avens/build_pipeline.rs` to build-phase orchestration and result handling.
+
 ## [3.24.15] - 2026-07-28 (Avenys loader modularization)
 
 ### Changed
