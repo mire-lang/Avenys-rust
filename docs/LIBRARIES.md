@@ -191,9 +191,9 @@ functions with their module prefix.
 Kioto modules call C functions via `extern fn`:
 
 ```mire
-// kioto/core/net/mod.mire
-extern fn pal_tls_connect: (host :str, port :i64) :i64 lib "c"
-extern fn pal_tls_send: (fd :i64, data :str) lib "c"
+// A Kioto module declares only the PAL primitives it uses.
+extern fn pal_time_now_ms: () :i64 lib "c"
+extern fn pal_file_size: (file :i64) :i64 lib "c"
 // ...
 ```
 
@@ -203,24 +203,26 @@ LLVM `declare` and link against the C runtime."
 ### The Full Chain
 
 ```
-kioto/core/net/mod.mire ← extern fn pal_tls_connect: (...) :i64 lib "c"
+kioto/core/fs/mod.mire ← extern fn pal_file_size: (...) :i64 lib "c"
  │
  ▼
-Avenys → src/compiler/mir/codegen/builtins.rs ← declare i64 @pal_tls_connect(ptr, i64)
+Avenys → MIR codegen ← declare i64 @pal_file_size(...)
  │
  ▼
-LLVM IR → clang linker ← looks for symbol pal_tls_connect
+LLVM IR → clang linker ← looks for the PAL symbol
  │
  ▼
-pal/linux/pal_tls.c ← int64_t pal_tls_connect(const char *host, int64_t port)
+src/pal/core/pal_dispatch.c
  │
  ▼
-OpenSSL ← SSL_connect, SSL_read, SSL_write
+src/pal/linux/pal_linux.c ← host implementation
 ```
 
-The PAL C files are compiled into `.o` files by clang and linked with the
-LLVM-generated object file. The symbol `pal_tls_connect` must match exactly
-between the LLVM IR `declare` and the C function name.
+The PAL C sources are compiled and linked by Avenys. New symbols must be added
+to `src/pal/pal.h`, the Core dispatch/backend operation table, and the
+authoritative `docs/abi_map.toml`. Do not copy declarations from historical
+PAL documents or add shell/convenience functions to PAL; those belong in
+Kioto when they can be composed from primitives.
 
 ---
 
@@ -315,4 +317,4 @@ If no `owl.toml` is found, only the file being compiled is processed.
 | `pub fn` | Any module that loads this module | `pub fn http_get: (...) :str` |
 | `fn` | Only within the same module file | `fn extract_host: (url :str) :str` |
 | `pub struct` | Any module that loads this module | `pub struct Point { x: i64, y: i64 }` |
-| `extern fn` | Any module that loads this module (if in `pub` scope) | `extern fn pal_tls_connect: (...) :i64 lib "c"` |
+| `extern fn` | Any module that loads this module (if in `pub` scope) | `extern fn pal_time_now_ms: () :i64 lib "c"` |

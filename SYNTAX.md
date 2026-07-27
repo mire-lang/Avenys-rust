@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.3** · 68 examples
+Version: **3.24.19**
 
 ---
 
@@ -1179,7 +1179,9 @@ set r = some_value :result[i64]
 
 ### 15.2 Maybe type
 
-The maybe type represents values that may be present (`some`) or absent (`none`):
+The maybe type represents values that may be present (`some`) or absent (`mu`).
+`mu` is Mire's unit/empty value and is the language-level equivalent of
+`none`/`void` in other languages:
 
 ```mire
 // Type annotation
@@ -1188,8 +1190,8 @@ set m = some_value :maybe[i64]
 // Some constructor
 set m = some(42)
 
-// None — use explicit type ascription
-set m = 0 : maybe[i64] // default/empty value
+// `mu` is Mire's unit/empty value. Use an explicit maybe type ascription.
+set m = mu : maybe[i64]
 ```
 
 ### 15.3 Unwrapping

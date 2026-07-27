@@ -1,5 +1,9 @@
 # PAL ABI v4 — Summary
 
+> `src/pal/pal.h` is the canonical ABI declaration. This summary is a quick
+> reference; use `docs/PAL-ABI.md` for lifecycle rules and `docs/abi_map.toml`
+> for the tested symbol catalogue.
+
 ## Architecture
 
 ```

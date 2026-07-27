@@ -2,6 +2,15 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.19] - 2026-07-28 (Avenys documentation and PAL contract cleanup)
+
+### Changed
+
+- Updated README and SYNTAX to the current compiler version, module layout, Unicode terminology, and `mu` unit value.
+- Rewrote the current PAL ABI reference around the actual `{index, generation}` handles and `src/pal/pal.h` contract.
+- Removed obsolete v3 ABI inventory and the superseded PAL archive; the current symbol catalogue is `docs/abi_map.toml`.
+- Updated library and PAL documentation to describe Core dispatch and the current host adapter instead of removed TLS, WASM-stub, and legacy backend files.
+
 ## [3.24.18] - 2026-07-28 (Avenys UTF-8 traversal correction)
 
 ### Fixed

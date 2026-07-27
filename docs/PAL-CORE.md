@@ -14,10 +14,11 @@ PAL Core (src/pal/core/) ← handles, errors, allocators, validation
 Host Adapter (src/pal/linux/) ← syscalls only, translates to ABI
 ```
 
-PAL Core owns:
+The current implementation is split between `pal_core.c`, `pal_dispatch.c`,
+and the Linux adapter. PAL Core owns:
 - Handle slot tables and generation counters
 - Thread-local error state
-- PAL-allocated memory pool
+- the PAL allocation API (the Host adapter supplies the allocation behavior)
 - Handle validity checks
 - Ownership tracking
 - Backend dispatch registry
@@ -57,13 +58,17 @@ All memory returned by PAL functions is PAL-allocated. Kioto never frees PAL mem
 
 ## Backend Dispatch
 
-The backend is registered as a `struct pal_ops` containing function pointers for every PAL operation. PAL Core validates handles and forwards operations to the backend.
+The backend is registered as a `struct pal_ops` containing function pointers for
+the stateful and stateless operations. `pal_dispatch.c` validates handles and
+forwards operations to the registered backend. The public handle layout is a
+two-field `{ index, generation }` value; backend pointers and descriptors stay
+inside the Core/adapter boundary.
 
 The Host Adapter sets `pal_ops` during initialization. This is the single bridge between ABI and implementation.
 
 ## Key Rules
 
-1. PAL Core never calls Host APIs directly — it only manages state and dispatches to the backend
+1. PAL Core never calls Host APIs directly — it manages state and dispatches to the backend
 2. Handles never leak internal details — only PAL Core knows the slot table layout
 3. No backend logic in PAL Core — validation only, no translation
 4. Thread safety: PAL Core uses mutexes only where documented by the ABI

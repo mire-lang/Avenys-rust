@@ -1,4 +1,4 @@
-# Avenys v3.24.18
+# Avenys v3.24.19
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -163,13 +163,13 @@ changed. On partial changes, only the affected units are re-analyzed.
 ## The language at a glance
 
 ```mire
-# Functions with inferred or explicit return types
+// Functions with inferred or explicit return types
 fn fib: (n: i64) :i64 {
  if n <= 1 { return n }
  return fib(n - 1) + fib(n - 2)
 }
 
-# Structs and methods
+// Structs and methods
 struct Point { x: i64, y: i64 }
 
 impl Point {
@@ -178,7 +178,7 @@ impl Point {
  }
 }
 
-# Enums with pattern matching
+// Enums with pattern matching
 enum Option[T] { None, Some(value: T) }
 
 pub fn main: () {
@@ -197,13 +197,14 @@ pub fn main: () {
 ```
 avenys/
 ├── src/
-│ ├── parser/ # Lexer + recursive descent parser
+│ ├── lexer/ # UTF-8 source scanning and tokenization
+│ ├── parser/ # Recursive descent parser and AST
 │ ├── compiler/ # Type checker, borrow checker, semantic analysis
 │ │ └── mir/ # MIR lowering, optimization, and LLVM codegen
 │ ├── avens/ # Build pipeline, codegen, CLI integration
 │ ├── incremental/ # Incremental cache (LRU, WAL, fingerprinting)
-│ ├── loader.rs # Module resolution (packages, imports, exports)
-│ └── pal/ # Platform Abstraction Layer (Linux C backend)
+│ ├── loader/ # Module resolution and symbol renaming
+│ └── pal/ # PAL ABI, core dispatch, and Linux host adapter
 ├── install/ # Installation script
 ├── tests/ # Integration tests + compiler benchmarks
 ├── docs/ # CHANGELOG, error codes, architecture docs
