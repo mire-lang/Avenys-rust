@@ -9,9 +9,7 @@ impl Parser {
         self.expect(TokenType::Load)?;
 
         if self.check(TokenType::Dot) {
-            return Err(
-                self.error("Local paths are not allowed; declare the dependency in owl.toml")
-            );
+            return Err(self.error("Local paths are not allowed; declare the dependency in owl.toml"));
         }
 
         let mut path = vec![self.expect_ident()?];
@@ -41,7 +39,13 @@ impl Parser {
             None
         };
 
-        Ok(Statement::Load { path, alias, items, line: load_token.line, column: load_token.column })
+        Ok(Statement::Load {
+            path,
+            alias,
+            items,
+            line: load_token.line,
+            column: load_token.column,
+        })
     }
 
     /// Parse `load! math/main` (or `load! /math` for project-root relative).
@@ -71,6 +75,11 @@ impl Parser {
             return Err(self.error("`load!` requires a relative path, e.g. `load! math/main`"));
         }
 
-        Ok(Statement::LoadLocal { rel_path, absolute, line: load_bang_token.line, column: load_bang_token.column })
+        Ok(Statement::LoadLocal {
+            rel_path,
+            absolute,
+            line: load_bang_token.line,
+            column: load_bang_token.column,
+        })
     }
 }

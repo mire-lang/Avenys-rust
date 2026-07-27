@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.6] - 2026-07-28 (Avenys modularization)
+
+### Changed
+
+- Moved `ErrorKind` to diagnostic metadata and help resolution in `src/error/kind.rs`, keeping error construction focused on lifecycle and context.
+- Renamed the parser's `imports.rs` unit to `loads.rs`; it contains only `load` and `load!` parsing.
+- `mu` is the sole unit type/literal spelling in the parser; the obsolete `none` compatibility diagnostic was removed.
+
 ## [3.24.5] - 2026-07-27 (Avenys stabilization)
 
 ### Fixed
@@ -1725,7 +1733,7 @@ All notable changes to Mire are documented in this file.
 
 ### Changed
 - Compiler modularization phase 2:
- - parser import parsing moved to `src/parser/imports.rs`
+ - parser load parsing moved to `src/parser/loads.rs`
  - parser type parsing and generic type-parameter helpers moved to `src/parser/types.rs`
  - type checker builtin registry/import helpers moved to `src/compiler/typeck/typeck_builtins.rs`
 - `src/parser/mod.rs` and `src/compiler/typeck.rs` reduced as orchestration layers while preserving behavior.
