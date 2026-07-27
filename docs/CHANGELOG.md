@@ -2,6 +2,12 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.9] - 2026-07-28 (Avenys diagnostics)
+
+### Fixed
+
+- The loop string-concatenation warning now requires the identifier's actual `str` type instead of treating every identifier as a string.
+
 ## [3.24.8] - 2026-07-28 (Avenys stabilization)
 
 ### Changed

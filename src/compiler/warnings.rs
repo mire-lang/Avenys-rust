@@ -913,8 +913,8 @@ fn is_bool_literal(expr: &Expression) -> bool {
     matches!(expr, Expression::Literal { lit: Literal::Bool(_), .. })
 }
 
-fn is_str_type(_ident: &Identifier) -> bool {
-    true // In scan_expr we can't easily check types; warn on any += in loop
+fn is_str_type(ident: &Identifier) -> bool {
+    matches!(ident.data_type, DataType::Str)
 }
 
 pub(super) fn find_unsafe_block_position(body: &[Statement]) -> Option<crate::error::Span> {
