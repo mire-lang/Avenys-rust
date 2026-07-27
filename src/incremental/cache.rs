@@ -55,7 +55,12 @@ fn write_wal(base_dir: &Path, records: &[WalRecord]) -> Result<()> {
             })
         })?;
     }
-    file.sync_all().ok();
+    file.sync_all().map_err(|e| {
+        MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!("Cannot flush WAL file: {e}"),
+        })
+    })?;
     Ok(())
 }
 
@@ -78,11 +83,25 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
 
     let mut all_records = Vec::new();
     for entry in entries {
-        let content = fs::read_to_string(entry.path()).unwrap_or_default();
-        for line in content.lines() {
-            if let Ok(rec) = serde_json::from_str::<WalRecord>(line) {
-                all_records.push(rec);
-            }
+        let path = entry.path();
+        let content = fs::read_to_string(&path).map_err(|e| {
+            MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: format!("Cannot read WAL file '{}': {e}", path.display()),
+            })
+        })?;
+        for (line_number, line) in content.lines().enumerate() {
+            let record = serde_json::from_str::<WalRecord>(line).map_err(|e| {
+                MireError::new(ErrorKind::Runtime {
+                    span: crate::error::Span::unknown(),
+                    message: format!(
+                        "Cannot decode WAL file '{}' at line {}: {e}",
+                        path.display(),
+                        line_number + 1
+                    ),
+                })
+            })?;
+            all_records.push(record);
         }
     }
     Ok(all_records)
@@ -91,8 +110,25 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
 fn clear_wal(base_dir: &Path) -> Result<()> {
     let wal_dir = base_dir.join(WAL_DIR);
     if wal_dir.exists() {
-        for e in fs::read_dir(&wal_dir).ok().into_iter().flatten().flatten() {
-            let _ = fs::remove_file(e.path());
+        let entries = fs::read_dir(&wal_dir).map_err(|e| {
+            MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: format!("Cannot read WAL dir for cleanup: {e}"),
+            })
+        })?;
+        for entry in entries {
+            let path = entry
+                .map_err(|e| MireError::new(ErrorKind::Runtime {
+                    span: crate::error::Span::unknown(),
+                    message: format!("Cannot inspect WAL entry: {e}"),
+                }))?
+                .path();
+            fs::remove_file(&path).map_err(|e| {
+                MireError::new(ErrorKind::Runtime {
+                    span: crate::error::Span::unknown(),
+                    message: format!("Cannot remove WAL file '{}': {e}", path.display()),
+                })
+            })?;
         }
     }
     Ok(())
@@ -397,7 +433,7 @@ impl IncrementalCache {
         }
 
         // Replay WAL
-        let records = replay_wal(&cache_dir).unwrap_or_default();
+        let records = replay_wal(&cache_dir)?;
         let max_units = settings.max_units.unwrap_or(DEFAULT_MAX_UNITS);
 
         // Load existing metas from disk
@@ -443,7 +479,7 @@ impl IncrementalCache {
 
         for key in self.files.keys() {
             if let Some(meta) = self.files.get(key) {
-                let _ = write_file_meta(&self.cache_dir, key, meta);
+                write_file_meta(&self.cache_dir, key, meta)?;
                 wal_records.push(WalRecord::Checkpoint {
                     timestamp: timestamp_ms(),
                 });
@@ -451,17 +487,17 @@ impl IncrementalCache {
         }
         for key in self.analyses.keys() {
             if let Some(meta) = self.analyses.get(key) {
-                let _ = write_analysis_meta(&self.cache_dir, key, meta);
+                write_analysis_meta(&self.cache_dir, key, meta)?;
             }
         }
         for key in self.builds.keys() {
             if let Some(meta) = self.builds.get(key) {
-                let _ = write_build_meta(&self.cache_dir, key, meta);
+                write_build_meta(&self.cache_dir, key, meta)?;
             }
         }
         for key in self.mir_fns.keys() {
             if let Some(meta) = self.mir_fns.get(key) {
-                let _ = write_mir_meta(&self.cache_dir, key, meta);
+                write_mir_meta(&self.cache_dir, key, meta)?;
             }
         }
 

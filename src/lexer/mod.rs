@@ -2,6 +2,8 @@ use crate::error::{ErrorKind, MireError, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+mod keywords;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum TokenType {
     Ident,
@@ -517,85 +519,7 @@ impl<'a> Lexer<'a> {
                 let start_line = self.line;
                 let start_col = self.column;
                 let ident = self.read_identifier();
-                let token = match ident.as_str() {
-                    "set" => Token::new(TokenType::Set, self.line, self.column)
-                        .with_value("set".to_string()),
-                    "load" => Token::new(TokenType::Load, self.line, self.column),
-                    "module" => Token::new(TokenType::Module, self.line, self.column),
-                    "use" => Token::new(TokenType::Use, self.line, self.column)
-                        .with_value("use".to_string()),
-                    "return" => Token::new(TokenType::Return, self.line, self.column)
-                        .with_value("return".to_string()),
-                    "if" => Token::new(TokenType::If, self.line, self.column)
-                        .with_value("if".to_string()),
-                    "elif" => Token::new(TokenType::Elif, self.line, self.column),
-                    "else" => Token::new(TokenType::Else, self.line, self.column)
-                        .with_value("else".to_string()),
-                    "while" => Token::new(TokenType::While, self.line, self.column)
-                        .with_value("while".to_string()),
-                    "for" => Token::new(TokenType::For, self.line, self.column)
-                        .with_value("for".to_string()),
-                    "find" => Token::new(TokenType::Find, self.line, self.column)
-                        .with_value("find".to_string()),
-                    "do" => Token::new(TokenType::Do, self.line, self.column)
-                        .with_value("do".to_string()),
-                    "in" => Token::new(TokenType::In, self.line, self.column)
-                        .with_value("in".to_string()),
-                    "fn" => Token::new(TokenType::Fn, self.line, self.column)
-                        .with_value("fn".to_string()),
-                    "type" => Token::new(TokenType::Type, self.line, self.column)
-                        .with_value("type".to_string()),
-                    "skill" => Token::new(TokenType::Skill, self.line, self.column)
-                        .with_value("skill".to_string()),
-                    "struct" => Token::new(TokenType::Struct, self.line, self.column)
-                        .with_value("struct".to_string()),
-                    "impl" => Token::new(TokenType::Impl, self.line, self.column)
-                        .with_value("impl".to_string()),
-                    "enum" => Token::new(TokenType::Enum, self.line, self.column)
-                        .with_value("enum".to_string()),
-                    "extern" => Token::new(TokenType::Extern, self.line, self.column)
-                        .with_value("extern".to_string()),
-                    "lib" => Token::new(TokenType::Lib, self.line, self.column)
-                        .with_value("lib".to_string()),
-                    "unsafe" => Token::new(TokenType::Unsafe, self.line, self.column)
-                        .with_value("unsafe".to_string()),
-                    "asm" => Token::new(TokenType::Asm, self.line, self.column)
-                        .with_value("asm".to_string()),
-                    "extends" => Token::new(TokenType::Extends, self.line, self.column)
-                        .with_value("extends".to_string()),
-                    "mu" => Token::new(TokenType::NoneLit, self.line, self.column)
-                        .with_value("mu".to_string()),
-                    "match" => Token::new(TokenType::Match, self.line, self.column)
-                        .with_value("match".to_string()),
-                    "new" => Token::new(TokenType::NewKw, self.line, self.column)
-                        .with_value("new".to_string()),
-                    "drop" => Token::new(TokenType::DropKw, self.line, self.column)
-                        .with_value("drop".to_string()),
-                    "move" => Token::new(TokenType::MoveKw, self.line, self.column)
-                        .with_value("move".to_string()),
-                    "own" => Token::new(TokenType::OwnKw, self.line, self.column)
-                        .with_value("own".to_string()),
-                    "pub" => Token::new(TokenType::Pub, self.line, self.column)
-                        .with_value("pub".to_string()),
-                    "priv" => Token::new(TokenType::Priv, self.line, self.column),
-                    "const" => Token::new(TokenType::Const, self.line, self.column),
-                    "cons" => Token::new(TokenType::Cons, self.line, self.column)
-                        .with_value("cons".to_string()),
-                    "mut" => Token::new(TokenType::Mut, self.line, self.column)
-                        .with_value("mut".to_string()),
-                    "as" => Token::new(TokenType::As, self.line, self.column),
-                    "is" => Token::new(TokenType::Is, self.line, self.column),
-                    "of" => Token::new(TokenType::Of, self.line, self.column),
-                    "to" => Token::new(TokenType::To, self.line, self.column),
-                    "at" => Token::new(TokenType::At, self.line, self.column),
-                    "self" => Token::new(TokenType::SelfToken, start_line, start_col),
-                    "break" => Token::new(TokenType::Break, start_line, start_col),
-                    "continue" => Token::new(TokenType::Continue, start_line, start_col),
-                    "true" | "false" => {
-                        Token::new(TokenType::BoolLit, start_line, start_col).with_value(ident)
-                    }
-                    _ => Token::new(TokenType::Ident, start_line, start_col).with_value(ident),
-                };
+                let token = keywords::token_for(ident, start_line, start_col);
                 self.tokens.push(token);
                 continue;
             }

@@ -67,6 +67,17 @@ static void managed_ht_remove(const char *key) {
         if (managed_ht_keys[idx] == key) {
             managed_ht_keys[idx] = NULL;
             managed_ht_len--;
+
+            // Reinsert the following probe cluster. Leaving a hole would
+            // make later entries unreachable to managed_ht_contains().
+            size_t next = (idx + 1) % managed_ht_cap;
+            while (managed_ht_keys[next]) {
+                const char *cluster_key = managed_ht_keys[next];
+                managed_ht_keys[next] = NULL;
+                managed_ht_len--;
+                managed_ht_put(cluster_key);
+                next = (next + 1) % managed_ht_cap;
+            }
             return;
         }
     }
@@ -85,12 +96,16 @@ static int managed_ht_contains(const char *key) {
 
 void rt_managed_register(char *data_ptr) {
     if (data_ptr == NULL) return;
+    if (managed_ht_contains(data_ptr)) return;
     MireManagedStringNode *node = (MireManagedStringNode *)malloc(sizeof(MireManagedStringNode));
     if (node == NULL) return;
+    if (!managed_ht_put(data_ptr)) {
+        free(node);
+        return;
+    }
     node->data_ptr = data_ptr;
     node->next = managed_strings;
     managed_strings = node;
-    managed_ht_put(data_ptr);
 }
 
 void rt_managed_unregister(char *data_ptr) {
@@ -129,13 +144,6 @@ static size_t utf8_codepoint_count(const char *s, size_t byte_len) {
         if (c < 0x80 || c >= 0xC0) count++;
     }
     return count;
-}
-
-static void utf8_cache_cp(MireManagedString *hdr) {
-    if (hdr && !(hdr->flags & MIRE_STR_UTF8_KNOWN)) {
-        hdr->utf8_cp = (uint32_t)utf8_codepoint_count(hdr->data, hdr->len);
-        hdr->flags |= MIRE_STR_UTF8_KNOWN;
-    }
 }
 
 // ── String growth ────────────────────────────────────────────────────

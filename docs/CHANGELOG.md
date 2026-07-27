@@ -2,6 +2,16 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.17] - 2026-07-28 (Avenys runtime, cache, and lexer stabilization)
+
+### Changed
+
+- Extracted lexer keyword classification into `lexer/keywords.rs` and restored keyword token spans to the identifier start position.
+- Made incremental cache WAL replay, metadata writes, cleanup, and flush failures explicit instead of silently discarding I/O errors.
+- Repaired managed-string hash-table probe clusters after deletion and prevented duplicate or partially registered entries.
+- Added overflow checks to runtime list allocation and growth paths, plus safe handling for null list operands and invalid scalar element sizes.
+- Removed an unused UTF-8 cache helper and made the POSIX monotonic clock declaration explicit for strict C11 builds.
+
 ## [3.24.16] - 2026-07-28 (Avenys build pipeline modularization)
 
 ### Changed
