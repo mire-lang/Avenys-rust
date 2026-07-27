@@ -2,6 +2,12 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.8] - 2026-07-28 (Avenys stabilization)
+
+### Changed
+
+- Separated persistent cache records and metadata types from cache coordination logic without changing the on-disk format.
+
 ## [3.24.7] - 2026-07-28 (Avenys stabilization)
 
 ### Changed

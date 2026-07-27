@@ -27,6 +27,7 @@ pub(crate) use dependencies::collect_statement_dependencies;
 pub use hasher::FxHasher;
 
 mod cache;
+mod cache_types;
 mod lru;
 mod utils;
 pub(crate) use utils::{

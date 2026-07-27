@@ -1,4 +1,5 @@
 use super::lru::LruMap;
+use super::cache_types::{AnalysisMeta, BuildMeta, FileMeta, MirMeta, WalRecord};
 use super::*;
 use std::collections::HashSet;
 use std::fs;
@@ -16,91 +17,6 @@ const FILES_INDEX: &str = "files";
 const ANALYSES_INDEX: &str = "analyses";
 const BUILDS_INDEX: &str = "builds";
 const MIR_INDEX: &str = "mir";
-// ── WAL records ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "op")]
-enum WalRecord {
-    StoreFile {
-        key: String,
-        hash: u64,
-        hash2: u64,
-        blob_hash: String,
-        timestamp: u64,
-    },
-    StoreAnalysis {
-        key: String,
-        fingerprint: u64,
-        blob_hash: String,
-        timestamp: u64,
-        created_ms: u64,
-        unit_count: u32,
-    },
-    StoreBuild {
-        key: String,
-        entry: BuildCacheEntry,
-        timestamp: u64,
-    },
-    DeleteFile {
-        key: String,
-        timestamp: u64,
-    },
-    DeleteAnalysis {
-        key: String,
-        timestamp: u64,
-    },
-    DeleteBuild {
-        key: String,
-        timestamp: u64,
-    },
-    StoreMirFn {
-        key: String,
-        body_hash: u64,
-        blob_hash: String,
-        timestamp: u64,
-    },
-    DeleteMirFn {
-        key: String,
-        timestamp: u64,
-    },
-    Checkpoint {
-        timestamp: u64,
-    },
-}
-
-// ── Meta files (per-entry index) ────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct FileMeta {
-    hash: u64,
-    hash2: u64,
-    blob_hash: String,
-    last_access_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AnalysisMeta {
-    fingerprint: u64,
-    blob_hash: String,
-    last_access_ms: u64,
-    created_ms: u64,
-    unit_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BuildMeta {
-    fingerprint: u64,
-    entry: BuildCacheEntry,
-    last_access_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MirMeta {
-    body_hash: u64,
-    blob_hash: String,
-    last_access_ms: u64,
-}
-
 // ── WAL helpers ─────────────────────────────────────────────────────────
 
 fn timestamp_ms() -> u64 {
