@@ -2,6 +2,13 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.11] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split function, nominal type, struct, type alias, and skill declarations into `parser/statement_declarations.rs`.
+- Kept statement dispatch and control-flow parsing in `parser/statements.rs`.
+
 ## [3.24.10] - 2026-07-28 (Avenys parser modularization)
 
 ### Changed

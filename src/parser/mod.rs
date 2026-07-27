@@ -7,6 +7,7 @@ pub(crate) mod helpers;
 mod loads;
 mod metadata;
 mod statements;
+mod statement_declarations;
 mod syntax;
 mod types;
 
