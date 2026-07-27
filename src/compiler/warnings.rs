@@ -1,15 +1,16 @@
 use crate::error::diagnostic::{
-    Diagnostic, DiagnosticCode, Label, LabelStyle, Severity, WarningFilter,
+    Diagnostic, DiagnosticCode, WarningFilter,
 };
 use crate::parser::Program;
 use crate::parser::ast::{DataType, Expression, Identifier, Literal, Statement};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+
 pub struct WarningAnalyzer {
-    diagnostics: Vec<Diagnostic>,
-    filter: WarningFilter,
-    deny: HashSet<DiagnosticCode>,
+    pub(super) diagnostics: Vec<Diagnostic>,
+    pub(super) filter: WarningFilter,
+    pub(super) deny: HashSet<DiagnosticCode>,
     defined_variables: HashSet<String>,
     variable_positions: HashMap<String, crate::error::Span>,
     used_variables: HashSet<String>,
@@ -18,7 +19,7 @@ pub struct WarningAnalyzer {
     used_functions: HashSet<String>,
     imported_modules: Vec<Identifier>,
     loop_depth: usize,
-    current_span: crate::error::Span,
+    pub(super) current_span: crate::error::Span,
     statement_origins: Vec<PathBuf>,
     entry_path: Option<PathBuf>,
     suppress_library_warnings: bool,
@@ -804,114 +805,6 @@ impl WarningAnalyzer {
         }
     }
 
-    fn push_warn(
-        &mut self,
-        code: DiagnosticCode,
-        title: &str,
-        message: String,
-        span: crate::error::Span,
-        help: Option<String>,
-    ) {
-        self.push_warn_at(code, title, message, span, 3, help);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn push_warn_at(
-        &mut self,
-        code: DiagnosticCode,
-        title: &str,
-        message: String,
-        span: crate::error::Span,
-        length: usize,
-        help: Option<String>,
-    ) {
-        if !self.filter.matches(code) {
-            return;
-        }
-        let severity = if self.deny.contains(&code) {
-            Severity::Error
-        } else {
-            Severity::Warning
-        };
-        let mut diag = Diagnostic::new(severity, code, title, message, span);
-        diag.labels.push(Label {
-            span,
-            length,
-            message: "".to_string(),
-            style: LabelStyle::Primary,
-        });
-        diag.help = help;
-        self.diagnostics.push(diag);
-    }
-
-    fn warn_duplicate_literal_patterns(&mut self, cases: &[(Expression, Vec<Statement>)]) {
-        let mut seen = HashSet::new();
-        for (pat, _) in cases {
-            if let Some(key) = literal_pattern_key(pat)
-                && !seen.insert(key.clone())
-            {
-                self.push_warn(
-                    DiagnosticCode::W0038,
-                    "Duplicate Match Pattern",
-                    format!("Duplicate literal pattern '{}' in match", key),
-                    self.current_span,
-                    Some("remove the duplicate pattern or merge with the first one".to_string()),
-                );
-            }
-        }
-    }
-
-    fn check_deny_unsafe(&mut self, program: &Program, filename: Option<&str>) {
-        let file_denies_unsafe = program
-            .file_attributes
-            .iter()
-            .any(|a| a.name == "deny" && a.args.iter().any(|arg| arg.value == "unsafe"));
-
-        for stmt in &program.statements {
-            if let Statement::Function {
-                name,
-                body,
-                attributes,
-                ..
-            } = stmt
-            {
-                let function_denies = attributes
-                    .iter()
-                    .any(|a| a.name == "deny" && a.args.iter().any(|arg| arg.value == "unsafe"));
-
-                if !file_denies_unsafe && !function_denies {
-                    continue;
-                }
-
-                if let Some(loc) = find_unsafe_block_position(body) {
-                    let mut diag = Diagnostic::new(
-                        Severity::Error,
-                        DiagnosticCode::E0016,
-                        "unsafe not allowed",
-                        format!(
-                            "Function '{}' contains an unsafe block but @[deny(unsafe)] forbids it",
-                            name
-                        ),
-                        loc,
-                    );
-                    diag.labels.push(Label {
-                        span: loc,
-                        length: 6,
-                        message: "unsafe block here".to_string(),
-                        style: LabelStyle::Primary,
-                    });
-                    diag.help = Some(
-                        "remove the unsafe block or remove the @[deny(unsafe)] attribute"
-                            .to_string(),
-                    );
-                    if let Some(filename) = filename {
-                        diag.filename = Some(filename.to_string());
-                    }
-                    self.diagnostics.push(diag);
-                }
-            }
-        }
-    }
 }
 
 fn contains_explicit_return(statements: &[Statement]) -> bool {
@@ -950,7 +843,7 @@ fn contains_explicit_return(statements: &[Statement]) -> bool {
     false
 }
 
-fn literal_pattern_key(expr: &Expression) -> Option<String> {
+pub(super) fn literal_pattern_key(expr: &Expression) -> Option<String> {
     match expr {
         Expression::Literal { lit: Literal::Int(v), .. } => Some(format!("int:{v}")),
         Expression::Literal { lit: Literal::Float(v), .. } => Some(format!("float:{v}")),
@@ -1024,7 +917,7 @@ fn is_str_type(_ident: &Identifier) -> bool {
     true // In scan_expr we can't easily check types; warn on any += in loop
 }
 
-fn find_unsafe_block_position(body: &[Statement]) -> Option<crate::error::Span> {
+pub(super) fn find_unsafe_block_position(body: &[Statement]) -> Option<crate::error::Span> {
     for stmt in body {
         if let Statement::Unsafe { .. } = stmt {
             return Some(statement_location(stmt));

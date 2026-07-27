@@ -2,6 +2,14 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.7] - 2026-07-28 (Avenys stabilization)
+
+### Changed
+
+- Separated borrow-checker scope and binding state management into its own module.
+- Separated warning diagnostic emission and `deny(unsafe)` validation from AST scanning.
+- Preserved existing cache, parser, and diagnostic behavior while reducing compiler cross-responsibility.
+
 ## [3.24.6] - 2026-07-28 (Avenys modularization)
 
 ### Changed
