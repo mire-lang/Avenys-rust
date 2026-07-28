@@ -261,7 +261,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         golden: Option<GoldenExpect>,
     }
 
-    let test_dir = cwd.join("bin/.cache/test");
+    // Generated harness sources are build inputs, not cache entries. Keeping
+    // them outside `.cache` prevents incremental-cache cleanup from removing
+    // a source while the test worker is compiling it.
+    let test_dir = cwd.join("bin/debug/test/generated");
     let _ = fs::create_dir_all(&test_dir);
     let test_bin_dir = cwd.join("bin/debug/test");
     if test_bin_dir.exists() && !test_bin_dir.is_dir() {
@@ -314,6 +317,7 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             golden_programs.insert(gd.join("program.mire"));
         }
         let mut files = walkdir(root, "*.mire")?;
+        files.retain(|path| !is_build_artifact(path));
         files.sort();
         for file in files {
             if golden_programs.contains(&file) {
@@ -610,6 +614,16 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     let exit_code = if global_failed == 0 { 0 } else { 1 };
 
     Ok(exit_code)
+}
+
+fn is_build_artifact(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(name)
+                if matches!(name.to_str(), Some(".git" | ".cache" | "target" | "bin"))
+        )
+    })
 }
 
 /// Returns true if `path` is underneath any of `test_roots`.

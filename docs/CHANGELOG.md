@@ -2,6 +2,15 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.20] - 2026-07-28 (Avenys test runner isolation)
+
+### Fixed
+
+- Test harness sources are generated outside the incremental cache, so cache
+  cleanup cannot remove a source while a test worker compiles it.
+- Recursive test discovery ignores `.git`, `.cache`, `target`, and `bin`
+  artifacts instead of treating generated sources as tests.
+
 ## [3.24.19] - 2026-07-28 (Avenys documentation and PAL contract cleanup)
 
 ### Changed

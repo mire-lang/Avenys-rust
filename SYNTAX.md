@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.19**
+Version: **3.24.20**
 
 ---
 
