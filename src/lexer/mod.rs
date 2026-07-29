@@ -39,6 +39,7 @@ pub enum TokenType {
     Unsafe,
     Asm,
     Extends,
+    Super,
     Match,
     NewKw,
     DropKw,

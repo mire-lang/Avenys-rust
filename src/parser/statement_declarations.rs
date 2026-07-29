@@ -170,6 +170,12 @@ impl Parser {
     pub(super) fn parse_skill_statement(&mut self, visibility: Visibility) -> Result<Statement> {
         self.expect(TokenType::Skill)?;
         let name = self.expect_ident()?;
+        let parent = if self.check(TokenType::Super) {
+            self.advance();
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
         self.expect_block_open()?;
         let mut methods = Vec::new();
 
@@ -204,6 +210,7 @@ impl Parser {
         Ok(Statement::Skill {
             name,
             visibility,
+            parent,
             methods,
         })
     }

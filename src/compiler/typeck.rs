@@ -47,6 +47,7 @@ struct ClassFieldSig {
 struct ClassSig {
     type_params: Vec<String>,
     type_param_bounds: Vec<(String, Vec<String>)>,
+    parent: Option<String>,
     fields: Vec<ClassFieldSig>,
 }
 
@@ -139,6 +140,9 @@ struct TypeChecker {
     return_type_stack: Vec<DataType>,
     impl_self_type: Option<DataType>,
     impl_self_name: Option<String>,
+    impl_type_params: Vec<String>,
+    current_function_type_params: Vec<String>,
+    current_function_type_bounds: Vec<(String, Vec<String>)>,
     statement_origins: Vec<String>,
     sources_by_filename: HashMap<String, String>,
     base_source: Option<String>,
@@ -171,6 +175,9 @@ impl TypeChecker {
             return_type_stack: Vec::new(),
             impl_self_type: None,
             impl_self_name: None,
+            impl_type_params: Vec::new(),
+            current_function_type_params: Vec::new(),
+            current_function_type_bounds: Vec::new(),
             statement_origins: Vec::new(),
             sources_by_filename: HashMap::new(),
             base_source: (!source.is_empty()).then(|| source.to_string()),
@@ -414,11 +421,12 @@ impl TypeChecker {
             Statement::Impl {
                 trait_name,
                 type_name,
+                type_params,
                 methods,
                 ..
-            } => self.check_impl_statement(trait_name, type_name, methods),
-            Statement::Type { fields, .. } => self.check_type_statement(fields),
-            Statement::Skill { name, methods, .. } => self.check_skill_statement(name, methods),
+            } => self.check_impl_statement(trait_name, type_name, type_params, methods),
+            Statement::Type { name, parent, fields, .. } => self.check_type_statement(name, parent.as_deref(), fields),
+            Statement::Skill { name, parent, methods, .. } => self.check_skill_statement(name, parent.as_deref(), methods),
             Statement::Break
             | Statement::Continue
             | Statement::ExternLib { .. }

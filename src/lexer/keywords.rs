@@ -40,6 +40,9 @@ pub(super) fn token_for(ident: String, start_line: usize, start_col: usize) -> T
         "extends" => {
             Token::new(TokenType::Extends, start_line, start_col).with_value("extends".to_string())
         }
+        "super" => {
+            Token::new(TokenType::Super, start_line, start_col).with_value("super".to_string())
+        }
         "mu" => Token::new(TokenType::NoneLit, start_line, start_col).with_value("mu".to_string()),
         "match" => {
             Token::new(TokenType::Match, start_line, start_col).with_value("match".to_string())

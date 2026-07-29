@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use crate::parser::ast::Visibility;
+
 use crate::canonical_fn_name;
 use crate::error::{Result, type_error_at_span};
 use crate::parser::ast::{
@@ -364,6 +367,11 @@ impl TypeChecker {
             },
         );
 
+        let old_params = std::mem::take(&mut self.current_function_type_params);
+        let old_bounds = std::mem::take(&mut self.current_function_type_bounds);
+        self.current_function_type_params = type_params.to_vec();
+        self.current_function_type_bounds = type_param_bounds.to_vec();
+
         self.push_scope();
         for (param_name, param_type) in params.iter() {
             self.insert_var(param_name.clone(), param_type.clone(), true);
@@ -372,6 +380,9 @@ impl TypeChecker {
 
         self.return_type_stack.push(return_type.clone());
         self.check_statements(body)?;
+
+        self.current_function_type_params = old_params;
+        self.current_function_type_bounds = old_bounds;
         if *return_type != DataType::None
             && !statements_contain_explicit_return(body)
             && let Some(expr) = implicit_return_expression_mut(body)
@@ -570,8 +581,18 @@ impl TypeChecker {
         &mut self,
         trait_name: &Option<String>,
         type_name: &str,
+        type_params: &[String],
         methods: &mut [Statement],
     ) -> Result<()> {
+        for method in methods.iter() {
+            if let Statement::Function {
+                name_line, name_column, ..
+            } = method
+            {
+                self.current_span = crate::error::Span::new(*name_line, *name_column);
+                break;
+            }
+        }
         self.validate_impl_method_declarations(type_name, methods)?;
         if let Some(trait_name) = trait_name {
             self.validate_trait_impl(trait_name, type_name, methods)?;
@@ -579,10 +600,17 @@ impl TypeChecker {
 
         let old_self = self.impl_self_type.take();
         let old_self_name = self.impl_self_name.take();
+        let old_impl_params = std::mem::take(&mut self.impl_type_params);
+        self.impl_type_params = type_params.to_vec();
         let method_mask = self
             .current_nested_statement_mask()
             .map(|mask| mask.to_vec());
 
+        let (type_base, _) = Self::split_nominal_type_args(type_name);
+        let is_enum = self
+            .enum_variants
+            .keys()
+            .any(|k| k.starts_with(&format!("{}.", type_base)));
         for (method_index, method) in methods.iter_mut().enumerate() {
             if method_mask
                 .as_ref()
@@ -596,32 +624,110 @@ impl TypeChecker {
                 Statement::Function { params, .. }
                     if params.iter().any(|(param_name, _)| param_name == "self")
             );
-            self.impl_self_type = has_self.then(|| DataType::StructNamed(type_name.to_string()));
-            self.impl_self_name = has_self.then(|| type_name.to_string());
+            self.impl_self_type = has_self.then(|| {
+                if is_enum {
+                    DataType::EnumNamed(type_name.to_string())
+                } else {
+                    DataType::StructNamed(type_name.to_string())
+                }
+            });
+            self.impl_self_name = Some(type_name.to_string());
             self.check_statement(method)?;
         }
 
         self.impl_self_type = old_self;
         self.impl_self_name = old_self_name;
+        self.impl_type_params = old_impl_params;
         Ok(())
     }
 
-    pub(super) fn check_type_statement(&mut self, fields: &mut [Statement]) -> Result<()> {
+    pub(super) fn check_type_statement(
+        &mut self,
+        name: &str,
+        parent: Option<&str>,
+        fields: &mut Vec<Statement>,
+    ) -> Result<()> {
+        let parent_fields = if let Some(parent_name) = parent {
+            self.collect_struct_fields(parent_name)?
+        } else {
+            Vec::new()
+        };
+        for parent_field in &parent_fields {
+            if let Statement::Let { name: pf_name, .. } = parent_field {
+                if !fields.iter().any(|f| match f {
+                    Statement::Let { name, .. } => name == pf_name,
+                    _ => false,
+                }) {
+                    fields.push(parent_field.clone());
+                }
+            }
+        }
         self.check_container_statements(fields)
+    }
+
+    fn collect_struct_fields(&self, type_name: &str) -> Result<Vec<Statement>> {
+        let (base, _) = Self::split_nominal_type_args(type_name);
+        let Some(class_sig) = self.classes.get(base) else {
+            return Ok(Vec::new());
+        };
+        Ok(class_sig
+            .fields
+            .iter()
+            .map(|field| Statement::Let {
+                name: field.name.clone(),
+                data_type: field.data_type.clone(),
+                value: None,
+                is_constant: field.has_default,
+                is_mutable: false,
+                is_static: false,
+                visibility: Visibility::Private,
+                name_line: 0,
+                name_column: 0,
+            })
+            .collect())
     }
 
     pub(super) fn check_skill_statement(
         &mut self,
         name: &str,
+        parent: Option<&str>,
         methods: &[crate::parser::ast::TraitMethodSig],
     ) -> Result<()> {
+        let parent_methods = if let Some(parent_name) = parent {
+            self.collect_skill_methods(parent_name)?
+        } else {
+            Vec::new()
+        };
+        let mut all_methods = parent_methods;
+        let mut method_names: HashSet<String> = all_methods.iter().map(|m| m.name.clone()).collect();
+        for method in methods {
+            if !method_names.insert(method.name.clone()) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!("Duplicate method '{}' in skill '{}'", method.name, name),
+                ));
+            }
+            all_methods.push(method.clone());
+        }
+        let methods: Vec<_> = all_methods;
         if methods.is_empty() {
             return Err(type_error_at_span(
                 self.current_span,
                 format!("Skill '{}' must declare at least one method", name),
             ));
         }
-        self.validate_trait_method_declarations(name, methods, "Skill")?;
+        self.validate_trait_method_declarations(name, &methods, "Skill")?;
         Ok(())
+    }
+
+    fn collect_skill_methods(
+        &self,
+        skill_name: &str,
+    ) -> Result<Vec<crate::parser::ast::TraitMethodSig>> {
+        Ok(self
+            .traits
+            .get(skill_name)
+            .map(|trait_sig| trait_sig.methods.clone())
+            .unwrap_or_default())
     }
 }

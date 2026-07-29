@@ -440,12 +440,24 @@ impl TypeChecker {
                 }
 
                 let (base_name, nominal_type_args_from_name) = Self::split_nominal_type_args(name);
-                let nominal_type_args = if !type_args.is_empty() {
+                let mut nominal_type_args = if !type_args.is_empty() {
                     type_args.clone()
                 } else {
                     nominal_type_args_from_name
                 };
                 if let Some(class_sig) = self.classes.get(base_name).cloned() {
+                    if nominal_type_args.is_empty() && !class_sig.type_params.is_empty() {
+                        if let Some(ref impl_self_name) = self.impl_self_name {
+                            let (impl_base, _) = Self::split_nominal_type_args(impl_self_name);
+                            if impl_base == base_name {
+                                nominal_type_args = self
+                                    .impl_type_params
+                                    .iter()
+                                    .map(|p| DataType::Generic(p.clone()))
+                                    .collect();
+                            }
+                        }
+                    }
                     let bindings = self.bindings_for_nominal_type_args(
                         &class_sig.type_params,
                         &nominal_type_args,
@@ -459,7 +471,7 @@ impl TypeChecker {
                         name, &class_sig, &bindings, args, &arg_types,
                     )?;
                     let typed_name = if nominal_type_args.is_empty() {
-                        name.clone()
+                        base_name.to_string()
                     } else {
                         format!(
                             "{}[{}]",
@@ -660,8 +672,15 @@ impl TypeChecker {
                                 &class_sig.type_params,
                                 &type_args,
                             )?;
-                            if let Some(field) = class_sig.fields.iter().find(|f| f.name == *member)
-                            {
+                            let field = class_sig.fields.iter().find(|f| f.name == *member);
+                            let field = field.or_else(|| {
+                                class_sig.parent.as_ref().and_then(|parent_name| {
+                                    self.classes.get(parent_name).and_then(|parent_sig| {
+                                        parent_sig.fields.iter().find(|f| f.name == *member)
+                                    })
+                                })
+                            });
+                            if let Some(field) = field {
                                 let resolved_field =
                                     self.substitute_generics(&field.data_type, &bindings);
                                 if *data_type == DataType::Unknown {

@@ -386,7 +386,7 @@ impl TypeChecker {
     }
 
     pub(super) fn lookup_struct_name(&self, name: &str) -> Option<String> {
-        if name == "self" {
+        if name == "self" && self.impl_self_type.is_some() {
             return self.impl_self_name.clone();
         }
         for scope in self.struct_scopes.iter().rev() {
@@ -394,8 +394,15 @@ impl TypeChecker {
                 return Some(struct_name.clone());
             }
         }
-        self.lookup_var(name)
-            .and_then(|(data_type, _)| data_type.struct_name().map(ToOwned::to_owned))
+        if let Some((data_type, _)) = self.lookup_var(name) {
+            if let Some(struct_name) = data_type.struct_name() {
+                return Some(struct_name.to_owned());
+            }
+            if let Some(enum_name) = data_type.enum_name() {
+                return Some(enum_name.to_owned());
+            }
+        }
+        None
     }
 
     pub(super) fn lookup_ref_type(&self, name: &str) -> Option<DataType> {

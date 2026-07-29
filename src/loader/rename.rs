@@ -323,9 +323,10 @@ impl<'a> ModuleRenamer<'a> {
                     fields,
                 }
             }
-            Statement::Skill { name, visibility, methods } => Statement::Skill {
+            Statement::Skill { name, visibility, parent, methods } => Statement::Skill {
                 name: self.rename_decl_name(name, scope_stack, top_level),
                 visibility,
+                parent,
                 methods: methods
                     .into_iter()
                     .map(|mut method| {

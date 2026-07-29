@@ -638,6 +638,7 @@ pub enum Statement {
     Skill {
         name: String,
         visibility: Visibility,
+        parent: Option<String>,
         methods: Vec<TraitMethodSig>,
     },
     Impl {
