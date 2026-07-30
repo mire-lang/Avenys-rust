@@ -33,9 +33,15 @@ struct MirLower {
 }
 
 fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataType)>> {
-    let mut struct_types = HashMap::new();
+    let mut raw: HashMap<String, (Option<String>, Vec<(String, DataType)>)> = HashMap::new();
     for stmt in &program.statements {
-        if let Statement::Type { name, fields, .. } = stmt {
+        if let Statement::Type {
+            name,
+            fields,
+            parent,
+            ..
+        } = stmt
+        {
             let mut field_list = Vec::new();
             for f in fields {
                 if let Statement::Let {
@@ -45,10 +51,38 @@ fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataT
                     field_list.push((name.clone(), data_type.clone()));
                 }
             }
-            struct_types.insert(name.clone(), field_list);
+            raw.insert(name.clone(), (parent.clone(), field_list));
         }
     }
-    struct_types
+    fn flatten(
+        name: &str,
+        raw: &HashMap<String, (Option<String>, Vec<(String, DataType)>)>,
+        seen: &mut HashSet<String>,
+    ) -> Vec<(String, DataType)> {
+        if !seen.insert(name.to_string()) {
+            return Vec::new();
+        }
+        let mut fields = Vec::new();
+        if let Some((Some(parent), own)) = raw.get(name) {
+            let parent_fields = flatten(parent, raw, seen);
+            fields.extend(parent_fields);
+        }
+        if let Some((_, own)) = raw.get(name) {
+            for f in own {
+                if !fields.iter().any(|(n, _)| *n == f.0) {
+                    fields.push(f.clone());
+                }
+            }
+        }
+        fields
+    }
+    let mut result = HashMap::new();
+    let names: Vec<String> = raw.keys().cloned().collect();
+    for name in &names {
+        let mut seen = HashSet::new();
+        result.insert(name.clone(), flatten(name, &raw, &mut seen));
+    }
+    result
 }
 
 fn extract_enum_types(program: &Program) -> HashMap<String, Vec<(String, usize)>> {

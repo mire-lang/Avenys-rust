@@ -643,7 +643,7 @@ impl TypeChecker {
 
     pub(super) fn check_type_statement(
         &mut self,
-        name: &str,
+        _name: &str,
         parent: Option<&str>,
         fields: &mut Vec<Statement>,
     ) -> Result<()> {

@@ -197,6 +197,9 @@ void   *rt_lists_push_ptr(void *list, void *value);
 // Process argv builder
 char  **rt_build_argv(const char *cmd, void *args_vec, int64_t *argc_out);
 void   rt_free_argv(char **argv, int64_t argc);
+
+// Process shell capture — runs a command and returns output as managed string.
+char   *rt_proc_capture_output(const char *cmd);
 int64_t rt_lists_pop(void *list);
 void   *rt_lists_slice(void *list, int64_t start, int64_t end);
 void   *rt_lists_concat(void *a, void *b);

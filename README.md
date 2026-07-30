@@ -1,4 +1,4 @@
-# Avenys v3.24.20
+# Avenys v3.24.21
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -178,6 +178,20 @@ impl Point {
  }
 }
 
+// Struct inheritance (extends)
+pub struct Animal { name: str }
+pub struct Dog extends Animal { breed: str }
+
+impl Dog {
+ fn greet: (self) :str {
+  return self.name + " the " + self.breed
+ }
+}
+
+// Skills (traits) with inheritance (super)
+pub skill Greeter { fn greet: (self) :str }
+pub skill Named super Greeter { fn get_name: (self) :str }
+
 // Enums with pattern matching
 enum Option[T] { None, Some(value: T) }
 
@@ -185,6 +199,9 @@ pub fn main: () {
  set p = Point::new(3, 4)
  set d = p.dist()
  use dasu("Distance: {d}")
+
+ set dog = (Dog name: "Rex" breed: "Husky")
+ use dasu(dog.greet())
 }
 ```
 

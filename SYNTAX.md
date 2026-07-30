@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.20**
+Version: **3.24.21**
 
 ---
 
@@ -913,6 +913,43 @@ impl Point {
 set p = Point::new(10 20)
 ```
 
+### 10.5 Struct inheritance (`extends`)
+
+A struct can inherit fields from a parent struct with the `extends` keyword.
+The child struct's constructor accepts both parent and child fields.
+
+```mire
+pub struct Animal {
+ name :str
+ age  :i64
+}
+
+pub struct Dog extends Animal {
+ breed :str
+}
+
+// Named constructor — parent fields + child fields
+set d = (Dog name: "Rex" age: 3 breed: "Husky")
+
+// Inherited fields are accessible by name
+fn describe: (d :Dog) :str {
+ return d.name + " is a " + d.breed + " (" + str(d.age) + " yr)"
+}
+
+// Inherited fields work via self inside impl blocks
+impl Dog {
+ fn greet: (self) :str {
+ return self.name + " the " + self.breed
+ }
+}
+```
+
+**Rules:**
+- Single inheritance only (a struct can extend at most one parent).
+- The child cannot override methods with the same name from the parent.
+- Constructor accepts parent fields first (in positional order), then child fields.
+- No private access modifiers — all fields are public.
+
 ---
 
 ## 11. Enums
@@ -1003,6 +1040,33 @@ skill Default {
 impl[T: Default] Box[T] {
  fn new_default: () :Box[T] {
  return (Box[T] value: T::default())
+ }
+}
+```
+
+### 12.5 Skill inheritance (`super`)
+
+A skill can extend another skill with the `super` keyword, inheriting its
+method signatures. An implementation of the child skill must implement all
+methods from both the parent and child skills.
+
+```mire
+pub skill Greeter {
+ fn greet: (self) :str
+}
+
+pub skill Named super Greeter {
+ fn get_name: (self) :str
+}
+
+pub struct Person { name :str }
+
+impl Named for Person {
+ fn greet: (self) :str {
+  return "Hello, I'm " + self.name
+ }
+ fn get_name: (self) :str {
+  return self.name
  }
 }
 ```

@@ -3,14 +3,15 @@ use crate::error::type_error_at_span;
 
 impl TypeChecker {
     fn all_fields<'a>(&'a self, class_sig: &'a ClassSig) -> Vec<&'a ClassFieldSig> {
-        let mut fields: Vec<&ClassFieldSig> = class_sig.fields.iter().collect();
+        let mut fields: Vec<&ClassFieldSig> = Vec::new();
         if let Some(parent_name) = &class_sig.parent {
             if let Some(parent_sig) = self.classes.get(parent_name) {
-                for parent_field in self.all_fields(parent_sig) {
-                    if !fields.iter().any(|f| f.name == parent_field.name) {
-                        fields.push(parent_field);
-                    }
-                }
+                fields.extend(self.all_fields(parent_sig));
+            }
+        }
+        for child_field in &class_sig.fields {
+            if !fields.iter().any(|f| f.name == child_field.name) {
+                fields.push(child_field);
             }
         }
         fields

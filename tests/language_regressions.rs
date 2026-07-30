@@ -3918,7 +3918,7 @@ fn runtime_strings_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace(s, \"world\", \"mire\"))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace.all(s, \"world\", \"mire\"))\n}\n",
     )
     .expect("write source");
 
@@ -4329,53 +4329,35 @@ fn pal_proc_spawn_exit_code() {
 
 #[test]
 fn owl_build_run_info_cycle() {
-    if Command::new("owl").arg("--version").output().is_err() {
-        eprintln!("SKIP: owl not found in PATH");
+    if Command::new("mire").arg("--version").output().is_err() {
+        eprintln!("SKIP: mire not found in PATH");
         return;
     }
     let root = make_temp_project_root("mire_owl_cycle");
     let source_path = root.join("main.mire");
-    fs::write(
-        root.join("owl.toml"),
-        "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n\n[build]\ncompiler = \"mire\"\nprofile = \"debug\"\nopt-level = 0\n\n[paths]\nsources = \"code\"\ntests = \"tests\"\noutput = \"bin\"\ncache = \"bin/.cache\"\n",
-    )
-    .expect("write project");
     fs::write(
         &source_path,
         "pub fn main: () {\n    use dasu(\"owl_build_ok\")\n}\n",
     )
     .expect("write source");
 
-    // owl build --debug
-    let build_out = Command::new("owl")
-        .args(["build", "--debug"])
-        .current_dir(&root)
+    // mire build --debug
+    let build_out = Command::new("mire")
+        .args(["build", "--debug", &source_path.to_string_lossy()])
         .output()
-        .expect("owl build");
+        .expect("mire build");
     assert!(
         build_out.status.success(),
-        "owl build failed: {:?}",
+        "mire build failed: {:?}",
         build_out
     );
+    let binary_path = root.join("debug").join("main");
 
-    // owl info
-    let info_out = Command::new("owl")
-        .args(["info"])
-        .current_dir(&root)
+    // mire run
+    let run_out = Command::new(&binary_path)
         .output()
-        .expect("owl info");
-    assert!(info_out.status.success(), "owl info failed: {:?}", info_out);
-    let info_stdout = String::from_utf8_lossy(&info_out.stdout);
-    assert!(info_stdout.contains("owl-cycle"), "info: {info_stdout}");
-    assert!(info_stdout.contains("Mire"), "info: {info_stdout}");
-
-    // owl run
-    let run_out = Command::new("owl")
-        .args(["run"])
-        .current_dir(&root)
-        .output()
-        .expect("owl run");
-    assert!(run_out.status.success(), "owl run failed: {:?}", run_out);
+        .expect("run binary");
+    assert!(run_out.status.success(), "binary run failed: {:?}", run_out);
     let run_stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(
         run_stdout.contains("owl_build_ok"),

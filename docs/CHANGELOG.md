@@ -2,6 +2,36 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.21] - 2026-07-31 (OOP expansion: inheritance, skills, async, proc)
+
+### Added
+
+- **Struct inheritance (`extends`)**: A struct can extend a parent struct and
+  inherit its fields. Constructor accepts both parent and child fields (named
+  or positional). Inherited fields are accessible from local variables and via
+  `self` inside impl blocks. Single inheritance only. (`SYNTAX.md §10.5`)
+- **Skill inheritance (`super`)**: A skill can extend another skill, inheriting
+  its method signatures. The implementing type must provide all methods from
+  both the parent and child skills. (`SYNTAX.md §12.5`)
+- **Enum match inside impl blocks**: `match self { ... }` inside `impl Enum { }`
+  blocks now correctly lowers to discriminant checks and case blocks instead of
+  being silently dropped.
+- **`async` module** (`kioto::core::async`): Added `Task` struct, `ready()`,
+  `value()`, `spawn()`, `wait()` for async task/future pattern and process
+  spawning via PAL.
+- **`proc::shell(cmd)`** (`kioto::core::proc`): Captures command output via
+  `rt_proc_capture_output` (PAL-based, managed memory).
+
+### Fixed
+
+- **`strings.replace` → `strings.replace.all`**: Updated test to match the
+  current kioto namespace API.
+- **`owl_build_run_info_cycle`**: Uses `mire` instead of stale `owl` binary.
+
+### Changed
+
+- **Version**: 3.24.20 → 3.24.21
+
 ## [3.24.20] - 2026-07-28 (Avenys test runner isolation)
 
 ### Fixed

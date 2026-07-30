@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "runtime.h"
+
+extern const char *pal_proc_capture_output(const char *cmd);
 
 // Raw byte access from a managed string.
 int64_t rt_crypto_byte_at(const char *s, int64_t i) {
@@ -46,4 +49,14 @@ int rt_hex_to_file(const char *path, const char *hex) {
     fclose(f);
     free(bin);
     return 1;
+}
+
+// Runs a command via PAL capture and returns the output as a managed string.
+char *rt_proc_capture_output(const char *cmd) {
+    if (!cmd) return rt_managed_from_cstr("");
+    const char *out = pal_proc_capture_output(cmd);
+    if (!out) return rt_managed_from_cstr("");
+    char *managed = rt_managed_from_cstr(out);
+    free((void *)out);
+    return managed;
 }

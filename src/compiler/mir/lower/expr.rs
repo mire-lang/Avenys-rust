@@ -322,7 +322,7 @@ impl MirLower {
                     let (prefix, method) = name.split_once('.').unwrap();
                     let var_ty = self.var_types.get(prefix).unwrap().clone();
                     let struct_name = match &var_ty {
-                        DataType::StructNamed(s) => s.clone(),
+                        DataType::StructNamed(s) | DataType::EnumNamed(s) => s.clone(),
                         _ => String::new(),
                     };
                     let norm = struct_name
