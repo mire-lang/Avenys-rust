@@ -763,6 +763,7 @@ impl<'a> BorrowChecker<'a> {
                 | DataType::None
                 | DataType::Ref { .. }
                 | DataType::RefMut { .. }
+                | DataType::Array { .. }
         )
     }
 

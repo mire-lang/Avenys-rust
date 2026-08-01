@@ -24,6 +24,8 @@ struct MirLower {
     globals: HashMap<String, DataType>,
     struct_types: HashMap<String, Vec<(String, DataType)>>,
     enum_types: HashMap<String, Vec<(String, usize)>>,
+    /// Per-variant payload layouts: "Enum.Variant" -> [(payload_name, DataType), ...].
+    enum_payloads: HashMap<String, Vec<(String, DataType)>>,
     bare_to_qualified: HashMap<String, String>,
     method_map: HashMap<String, HashMap<String, String>>,
     current_block: usize,
@@ -63,7 +65,7 @@ fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataT
             return Vec::new();
         }
         let mut fields = Vec::new();
-        if let Some((Some(parent), own)) = raw.get(name) {
+        if let Some((Some(parent), _)) = raw.get(name) {
             let parent_fields = flatten(parent, raw, seen);
             fields.extend(parent_fields);
         }
@@ -82,6 +84,19 @@ fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataT
         let mut seen = HashSet::new();
         result.insert(name.clone(), flatten(name, &raw, &mut seen));
     }
+    // Enum variants are lowered as tagged structs: the discriminant is always the
+    // first (i64) field, followed by the variant's payload fields.
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for variant in variants {
+                let mut fields = vec![("__discriminant".to_string(), DataType::I64)];
+                for (pname, ptype) in variant.payload_names.iter().zip(variant.data_types.iter()) {
+                    fields.push((pname.clone(), ptype.clone()));
+                }
+                result.insert(format!("{}.{}", name, variant.name), fields);
+            }
+        }
+    }
     result
 }
 
@@ -98,6 +113,24 @@ fn extract_enum_types(program: &Program) -> HashMap<String, Vec<(String, usize)>
         }
     }
     enum_types
+}
+
+fn extract_enum_payloads(program: &Program) -> HashMap<String, Vec<(String, DataType)>> {
+    let mut payloads = HashMap::new();
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for variant in variants {
+                let fields: Vec<(String, DataType)> = variant
+                    .payload_names
+                    .iter()
+                    .zip(variant.data_types.iter())
+                    .map(|(n, t)| (n.clone(), t.clone()))
+                    .collect();
+                payloads.insert(format!("{}.{}", name, variant.name), fields);
+            }
+        }
+    }
+    payloads
 }
 
 fn extract_method_map(program: &Program) -> HashMap<String, HashMap<String, String>> {
@@ -172,6 +205,8 @@ fn top_level_global_type(stmt: &Statement) -> Option<DataType> {
 /// Aggregate types (structs, vectors, lists, maps) are lowered as main-prologue
 /// locals instead, because their values are pointer-based in this ABI and a bare
 /// `store` of an SSA aggregate does not initialize the global correctly.
+/// Enum values are pointers to heap-allocated tagged structs (like `str`), so
+/// they are safe to store into a true global.
 fn is_global_compatible(ty: &DataType) -> bool {
     matches!(
         ty,
@@ -183,6 +218,7 @@ fn is_global_compatible(ty: &DataType) -> bool {
             | DataType::Char
             | DataType::Str
             | DataType::None
+            | DataType::EnumNamed(_)
     )
 }
 
@@ -213,6 +249,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
     let mut seen_functions = HashSet::new();
     let mut struct_types = extract_struct_types(program);
     let enum_types = extract_enum_types(program);
+    let enum_payloads = extract_enum_payloads(program);
     let method_map = extract_method_map(program);
 
     for stmt in &program.statements {
@@ -344,6 +381,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                     globals: globals.clone(),
                     struct_types: struct_types.clone(),
                     enum_types: enum_types.clone(),
+                    enum_payloads: enum_payloads.clone(),
                     bare_to_qualified: bare_to_qualified.clone(),
                     method_map: method_map.clone(),
                     current_block: 0,
@@ -411,6 +449,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                             globals: globals.clone(),
                             struct_types: struct_types.clone(),
                             enum_types: enum_types.clone(),
+                            enum_payloads: enum_payloads.clone(),
                             bare_to_qualified: bare_to_qualified.clone(),
                             method_map: method_map.clone(),
                             current_block: 0,

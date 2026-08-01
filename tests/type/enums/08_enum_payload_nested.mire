@@ -1,0 +1,46 @@
+enum Flag { On Off }
+enum Value {
+    Num(v :i8)
+    B(b :bool)
+    Inner(flag :Flag)
+}
+
+struct Holder { tag :Value label :str }
+
+fn get_tag: (h :Holder) :Value { return h.tag }
+
+pub fn main: () {
+    set h1 = Holder(tag=Value.Num(v: 5:i8) label="a")
+    set h2 = Holder(tag=Value.B(b: true) label="b")
+    set h3 = Holder(tag=Value.Inner(flag: Flag.On) label="c")
+
+    set t1 = get_tag(h1)
+    match t1 {
+        Value.Num(v) { use dasu(v) }
+        Value.B(b) { use dasu(b) }
+        _ { use dasu(-100) }
+    }
+
+    set t2 = get_tag(h2)
+    match t2 {
+        Value.B(b) {
+            if b {
+                use dasu(1)
+            } else {
+                use dasu(0)
+            }
+        }
+        _ { use dasu(-200) }
+    }
+
+    set t3 = get_tag(h3)
+    match t3 {
+        Value.Inner(f) {
+            match f {
+                Flag.On { use dasu(10) }
+                Flag.Off { use dasu(20) }
+            }
+        }
+        _ { use dasu(-300) }
+    }
+}

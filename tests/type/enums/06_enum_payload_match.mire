@@ -1,0 +1,28 @@
+enum Maybe { None Some(value :i64) }
+
+fn classify: (m :Maybe) :i64 {
+    match m {
+        Maybe.Some(v) { return v * 2 }
+        Maybe.None { return -1 }
+    }
+    return 0
+}
+
+pub fn main: () {
+    set m = Maybe.Some(value: 42)
+    set result = match m {
+        Maybe.None { 0 }
+        Maybe.Some(v) { v }
+    } :i64
+    use dasu(result)
+
+    set n = Maybe.None
+    set other = match n {
+        Maybe.Some(v) { v }
+        Maybe.None { -1 }
+    } :i64
+    use dasu(other)
+
+    set c = classify(m)
+    use dasu(c)
+}

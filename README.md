@@ -1,4 +1,4 @@
-# Avenys v3.24.21
+# Avenys v3.24.22
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -237,16 +237,19 @@ Kioto lives at `~/.owl/modules/kioto/` and provides:
 | Module | What it does |
 |--------|-------------|
 | `strings` | upper/lower, split/join, replace, trim, pad, substr |
-| `lists` | push/pop/get, slice, concat, sort, reverse, unique |
-| `dicts` | get/set/keys/values, has, remove, merge |
 | `math` | trig, log, powers, statistics, random, complex numbers |
-| `fs` | read, write, exists, copy, move, mkdir, list |
-| `env` | get/set, args, cwd |
-| `proc` | run, shell, spawn, pipe, signal handling |
-| `task` | spawn, join, ready/failed checks |
-| `time` | now, sleep, format, elapsed |
+| `fs` | read, write, exists, mkdir, drop, dir/file handles |
+| `env` | get, cwd, args |
+| `proc` | create, spawn, shell, wait, kill, stdio channels |
+| `async` | channels, Task, ready/value, spawn/wait |
+| `time` | now_ms, now_ns, mark, elapsed |
 | `mem` / `cpu` | system resource queries |
-| `maybe` / `result` | Option and Result types |
+| `net` | TCP sockets and listeners |
+| `log` / `cli` | logging and CLI parsing |
+| `crypto` | SHA-256/512, hex/base64, CSPRNG, Ed25519 |
+
+Dynamic collections (`vec`, `map`) are provided by the `mire` standard library,
+loaded with `load mire::vec` / `load mire::map`. See `mire/README.md`.
 
 ---
 

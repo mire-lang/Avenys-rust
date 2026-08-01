@@ -216,11 +216,16 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                 continue;
             }
 
-            let param_types: Vec<&str> = fields
+            let param_types: Vec<String> = fields
                 .iter()
                 .filter_map(|f| {
                     if let Statement::Let { data_type, .. } = f {
-                        Some(struct_field_llvm_type(data_type))
+                        Some(match data_type {
+                            // Arrays are passed by value ([N x T]) to match the
+                            // caller-side materialization in lower_call_args.
+                            DataType::Array { .. } => struct_field_llvm_body_type(data_type),
+                            _ => struct_field_llvm_type(data_type).to_string(),
+                        })
                     } else {
                         None
                     }
@@ -265,8 +270,7 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                     ));
                     match data_type {
                         DataType::Array { .. } => {
-                            body.push_str(&format!("  %f{i}_loaded = load {bty}, ptr %{i}\n"));
-                            body.push_str(&format!("  store {bty} %f{i}_loaded, ptr %f{i}_ptr\n"));
+                            body.push_str(&format!("  store {bty} %{i}, ptr %f{i}_ptr\n"));
                         }
                         _ => {
                             body.push_str(&format!(
@@ -285,6 +289,78 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                 params.join(", "),
                 body,
             ));
+        }
+    }
+    if out.is_empty() {
+        return String::new();
+    }
+    format!("declare ptr @malloc(i64)\n\n{}", out)
+}
+
+/// Generates heap constructor functions for every enum variant. Each variant is a
+/// tagged struct: an `i64` discriminant followed by the variant's payload fields.
+/// The layout must match `render_struct_llvm_type` for the same variant in the MIR
+/// `struct_types` map (discriminant is always field 0).
+pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) -> String {
+    let mut out = String::new();
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for (discriminant, variant) in variants.iter().enumerate() {
+                let full_name = format!("{}.{}", name, variant.name);
+                let mut all_types = vec!["i64".to_string()];
+                let mut total_size = 8usize;
+                for dt in &variant.data_types {
+                    all_types.push(struct_field_llvm_body_type(dt));
+                    total_size += struct_field_size(dt);
+                }
+                let struct_ty = all_types.join(", ");
+                let param_types: Vec<String> = variant
+                    .data_types
+                    .iter()
+                    .map(|dt| match dt {
+                        DataType::Array { .. } => struct_field_llvm_body_type(dt),
+                        _ => struct_field_llvm_type(dt).to_string(),
+                    })
+                    .collect();
+                let params: Vec<String> = param_types
+                    .iter()
+                    .enumerate()
+                    .map(|(i, ft)| format!("{} %{}", ft, i))
+                    .collect();
+
+                let mut body = String::new();
+                body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
+                body.push_str(&format!(
+                    "  %d0 = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 0\n"
+                ));
+                body.push_str(&format!("  store i64 {discriminant}, ptr %d0\n"));
+                for (i, dt) in variant.data_types.iter().enumerate() {
+                    let bty = &param_types[i];
+                    body.push_str(&format!(
+                        "  %f{i}_ptr = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 {}\n",
+                        i + 1
+                    ));
+                    match dt {
+                        DataType::Array { .. } => {
+                            body.push_str(&format!("  store {bty} %{i}, ptr %f{i}_ptr\n"));
+                        }
+                        _ => {
+                            body.push_str(&format!(
+                                "  store {} %{i}, ptr %f{i}_ptr\n",
+                                struct_field_llvm_type(dt),
+                            ));
+                        }
+                    }
+                }
+                body.push_str("  ret ptr %ptr\n");
+
+                out.push_str(&format!(
+                    "define ptr @{}({}) {{\nentry:\n{}}}\n\n",
+                    full_name,
+                    params.join(", "),
+                    body,
+                ));
+            }
         }
     }
     if out.is_empty() {

@@ -6,7 +6,8 @@ use crate::loader::load_program_with_cache;
 use crate::parser::ast::Statement;
 use super::build_support::{
     apply_cfg_filter, dedup_llvm_declarations, generate_runtime_declarations,
-    generate_struct_constructors, inject_test_harness, precompile_c_object, progress_phase,
+    generate_enum_constructors, generate_struct_constructors, inject_test_harness, precompile_c_object,
+    progress_phase,
     runtime_base,
 };
 use std::hash::{Hash, Hasher};
@@ -335,6 +336,22 @@ fn compile_file_inner(
             if !struct_ctors.is_empty() {
                 ir.push('\n');
                 ir.push_str(&struct_ctors);
+            }
+        }
+        let needs_enum_ctors = program.statements.iter().any(|stmt| {
+            if let Statement::Enum { name, variants, .. } = stmt {
+                variants
+                    .iter()
+                    .any(|v| !ir.contains(&format!("define ptr @{}.{}(", name, v.name)))
+            } else {
+                false
+            }
+        });
+        if needs_enum_ctors {
+            let enum_ctors = generate_enum_constructors(&program);
+            if !enum_ctors.is_empty() {
+                ir.push('\n');
+                ir.push_str(&enum_ctors);
             }
         }
         // Add @main entry point wrapper if the program defines @fn_main

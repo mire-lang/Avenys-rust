@@ -280,8 +280,11 @@ impl MirLower {
                 let _ = self.lower_expression(expr);
             }
             Statement::Return(val) => {
+                let ret_ty = self.func.ret_type.clone();
+                let loc = statement_location(&Statement::Return(val.clone())).to_tuple();
                 let v = val.as_ref().map(|e| self.lower_expression(e));
                 let last = self.current_block;
+                let v = v.map(|x| self.materialize_array_value(x, &ret_ty, loc));
                 self.func.blocks[last].terminator = MirTerminator::Ret(v);
             }
             Statement::If {
@@ -540,6 +543,159 @@ impl MirLower {
                 for stmt in body {
                     self.lower_statement(stmt);
                 }
+            }
+            Statement::Match {
+                value,
+                cases,
+                default,
+            } => {
+                let match_val = self.lower_expression(value);
+                let n = cases.len();
+
+                // Allocate every block up front so that case bodies (which may
+                // create their own blocks via if/while/for/nested match) never
+                // shift the fixed block indices the chk chain points at.
+                let mut chk_blocks = Vec::with_capacity(n);
+                for i in 0..n {
+                    chk_blocks.push(self.new_block(&format!("stmt_match_chk_{}", i)));
+                }
+                let mut case_blocks = Vec::with_capacity(n);
+                for i in 0..n {
+                    case_blocks.push(self.new_block(&format!("stmt_match_case_{}", i)));
+                }
+                let default_idx = self.new_block("stmt_match_default");
+                let end_idx = self.new_block("stmt_match_end");
+
+                self.func.blocks[self.current_block].terminator =
+                    MirTerminator::Br(if n > 0 { chk_blocks[0] } else { default_idx });
+
+                for (i, (pattern, _body)) in cases.iter().enumerate() {
+                    let chk = chk_blocks[i];
+                    let cs = case_blocks[i];
+                    let next = if i + 1 < n {
+                        chk_blocks[i + 1]
+                    } else {
+                        default_idx
+                    };
+
+                    match pattern {
+                        Expression::Literal { lit, .. } => {
+                            let lit_val = self.lower_literal(lit);
+                            let cmp = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(cmp),
+                                MirOp::ICmp(MirCmp::Eq, match_val.clone(), lit_val),
+                                loc,
+                            );
+                            self.func.blocks[chk].terminator =
+                                MirTerminator::BrCond(MirValue::temp(cmp), cs, next);
+                        }
+                        Expression::EnumVariant {
+                            enum_name,
+                            variant_name,
+                            ..
+                        }
+                        | Expression::EnumVariantPath {
+                            enum_name,
+                            variant_name,
+                            ..
+                        } => {
+                            let discriminant = self
+                                .enum_types
+                                .get(enum_name)
+                                .and_then(|variants| {
+                                    variants
+                                        .iter()
+                                        .find(|(n, _)| n == variant_name)
+                                        .map(|(_, idx)| *idx as i64)
+                                })
+                                .unwrap_or(0);
+                            let variant_full = format!("{}.{}", enum_name, variant_name);
+                            let disc_gep = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc_gep),
+                                MirOp::Gep(
+                                    match_val.clone(),
+                                    vec![
+                                        MirValue::Const(MirConst::Int(0)),
+                                        MirValue::Const(MirConst::Int(0)),
+                                    ],
+                                    variant_full.clone(),
+                                ),
+                                loc,
+                            );
+                            let disc = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc),
+                                MirOp::Load(
+                                    MirValue::temp(disc_gep),
+                                    MirType {
+                                        data_type: DataType::I64,
+                                    },
+                                ),
+                                loc,
+                            );
+                            let cmp = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(cmp),
+                                MirOp::ICmp(
+                                    MirCmp::Eq,
+                                    MirValue::temp(disc),
+                                    MirValue::Const(MirConst::Int(discriminant)),
+                                ),
+                                loc,
+                            );
+                            self.func.blocks[chk].terminator =
+                                MirTerminator::BrCond(MirValue::temp(cmp), cs, next);
+                        }
+                        _ => {
+                            self.func.blocks[chk].terminator = MirTerminator::Br(cs);
+                        }
+                    }
+                }
+
+                for (i, (pattern, case_body)) in cases.iter().enumerate() {
+                    let cs = case_blocks[i];
+                    self.current_block = cs;
+                    if let Expression::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        payloads,
+                        ..
+                    } = pattern
+                    {
+                        self.bind_match_payloads(
+                            &match_val,
+                            enum_name,
+                            variant_name,
+                            payloads,
+                            loc,
+                        );
+                    }
+                    for s in case_body {
+                        self.lower_statement(s);
+                    }
+                    if matches!(
+                        self.func.blocks[self.current_block].terminator,
+                        MirTerminator::Unreachable
+                    ) {
+                        self.func.blocks[self.current_block].terminator =
+                            MirTerminator::Br(end_idx);
+                    }
+                }
+
+                self.current_block = default_idx;
+                for s in default {
+                    self.lower_statement(s);
+                }
+                if matches!(
+                    self.func.blocks[self.current_block].terminator,
+                    MirTerminator::Unreachable
+                ) {
+                    self.func.blocks[self.current_block].terminator = MirTerminator::Br(end_idx);
+                }
+
+                self.current_block = end_idx;
             }
             _ => {}
         }

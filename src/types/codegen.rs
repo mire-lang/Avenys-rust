@@ -22,6 +22,7 @@
 //! | `bool`      | `i1`        | 1b    |                                    |
 //! | `char`      | `i32`       | 32b   | UTF-32 code point                  |
 //! | `str`       | `ptr`       | ---   | pointer to managed UTF-8 buffer    |
+//! | `enum T`    | `ptr`       | ---   | pointer to tagged struct (discriminant i64 + payloads) |
 
 use crate::parser::ast::DataType;
 
@@ -74,7 +75,7 @@ pub fn llvm_type_str(dt: &DataType) -> String {
         }
         DataType::Slice { element_type } => llvm_type_str(element_type),
         DataType::Pointer(_) => "ptr".to_string(),
-        DataType::EnumNamed(_) => "i64".to_string(),
+        DataType::EnumNamed(_) => "ptr".to_string(),
         DataType::Generic(_) => "i64".to_string(),
         DataType::Closure { .. } => "{ ptr, ptr }".to_string(),
         DataType::Function => "ptr".to_string(),

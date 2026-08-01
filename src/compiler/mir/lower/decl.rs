@@ -72,6 +72,7 @@ impl MirLower {
             globals: self.globals.clone(),
             struct_types: self.struct_types.clone(),
             enum_types: self.enum_types.clone(),
+            enum_payloads: self.enum_payloads.clone(),
             bare_to_qualified: self.bare_to_qualified.clone(),
             method_map: self.method_map.clone(),
             current_block: 0,

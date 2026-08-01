@@ -2,6 +2,43 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.22] - 2026-08-01 (enum payloads, array-by-value, cache hardening)
+
+### Added
+
+- **Enum payload lowering (MIR)**: enums now carry payload fields. Variants are
+  lowered as tagged structs (`i64` discriminant + payload fields), matched
+  through `lower/mod.rs` `extract_enum_payloads` and `stmt.rs`
+  `bind_match_payloads`. Discriminant checks in `Statement::Match` select the
+  variant block and bind payload identifiers before the body.
+- **Enum constructors in the build pipeline**: `generate_enum_constructors`
+  emits a heap constructor per variant matching the tagged-struct layout.
+- **Incremental cache format v3**: cache version mismatch now wipes the cache
+  (`wipe_cache_dir`) instead of silently reusing stale analysis/MIR/builds.
+  WAL removal tolerates already-missing files.
+
+### Fixed
+
+- **Array-by-value garbage (critical)**: array expressions lower to a pointer
+  (alloca) but function signatures and return types use `[N x T]` by-value LLVM
+  types. `materialize_array_value` emits a `MirOp::Load` so callers pass by-value
+  arrays; `Statement::Return` materializes before `ret`. Borrowck treats
+  `DataType::Array` as Copy (fixed-size inline POD). Struct/enum constructors
+  pass array fields by value. `arr.mire` now prints `42`.
+- **Enum codegen type**: `DataType::EnumNamed` now lowers to `ptr` (heap tagged
+  struct) instead of `i64`, fixing payload matches.
+- **Imported method names canonicalized**: `semantic.rs` routes `impl` method
+  names through `canonical_fn_name` so qualified calls resolve consistently.
+- **Transitive path dependencies**: `loader/load.rs` absolutizes relative
+  dependency paths against the declaring package root, so a `load` deep inside a
+  dependency resolves against its own root, not the top-level consumer's.
+
+### Changed
+
+- `mire` stdlib collections: kioto `lists`/`dicts` removed in favor of
+  `mire::vec` / `mire::map` (see kioto CHANGELOG 2.4.3).
+- **Version**: 3.24.21 → 3.24.22
+
 ## [3.24.21] - 2026-07-31 (OOP expansion: inheritance, skills, async, proc)
 
 ### Added

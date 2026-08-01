@@ -1,0 +1,8 @@
+enum Maybe { None Some(value :i64) }
+pub fn main: () {
+    set m = Maybe.Some(value: 42)
+    set result = match m {
+        Maybe.None { 0 }
+        Maybe.Some(v) { v }
+    } :i64
+}

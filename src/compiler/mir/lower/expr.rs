@@ -37,10 +37,43 @@ impl MirLower {
                     );
                     MirValue::temp(str_result)
                 } else {
-                    lowered
+                    self.materialize_array_value(lowered, &arg_type, expression_location(a).to_tuple())
                 }
             })
             .collect()
+    }
+
+    /// Array expressions lower to a POINTER to the array in memory, but function
+    /// signatures take arrays by value (`[N x T]`). Materialize the value with a
+    /// Load so the caller passes a by-value array matching the callee's signature.
+    pub(crate) fn materialize_array_value(
+        &mut self,
+        v: MirValue,
+        ty: &DataType,
+        loc: (usize, usize),
+    ) -> MirValue {
+        if !matches!(ty, DataType::Array { .. }) {
+            return v;
+        }
+        let is_call_result = if let MirValue::Temp(id) = v {
+            self.func.blocks[self.current_block]
+                .insts
+                .last()
+                .is_some_and(|inst| inst.result == Some(id) && matches!(inst.op, MirOp::Call(..)))
+        } else {
+            false
+        };
+        if is_call_result {
+            return v;
+        }
+        let loaded = self.new_temp();
+        let last = self.current_block;
+        self.func.blocks[last].push(
+            Some(loaded),
+            MirOp::Load(v, MirType { data_type: ty.clone() }),
+            loc,
+        );
+        MirValue::temp(loaded)
     }
 
     pub(crate) fn lower_expression(&mut self, expr: &Expression) -> MirValue {
@@ -446,24 +479,29 @@ impl MirLower {
                 );
 
                 let n = cases.len();
+
+                // Allocate every block up front so that case bodies (which may
+                // create their own blocks via if/while/for/nested match) never
+                // shift the fixed block indices the chk chain points at.
                 let mut chk_blocks = Vec::with_capacity(n);
                 for i in 0..n {
                     chk_blocks.push(self.new_block(&format!("match_chk_{}", i)));
                 }
+                let mut case_blocks = Vec::with_capacity(n);
+                for i in 0..n {
+                    case_blocks.push(self.new_block(&format!("match_case_{}", i)));
+                }
+                let default_idx = self.new_block("match_default");
+                let end_idx = self.new_block("match_end");
 
-                let first_chk = chk_blocks[0];
-                let chk_base = first_chk;
-                let case_base = first_chk + n;
-                let default_idx = case_base + n;
-                let end_idx = default_idx + 1;
-
-                self.func.blocks[initial_block].terminator = MirTerminator::Br(first_chk);
+                self.func.blocks[initial_block].terminator =
+                    MirTerminator::Br(if n > 0 { chk_blocks[0] } else { default_idx });
 
                 for (i, (pattern, _body)) in cases.iter().enumerate() {
                     let chk = chk_blocks[i];
-                    let cs = case_base + i;
+                    let cs = case_blocks[i];
                     let next = if i + 1 < n {
-                        chk_base + i + 1
+                        chk_blocks[i + 1]
                     } else {
                         default_idx
                     };
@@ -500,12 +538,37 @@ impl MirLower {
                                         .map(|(_, idx)| *idx as i64)
                                 })
                                 .unwrap_or(0);
+                            let variant_full = format!("{}.{}", enum_name, variant_name);
+                            let disc_gep = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc_gep),
+                                MirOp::Gep(
+                                    match_val.clone(),
+                                    vec![
+                                        MirValue::Const(MirConst::Int(0)),
+                                        MirValue::Const(MirConst::Int(0)),
+                                    ],
+                                    variant_full.clone(),
+                                ),
+                                loc,
+                            );
+                            let disc = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc),
+                                MirOp::Load(
+                                    MirValue::temp(disc_gep),
+                                    MirType {
+                                        data_type: DataType::I64,
+                                    },
+                                ),
+                                loc,
+                            );
                             let cmp = self.new_temp();
                             self.func.blocks[chk].push(
                                 Some(cmp),
                                 MirOp::ICmp(
                                     MirCmp::Eq,
-                                    match_val.clone(),
+                                    MirValue::temp(disc),
                                     MirValue::Const(MirConst::Int(discriminant)),
                                 ),
                                 loc,
@@ -519,9 +582,24 @@ impl MirLower {
                     }
                 }
 
-                for (i, (_pattern, body)) in cases.iter().enumerate() {
-                    let cs = self.new_block(&format!("match_case_{}", i));
+                for (i, (pattern, body)) in cases.iter().enumerate() {
+                    let cs = case_blocks[i];
                     self.current_block = cs;
+                    if let Expression::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        payloads,
+                        ..
+                    } = pattern
+                    {
+                        self.bind_match_payloads(
+                            &match_val,
+                            enum_name,
+                            variant_name,
+                            payloads,
+                            loc,
+                        );
+                    }
                     let body_val = self.lower_expression(body);
                     self.func.blocks[self.current_block].push(
                         None,
@@ -531,8 +609,7 @@ impl MirLower {
                     self.func.blocks[self.current_block].terminator = MirTerminator::Br(end_idx);
                 }
 
-                let default_block = self.new_block("match_default");
-                self.current_block = default_block;
+                self.current_block = default_idx;
                 {
                     let default_val = self.lower_expression(default);
                     self.func.blocks[self.current_block].push(
@@ -543,8 +620,7 @@ impl MirLower {
                     self.func.blocks[self.current_block].terminator = MirTerminator::Br(end_idx);
                 }
 
-                let end_block = self.new_block("match_end");
-                self.current_block = end_block;
+                self.current_block = end_idx;
                 let loaded = self.new_temp();
                 self.func.blocks[self.current_block].push(
                     Some(loaded),
@@ -617,8 +693,28 @@ impl MirLower {
                 data_type,
             } => match data_type {
                 DataType::StructNamed(name) => {
-                    let mir_args: Vec<MirValue> =
-                        elements.iter().map(|e| self.lower_expression(e)).collect();
+                    let norm = name
+                        .split_once('[')
+                        .map(|(base, _)| base.to_string())
+                        .unwrap_or_else(|| name.clone());
+                    let field_types: Vec<DataType> = self
+                        .struct_types
+                        .get(&norm)
+                        .map(|fields| fields.iter().map(|(_, t)| t.clone()).collect())
+                        .unwrap_or_default();
+                    let mir_args: Vec<MirValue> = elements
+                        .iter()
+                        .enumerate()
+                        .map(|(i, e)| {
+                            let lowered = self.lower_expression(e);
+                            let ft = field_types.get(i).cloned().unwrap_or(DataType::Unknown);
+                            self.materialize_array_value(
+                                lowered,
+                                &ft,
+                                expression_location(e).to_tuple(),
+                            )
+                        })
+                        .collect();
                     let result = self.new_temp();
                     let last = self.current_block;
                     self.func.blocks[last].push(
@@ -926,36 +1022,67 @@ impl MirLower {
             Expression::EnumVariantPath {
                 enum_name,
                 variant_name,
+                data_type,
                 ..
             } => {
-                let discriminant = self
-                    .enum_types
-                    .get(enum_name)
-                    .and_then(|variants| {
-                        variants
-                            .iter()
-                            .find(|(n, _)| n == variant_name)
-                            .map(|(_, idx)| *idx as i64)
-                    })
-                    .unwrap_or(0);
-                MirValue::Const(MirConst::Int(discriminant))
+                let variant_full = format!("{}.{}", enum_name, variant_name);
+                let result = self.new_temp();
+                let last = self.current_block;
+                self.func.blocks[last].push(
+                    Some(result),
+                    MirOp::Call(
+                        MirValue::FunctionRef {
+                            name: variant_full.clone(),
+                            env: Box::new(MirValue::Const(MirConst::None)),
+                        },
+                        Vec::new(),
+                        MirType {
+                            data_type: data_type.clone(),
+                        },
+                    ),
+                    loc,
+                );
+                MirValue::temp(result)
             }
             Expression::EnumVariant {
                 enum_name,
                 variant_name,
+                payloads,
+                data_type,
                 ..
             } => {
-                let discriminant = self
-                    .enum_types
-                    .get(enum_name)
-                    .and_then(|variants| {
-                        variants
-                            .iter()
-                            .find(|(n, _)| n == variant_name)
-                            .map(|(_, idx)| *idx as i64)
+                let variant_full = format!("{}.{}", enum_name, variant_name);
+                let payload_types: Vec<DataType> = self
+                    .enum_payloads
+                    .get(&variant_full)
+                    .map(|fields| fields.iter().map(|(_, t)| t.clone()).collect())
+                    .unwrap_or_default();
+                let mir_args: Vec<MirValue> = payloads
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let lowered = self.lower_expression(p);
+                        let pt = payload_types.get(i).cloned().unwrap_or(DataType::Unknown);
+                        self.materialize_array_value(lowered, &pt, expression_location(p).to_tuple())
                     })
-                    .unwrap_or(0);
-                MirValue::Const(MirConst::Int(discriminant))
+                    .collect();
+                let result = self.new_temp();
+                let last = self.current_block;
+                self.func.blocks[last].push(
+                    Some(result),
+                    MirOp::Call(
+                        MirValue::FunctionRef {
+                            name: variant_full.clone(),
+                            env: Box::new(MirValue::Const(MirConst::None)),
+                        },
+                        mir_args,
+                        MirType {
+                            data_type: data_type.clone(),
+                        },
+                    ),
+                    loc,
+                );
+                MirValue::temp(result)
             }
             Expression::Dict {
                 entries, data_type, ..
@@ -1299,6 +1426,75 @@ impl MirLower {
                 MirValue::temp(unwrapped)
             }
             _ => MirValue::Const(MirConst::None),
+        }
+    }
+
+    /// Binds the payload identifiers of an enum variant pattern into the current
+    /// block, loading each payload field out of the tagged match value before the
+    /// case body is lowered. Must run with `self.current_block` set to the case block.
+    pub(crate) fn bind_match_payloads(
+        &mut self,
+        match_val: &MirValue,
+        enum_name: &str,
+        variant_name: &str,
+        payloads: &[Expression],
+        loc: (usize, usize),
+    ) {
+        let variant_full = format!("{}.{}", enum_name, variant_name);
+        let payload_types: Vec<DataType> = self
+            .enum_payloads
+            .get(&variant_full)
+            .map(|fields| fields.iter().map(|(_, t)| t.clone()).collect())
+            .unwrap_or_default();
+        for (i, payload) in payloads.iter().enumerate() {
+            let binding = match payload {
+                Expression::Identifier(id) => id.name.clone(),
+                Expression::NamedArg { name, .. } => name.clone(),
+                _ => continue,
+            };
+            let ptype = payload_types
+                .get(i)
+                .cloned()
+                .unwrap_or(DataType::Unknown);
+            let slot = self.new_temp();
+            self.func.blocks[self.current_block].push(
+                Some(slot),
+                MirOp::Alloca(MirType {
+                    data_type: ptype.clone(),
+                }),
+                loc,
+            );
+            let gep = self.new_temp();
+            self.func.blocks[self.current_block].push(
+                Some(gep),
+                MirOp::Gep(
+                    match_val.clone(),
+                    vec![
+                        MirValue::Const(MirConst::Int(0)),
+                        MirValue::Const(MirConst::Int(1 + i as i64)),
+                    ],
+                    variant_full.clone(),
+                ),
+                loc,
+            );
+            let loaded = self.new_temp();
+            self.func.blocks[self.current_block].push(
+                Some(loaded),
+                MirOp::Load(
+                    MirValue::temp(gep),
+                    MirType {
+                        data_type: ptype.clone(),
+                    },
+                ),
+                loc,
+            );
+            self.func.blocks[self.current_block].push(
+                None,
+                MirOp::Store(MirValue::temp(slot), MirValue::temp(loaded)),
+                loc,
+            );
+            self.vars.insert(binding.clone(), slot);
+            self.var_types.insert(binding.clone(), ptype);
         }
     }
 

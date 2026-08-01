@@ -24,9 +24,9 @@ load kioto::net
 
 // Call functions with module prefix
 set v = [10 20 30] : vec[i64]
-set len = lists::len(v)
+set len = vec::len(v)
 set s = strings::trim("  hello  ")
-set m = maps::set(m "key" 42)
+set m = map::set::i64({} :map[str i64] "key" 42)
 
 // use executes a function for side effects (discards result):
 use dasu("hello")
@@ -56,15 +56,15 @@ Avenys looks for libraries in these locations (in order):
 // kioto/owl.toml
 [project]
 name = "kioto"
-version = "3.11.12"
+version = "2.4.3"
 entry = "mod.mire"
+
+[dependencies]
+mire = { path = "../mire" }
 
 [exports]
 strings = "core/strings"
-lists = "core/lists"
-dicts = "core/dicts"
 net = "core/net"
-ws = "ext/ws"
 // ...
 ```
 
@@ -80,7 +80,7 @@ Avenys opens `mod.mire` (the `entry` file). This is the library's root module.
 // kioto/mod.mire
 module kioto
 load kioto::strings
-load kioto::lists
+load mire::vec
 load kioto::net
 load kioto::ws
 // ...

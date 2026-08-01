@@ -310,6 +310,7 @@ int64_t rt_vecs_get_i64(void *vec, int64_t index) { return rt_list_get_i64(vec, 
 void   *rt_vecs_get_ptr(void *vec, int64_t index) { return rt_list_get_ptr(vec, index); }
 void   *rt_vecs_push_i64(void *vec, int64_t value) { return rt_list_push_i64(vec, value); }
 void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
+void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value) { rt_list_set_i64(vec, index, value); }
 int64_t rt_vecs_pop(void *vec) { return rt_list_pop_i64(vec); }
 void   *rt_vecs_slice(void *vec, int64_t start, int64_t end) { return rt_list_slice(vec, start, end); }
 void   *rt_vecs_concat(void *a, void *b) { return rt_list_concat(a, b); }

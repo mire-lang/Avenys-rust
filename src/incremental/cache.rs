@@ -12,7 +12,9 @@ const INDEX_DIR: &str = "index";
 const BLOBS_DIR: &str = "blobs";
 const WAL_DIR: &str = "wal";
 const NEW_CACHE_FORMAT: &str = "MIREINC4";
-const NEW_FORMAT_VERSION: u32 = 2;
+/// Bump this whenever the compiler changes analysis/MIR/codegen semantics so
+/// that stale incremental entries are invalidated instead of silently reused.
+const NEW_FORMAT_VERSION: u32 = 3;
 const FILES_INDEX: &str = "files";
 const ANALYSES_INDEX: &str = "analyses";
 const BUILDS_INDEX: &str = "builds";
@@ -107,6 +109,19 @@ fn replay_wal(base_dir: &Path) -> Result<Vec<WalRecord>> {
     Ok(all_records)
 }
 
+/// Removes all cache contents (indexes, blobs, WAL, version file) so a fresh
+/// cache can be rebuilt after a compiler version change.
+fn wipe_cache_dir(cache_dir: &Path) {
+    let _ = fs::remove_dir_all(cache_dir);
+    fs::create_dir_all(cache_dir).ok();
+    fs::create_dir_all(cache_dir.join(INDEX_DIR).join(FILES_INDEX)).ok();
+    fs::create_dir_all(cache_dir.join(INDEX_DIR).join(ANALYSES_INDEX)).ok();
+    fs::create_dir_all(cache_dir.join(INDEX_DIR).join(BUILDS_INDEX)).ok();
+    fs::create_dir_all(cache_dir.join(INDEX_DIR).join(MIR_INDEX)).ok();
+    fs::create_dir_all(cache_dir.join(BLOBS_DIR)).ok();
+    fs::create_dir_all(cache_dir.join(WAL_DIR)).ok();
+}
+
 fn clear_wal(base_dir: &Path) -> Result<()> {
     let wal_dir = base_dir.join(WAL_DIR);
     if wal_dir.exists() {
@@ -123,11 +138,15 @@ fn clear_wal(base_dir: &Path) -> Result<()> {
                     message: format!("Cannot inspect WAL entry: {e}"),
                 }))?
                 .path();
-            fs::remove_file(&path).map_err(|e| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("Cannot remove WAL file '{}': {e}", path.display()),
-                })
+            fs::remove_file(&path).or_else(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(MireError::new(ErrorKind::Runtime {
+                        span: crate::error::Span::unknown(),
+                        message: format!("Cannot remove WAL file '{}': {e}", path.display()),
+                    }))
+                }
             })?;
         }
     }
@@ -423,14 +442,20 @@ impl IncrementalCache {
         fs::create_dir_all(cache_dir.join(BLOBS_DIR)).ok();
         fs::create_dir_all(cache_dir.join(WAL_DIR)).ok();
 
-        // Write version file if missing
+        // Validate the cache format/version. If the cache was produced by a
+        // different compiler version, wipe it so stale analyses/builds/MIR are
+        // never silently reused after semantics change.
         let version_path = cache_dir.join(VERSION_FILE);
-        if !version_path.exists() {
-            let _ = fs::write(
-                &version_path,
-                format!("{NEW_CACHE_FORMAT}\n{NEW_FORMAT_VERSION}\n"),
-            );
+        let stored_version = fs::read_to_string(&version_path)
+            .ok()
+            .and_then(|v| v.trim().parse::<u32>().ok());
+        if stored_version != Some(NEW_FORMAT_VERSION) {
+            wipe_cache_dir(&cache_dir);
         }
+        let _ = fs::write(
+            &version_path,
+            format!("{NEW_CACHE_FORMAT}\n{NEW_FORMAT_VERSION}\n"),
+        );
 
         // Replay WAL
         let records = replay_wal(&cache_dir)?;

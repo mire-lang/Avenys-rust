@@ -339,10 +339,10 @@ Closures are first-class values. They can be passed to higher-order functions:
 
 ```mire
 set nums = [] :vec[i64] mut
-set nums = lists::push(nums 1)
-set nums = lists::push(nums 2)
-set nums = lists::push(nums 3)
-set mapped = lists::map(nums (x :i64) => x * 10)
+set nums = vec::push(nums 1)
+set nums = vec::push(nums 2)
+set nums = vec::push(nums 3)
+set mapped = vec::map(nums (x :i64) => x * 10)
 ```
 
 The `=>` arrow distinguishes closures from regular blocks. Closures can
@@ -480,8 +480,8 @@ is not used, the value is passed as the last argument. Pipelines compose:
 
 ```mire
 set result = strings::split(data "\n")
- => lists::filter(self (s :&str) => strings::len(*s) > 0)
- => lists::len(self)
+ => vec::filter(self (s :&str) => strings::len(*s) > 0)
+ => vec::len(self)
 ```
 
 ### 6.5 Find statement
@@ -627,7 +627,7 @@ required skills. The compiler validates bounds at call sites.
 
 ```mire
 fn first[T]: (items :vec[T]) :T {
- return lists::get(items 0)
+ return vec::get(items 0)
 }
 
 set nums = [10 20 30]
@@ -672,14 +672,14 @@ set full = s + " world"
 ```mire
 // Vec — dynamic array (heap-allocated, resizable)
 set nums = [] :vec[i64] mut
-set nums = lists::push(nums 42)
-set val = lists::get(nums 0)
-set len = lists::len(nums)
+set nums = vec::push(nums 42)
+set val = vec::get(nums 0)
+set len = vec::len(nums)
 
 // Map — key-value dictionary (heap-allocated)
 set m = {} :map[str i64]
-set m = maps::set(m "key" 42)
-set v = maps::get(m "key")
+set m = map::set(m "key" 42)
+set v = map::get(m "key")
 
 // Arr — fixed-size array (stack-allocated, compile-time length)
 set arr = [10 20 30] :arr[i64 3]
@@ -689,26 +689,26 @@ set arr = [10 20 30] :arr[i64 3]
 
 | Function | Description |
 |----------|-------------|
-| `lists::push(v val)` | Append element to vec |
-| `lists::get(v idx)` | Get element by index |
-| `lists::len(v)` | Get vec length |
-| `lists::set(v idx val)` | Set element at index |
-| `lists::pop(v)` | Remove and return last element |
-| `lists::map(v f)` | Map closure over elements |
-| `lists::filter(v f)` | Filter elements by predicate |
-| `lists::fold(init f v)` | Fold elements into accumulator |
+| `vec::push(v val)` | Append element to vec |
+| `vec::get(v idx)` | Get element by index |
+| `vec::len(v)` | Get vec length |
+| `vec::set(v idx val)` | Set element at index |
+| `vec::pop(v)` | Remove and return last element |
+| `vec::map(v f)` | Map closure over elements |
+| `vec::filter(v f)` | Filter elements by predicate |
+| `vec::fold(init f v)` | Fold elements into accumulator |
 
 **Map builtins:**
 
 | Function | Description |
 |----------|-------------|
-| `maps::set(m key val)` | Set key-value pair |
-| `maps::get(m key)` | Get value by key |
-| `maps::has(m key)` | Check if key exists |
-| `maps::len(m)` | Get map size |
-| `maps::remove(m key)` | Remove key-value pair |
-| `maps::keys(m)` | Get all keys |
-| `maps::values(m)` | Get all values |
+| `map::set(m key val)` | Set key-value pair |
+| `map::get(m key)` | Get value by key |
+| `map::has(m key)` | Check if key exists |
+| `map::len(m)` | Get map size |
+| `map::remove(m key)` | Remove key-value pair |
+| `map::keys(m)` | Get all keys |
+| `map::values(m)` | Get all values |
 
 ### 9.2 Bitwise operators (v3.12.3+)
 
@@ -753,9 +753,9 @@ the same expression:
 
 ```mire
 // Boolean chains
-return lists::get(bytes, 0) == 0xDE &&
- lists::get(bytes, 1) == 0xAD &&
- lists::get(bytes, 2) == 0xBE
+return vec::get(bytes, 0) == 0xDE &&
+ vec::get(bytes, 1) == 0xAD &&
+ vec::get(bytes, 2) == 0xBE
 
 // Arithmetic
 set total = 100 +
@@ -763,9 +763,9 @@ set total = 100 +
  300
 
 // Bitwise chains
-set word = ((lists::get(bytes, off) & 0xFF) << 24) |
- ((lists::get(bytes, off + 1) & 0xFF) << 16) |
- ((lists::get(bytes, off + 2) & 0xFF) << 8)
+set word = ((vec::get(bytes, off) & 0xFF) << 24) |
+ ((vec::get(bytes, off + 1) & 0xFF) << 16) |
+ ((vec::get(bytes, off + 2) & 0xFF) << 8)
 
 // String concatenation
 set path = folder +
@@ -785,18 +785,18 @@ Mire supports closures with list higher-order functions:
 
 ```mire
 set nums = [] :vec[i64] mut
-set nums = lists::push(nums 1)
-set nums = lists::push(nums 2)
-set nums = lists::push(nums 3)
+set nums = vec::push(nums 1)
+set nums = vec::push(nums 2)
+set nums = vec::push(nums 3)
 
 // Map
-set doubled = lists::map(nums (x :i64) => x * 2)
+set doubled = vec::map(nums (x :i64) => x * 2)
 
 // Filter
-set evens = lists::filter(nums (x :i64) => x % 2 == 0)
+set evens = vec::filter(nums (x :i64) => x % 2 == 0)
 
 // Fold
-set sum = lists::fold(0 (acc elem :i64) => acc + elem, nums)
+set sum = vec::fold(0 (acc elem :i64) => acc + elem, nums)
 ```
 
 ### 9.5 Box — heap allocation
@@ -1090,14 +1090,14 @@ pub fn version: () :str {
 ```mire
 load kioto // the standard library
 load mylib // a user library
-load kioto::json // a specific submodule
+load kioto::crypto // a specific submodule
 ```
 
 ### 13.3 Namespace access
 
 ```mire
 strings::split(data "\n") // standard library
-json::get(response "key") // kioto submodule
+crypto::sha256(input) // kioto submodule
 net::http::get("https://...") // nested module (3 levels)
 ```
 
@@ -1312,7 +1312,7 @@ fn safe_get[T]: (items :vec[T], index :i64) :result[T str] {
  if index < 0 {
   return err("negative index")
  }
- return ok(lists::get(items index))
+ return ok(vec::get(items index))
 }
 ```
 
@@ -1329,8 +1329,8 @@ choice — short, unambiguous, and visually distinct from English keywords.
 | `set line = ireru()` | 入れる (*ireru*, "put in") | Read line from stdin |
 | `set line = ireru("> ")` | 入れる with prompt | Read with prompt from stdin |
 
-The rest of the standard library uses English names: `strings::*`, `lists::*`,
-`maps::*`, `vec::*`, etc. Only the two I/O primitives use Japanese.
+The rest of the standard library uses English names: `strings::*`, `vec::*`,
+`map::*`, `vec::*`, etc. Only the two I/O primitives use Japanese.
 
 ### Full reference
 
@@ -1351,17 +1351,17 @@ The rest of the standard library uses English names: `strings::*`, `lists::*`,
 | `strings::upper(s)` | Uppercase |
 | `strings::lower(s)` | Lowercase |
 | `strings::replace(s old new)` | Replace substring |
-| `lists::push(v val)` | Append to vec |
-| `lists::get(v idx)` | Get by index |
-| `lists::len(v)` | Vec length |
-| `lists::set(v idx val)` | Set by index |
-| `lists::pop(v)` | Remove last |
-| `maps::set(m key val)` | Set key-value |
-| `maps::get(m key)` | Get by key |
-| `maps::has(m key)` | Check key exists |
-| `maps::len(m)` | Map size |
-| `maps::keys(m)` | All keys |
-| `maps::values(m)` | All values |
+| `vec::push(v val)` | Append to vec |
+| `vec::get(v idx)` | Get by index |
+| `vec::len(v)` | Vec length |
+| `vec::set(v idx val)` | Set by index |
+| `vec::pop(v)` | Remove last |
+| `map::set(m key val)` | Set key-value |
+| `map::get(m key)` | Get by key |
+| `map::has(m key)` | Check key exists |
+| `map::len(m)` | Map size |
+| `map::keys(m)` | All keys |
+| `map::values(m)` | All values |
 | `fs::read(path)` | Read file contents |
 | `fs::write(path, data)` | Write string to file |
 | `fs::exists(path)` | Check if file exists |
@@ -1376,14 +1376,14 @@ load mire
 pub fn main: () :i64 {
  // ── Vec ──
  set v = [] :vec[i64] mut
- set v = lists::push(v 42)
- set v = lists::push(v 100)
- set len = lists::len(v)
+ set v = vec::push(v 42)
+ set v = vec::push(v 100)
+ set len = vec::len(v)
 
  // ── Map ──
  set m = {} :map[str i64]
- set m = maps::set(m "x" 10)
- set val = maps::get(m "x")
+ set m = map::set(m "x" 10)
+ set val = map::get(m "x")
 
  // ── String ──
  set parts = strings::split("a,b,c" ",")
@@ -1433,20 +1433,20 @@ pub fn main: () :i64 {
 
  // ── Vec operations ──
  set nums = [10 20 30] : vec[i64]
- set len = lists::len(nums)
- set val = lists::get(nums 1)
+ set len = vec::len(nums)
+ set val = vec::get(nums 1)
 
  // ── Map operations ──
  set m = {} :map[str i64]
- set m = maps::set(m "x" 10)
- set m = maps::set(m "y" 20)
- set has = maps::has(m "x")
+ set m = map::set(m "x" 10)
+ set m = map::set(m "y" 20)
+ set has = map::has(m "x")
 
  // ── Closures ──
- set doubled = lists::map(nums (x :i64) => x * 2)
+ set doubled = vec::map(nums (x :i64) => x * 2)
 
  // ── Pipeline ──
- set total = lists::fold(0 (acc elem :i64) => acc + elem, nums)
+ set total = vec::fold(0 (acc elem :i64) => acc + elem, nums)
 
  return 0
 }

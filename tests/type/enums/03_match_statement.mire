@@ -1,0 +1,9 @@
+pub fn main: () {
+    set x = 2 :i64
+    match x {
+        1 { use dasu("one") }
+        2 { use dasu("two") }
+        3 { use dasu("three") }
+        _ { use dasu("other") }
+    }
+}

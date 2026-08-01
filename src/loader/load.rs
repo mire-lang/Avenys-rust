@@ -120,10 +120,44 @@ pub(super) fn resolve_package(
 
     if let Some(ref m) = manifest {
         for (dep_name, dep) in &m.dependencies.entries {
+            // Store transitive dependencies with paths absolute relative to
+            // the package that declares them, so that a `load` from deep
+            // inside a dependency resolves against *its* root, not the
+            // top-level consumer's project root.
+            let absolutized = match dep {
+                crate::avens::MireDependency::PathOnly { path } => {
+                    let p = expand_tilde(path);
+                    if p.is_absolute() {
+                        dep.clone()
+                    } else {
+                        crate::avens::MireDependency::PathOnly {
+                            path: canonical_root
+                                .join(&p)
+                                .to_string_lossy()
+                                .into_owned(),
+                        }
+                    }
+                }
+                crate::avens::MireDependency::WithPath { version, path } => {
+                    let p = expand_tilde(path);
+                    if p.is_absolute() {
+                        dep.clone()
+                    } else {
+                        crate::avens::MireDependency::WithPath {
+                            version: version.clone(),
+                            path: canonical_root
+                                .join(&p)
+                                .to_string_lossy()
+                                .into_owned(),
+                        }
+                    }
+                }
+                crate::avens::MireDependency::Simple { .. } => dep.clone(),
+            };
             resolver
                 .manifest_dependencies
                 .entry(dep_name.clone())
-                .or_insert_with(|| dep.clone());
+                .or_insert_with(|| absolutized);
         }
     }
 

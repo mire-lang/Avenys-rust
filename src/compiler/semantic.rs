@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::canonical_fn_name;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Program, QueryOp, Statement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -641,10 +642,13 @@ impl SemanticModelBuilder {
     }
 
     fn current_function_name(&self, name: &str) -> String {
-        self.impl_owner_stack
-            .last()
-            .map(|owner| format!("{owner}.{name}"))
-            .unwrap_or_else(|| name.to_string())
+        canonical_fn_name(
+            &self
+                .impl_owner_stack
+                .last()
+                .map(|owner| format!("{owner}.{name}"))
+                .unwrap_or_else(|| name.to_string()),
+        )
     }
 
     fn binding_kind(

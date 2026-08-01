@@ -171,6 +171,7 @@ int64_t rt_vecs_get_i64(void *vec, int64_t index);
 void   *rt_vecs_get_ptr(void *vec, int64_t index);
 void   *rt_vecs_push_i64(void *vec, int64_t value);
 void   *rt_vecs_push_ptr(void *vec, void *value);
+void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value);
 int64_t rt_vecs_pop(void *vec);
 void   *rt_vecs_slice(void *vec, int64_t start, int64_t end);
 void   *rt_vecs_concat(void *a, void *b);
