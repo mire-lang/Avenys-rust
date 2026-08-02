@@ -294,6 +294,40 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
             ],
             return_type: DataType::Bool,
         },
+        // Runtime functions emitted directly by the `lists::map/filter/fold`
+        // HOF lowering (expr_collections.rs). They are never declared through
+        // a loaded lib, so without these entries the emitted IR calls them
+        // without a `declare` and clang fails with "use of undefined value".
+        MirExternFunction {
+            name: "rt_list_create".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::I64, DataType::I64],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_list_len".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown],
+            return_type: DataType::I64,
+        },
+        MirExternFunction {
+            name: "rt_list_push_i64".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::I64],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_list_push_ptr".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::Unknown],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_lists_get_i64".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::I64],
+            return_type: DataType::I64,
+        },
     ];
     for ext in builtin_runtime_externs {
         if !extern_functions.iter().any(|e| e.name == ext.name) {

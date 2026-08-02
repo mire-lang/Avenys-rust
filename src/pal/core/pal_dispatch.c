@@ -53,15 +53,16 @@ pal_root_t pal_root_open(const char *path) {
 
 void pal_root_close(pal_root_t root) {
     if (!ops || !ops->root_close) return;
-    int64_t internal = (int64_t)pal_core_get_internal(root.index);
-    if (internal) ops->root_close(internal);
+    int64_t internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
+    if (!internal) return;
+    ops->root_close(internal);
     pal_core_release(root.index);
 }
 
 pal_file_t pal_file_open(pal_root_t root, const char *rel_path, pal_open_flags flags) {
     if (!ops || !ops->file_open) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_FILE_NULL; }
-    if (!pal_core_validate(root.index, root.generation, PAL_RES_ROOT)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_FILE_NULL; }
-    int64_t root_internal = (int64_t)pal_core_get_internal(root.index);
+    int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
+    if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_FILE_NULL; }
     int64_t internal = ops->file_open(root_internal, rel_path, flags);
     if (internal <= 0) { pal_set_error(PAL_ERR_IO, "file_open failed"); return PAL_FILE_NULL; }
     int slot = pal_core_reserve(PAL_RES_FILE);
@@ -74,43 +75,43 @@ pal_file_t pal_file_open(pal_root_t root, const char *rel_path, pal_open_flags f
 
 int64_t pal_file_read(pal_file_t file, void *buf, int64_t capacity) {
     if (!ops || !ops->file_read) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
     return ops->file_read(internal, buf, capacity);
 }
 
 int64_t pal_file_write(pal_file_t file, const void *buf, int64_t length) {
     if (!ops || !ops->file_write) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
     return ops->file_write(internal, buf, length);
 }
 
 int64_t pal_file_seek(pal_file_t file, int64_t offset, pal_seek_from_t from) {
     if (!ops || !ops->file_seek) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
     return ops->file_seek(internal, offset, from);
 }
 
 bool pal_file_stat(pal_file_t file, pal_stat_t *out) {
     if (!ops || !ops->file_stat) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return false; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return false; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return false; }
     return ops->file_stat(internal, out);
 }
 
 int64_t pal_file_size(pal_file_t file) {
     if (!ops || !ops->file_size) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return -1; }
     return ops->file_size(internal);
 }
 
 pal_file_t pal_file_clone(pal_file_t file) {
     if (!ops || !ops->file_clone) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_FILE_NULL; }
-    if (!pal_core_validate(file.index, file.generation, PAL_RES_FILE)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return PAL_FILE_NULL; }
-    int64_t internal = (int64_t)pal_core_get_internal(file.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad file handle"); return PAL_FILE_NULL; }
     int64_t cloned = ops->file_clone(internal);
     if (cloned <= 0) return PAL_FILE_NULL;
     int slot = pal_core_reserve(PAL_RES_FILE);
@@ -123,10 +124,9 @@ pal_file_t pal_file_clone(pal_file_t file) {
 
 void pal_file_close(pal_file_t file) {
     if (!ops || !ops->file_close) return;
-    if (pal_core_validate(file.index, file.generation, PAL_RES_FILE)) {
-        int64_t internal = (int64_t)pal_core_get_internal(file.index);
-        if (internal) ops->file_close(internal);
-    }
+    int64_t internal = (int64_t)pal_core_validate_and_get(file.index, file.generation, PAL_RES_FILE);
+    if (!internal) return;
+    ops->file_close(internal);
     pal_core_release(file.index);
 }
 
@@ -134,8 +134,8 @@ void pal_file_close(pal_file_t file) {
 
 pal_dir_t pal_dir_open(pal_root_t root, const char *rel_path) {
     if (!ops || !ops->dir_open) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_DIR_NULL; }
-    if (!pal_core_validate(root.index, root.generation, PAL_RES_ROOT)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_DIR_NULL; }
-    int64_t root_internal = (int64_t)pal_core_get_internal(root.index);
+    int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
+    if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_DIR_NULL; }
     int64_t internal = ops->dir_open(root_internal, rel_path);
     if (internal <= 0) { pal_set_error(PAL_ERR_IO, "dir_open failed"); return PAL_DIR_NULL; }
     int slot = pal_core_reserve(PAL_RES_DIR);
@@ -149,8 +149,8 @@ pal_dir_t pal_dir_open(pal_root_t root, const char *rel_path) {
 pal_dir_entry_t pal_dir_next(pal_dir_t dir) {
     pal_dir_entry_t entry = {0};
     if (!ops || !ops->dir_next) return entry;
-    if (!pal_core_validate(dir.index, dir.generation, PAL_RES_DIR)) return entry;
-    int64_t internal = (int64_t)pal_core_get_internal(dir.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(dir.index, dir.generation, PAL_RES_DIR);
+    if (!internal) return entry;
     ops->dir_next(internal, &entry);
     return entry;
 }
@@ -159,8 +159,8 @@ void pal_dir_next_into(pal_dir_t dir, pal_dir_entry_t *out) {
     if (!out) return;
     memset(out, 0, sizeof(pal_dir_entry_t));
     if (!ops || !ops->dir_next) return;
-    if (!pal_core_validate(dir.index, dir.generation, PAL_RES_DIR)) return;
-    int64_t internal = (int64_t)pal_core_get_internal(dir.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(dir.index, dir.generation, PAL_RES_DIR);
+    if (!internal) return;
     ops->dir_next(internal, out);
 }
 
@@ -168,8 +168,8 @@ int64_t pal_dir_next_name(pal_dir_t dir, char *out, int64_t cap) {
     if (!out || cap <= 0) return -1;
     out[0] = '\0';
     if (!ops || !ops->dir_next) return -1;
-    if (!pal_core_validate(dir.index, dir.generation, PAL_RES_DIR)) return -1;
-    int64_t internal = (int64_t)pal_core_get_internal(dir.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(dir.index, dir.generation, PAL_RES_DIR);
+    if (!internal) return -1;
     pal_dir_entry_t entry = {0};
     ops->dir_next(internal, &entry);
     if (entry.name[0] == '\0') return 0;
@@ -182,22 +182,37 @@ int64_t pal_dir_next_name(pal_dir_t dir, char *out, int64_t cap) {
 
 void pal_dir_close(pal_dir_t dir) {
     if (!ops || !ops->dir_close) return;
-    if (pal_core_validate(dir.index, dir.generation, PAL_RES_DIR)) {
-        int64_t internal = (int64_t)pal_core_get_internal(dir.index);
-        if (internal) ops->dir_close(internal);
-    }
+    int64_t internal = (int64_t)pal_core_validate_and_get(dir.index, dir.generation, PAL_RES_DIR);
+    if (!internal) return;
+    ops->dir_close(internal);
     pal_core_release(dir.index);
 }
 
 // ── Process ──────────────────────────────────────────────────
 
+// Resolve an optional channel handle: {0,0} (PAL_CHANNEL_NULL) means
+// "no pipe" and yields 0; any other handle must validate as a channel.
+static int64_t pal_dispatch_optional_channel(pal_channel_t ch) {
+    if (ch.index == 0 && ch.generation == 0) return 0;
+    return (int64_t)pal_core_validate_and_get(ch.index, ch.generation, PAL_RES_CHANNEL);
+}
+
 pal_process_t pal_proc_create(const char **argv, pal_spawn_flags flags,
-                              pal_channel_t stdin_ch, pal_channel_t stdout_ch,
-                              pal_channel_t stderr_ch) {
+                            pal_channel_t stdin_ch, pal_channel_t stdout_ch,
+                            pal_channel_t stderr_ch) {
     if (!ops || !ops->proc_create) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_PROCESS_NULL; }
-    int64_t stdin_internal = (int64_t)pal_core_get_internal(stdin_ch.index);
-    int64_t stdout_internal = (int64_t)pal_core_get_internal(stdout_ch.index);
-    int64_t stderr_internal = (int64_t)pal_core_get_internal(stderr_ch.index);
+    int64_t stdin_internal = pal_dispatch_optional_channel(stdin_ch);
+    if (!stdin_internal && !(stdin_ch.index == 0 && stdin_ch.generation == 0)) {
+        pal_set_error(PAL_ERR_INVALID_HANDLE, "bad stdin channel"); return PAL_PROCESS_NULL;
+    }
+    int64_t stdout_internal = pal_dispatch_optional_channel(stdout_ch);
+    if (!stdout_internal && !(stdout_ch.index == 0 && stdout_ch.generation == 0)) {
+        pal_set_error(PAL_ERR_INVALID_HANDLE, "bad stdout channel"); return PAL_PROCESS_NULL;
+    }
+    int64_t stderr_internal = pal_dispatch_optional_channel(stderr_ch);
+    if (!stderr_internal && !(stderr_ch.index == 0 && stderr_ch.generation == 0)) {
+        pal_set_error(PAL_ERR_INVALID_HANDLE, "bad stderr channel"); return PAL_PROCESS_NULL;
+    }
     int64_t internal = ops->proc_create(argv, flags, stdin_internal, stdout_internal, stderr_internal);
     if (internal <= 0) { pal_set_error(PAL_ERR_IO, "proc_create failed"); return PAL_PROCESS_NULL; }
     int slot = pal_core_reserve(PAL_RES_PROCESS);
@@ -210,23 +225,23 @@ pal_process_t pal_proc_create(const char **argv, pal_spawn_flags flags,
 
 int64_t pal_proc_wait(pal_process_t proc) {
     if (!ops || !ops->proc_wait) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad process handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(proc.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad process handle"); return -1; }
     return ops->proc_wait(internal);
 }
 
 bool pal_proc_kill(pal_process_t proc) {
     if (!ops || !ops->proc_kill) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return false; }
-    if (!pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad process handle"); return false; }
-    int64_t internal = (int64_t)pal_core_get_internal(proc.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad process handle"); return false; }
     return ops->proc_kill(internal);
 }
 
 pal_channel_t pal_proc_stdin(pal_process_t proc) {
     pal_channel_t ch = PAL_CHANNEL_NULL;
     if (!ops || !ops->proc_stdin) return ch;
-    if (!pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) return ch;
-    int64_t internal = (int64_t)pal_core_get_internal(proc.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) return ch;
     int64_t ch_internal = ops->proc_stdin(internal);
     if (ch_internal <= 0) return ch;
     int slot = pal_core_reserve(PAL_RES_CHANNEL);
@@ -241,8 +256,8 @@ pal_channel_t pal_proc_stdin(pal_process_t proc) {
 pal_channel_t pal_proc_stdout(pal_process_t proc) {
     pal_channel_t ch = PAL_CHANNEL_NULL;
     if (!ops || !ops->proc_stdout) return ch;
-    if (!pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) return ch;
-    int64_t internal = (int64_t)pal_core_get_internal(proc.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) return ch;
     int64_t ch_internal = ops->proc_stdout(internal);
     if (ch_internal <= 0) return ch;
     int slot = pal_core_reserve(PAL_RES_CHANNEL);
@@ -257,8 +272,8 @@ pal_channel_t pal_proc_stdout(pal_process_t proc) {
 pal_channel_t pal_proc_stderr(pal_process_t proc) {
     pal_channel_t ch = PAL_CHANNEL_NULL;
     if (!ops || !ops->proc_stderr) return ch;
-    if (!pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) return ch;
-    int64_t internal = (int64_t)pal_core_get_internal(proc.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) return ch;
     int64_t ch_internal = ops->proc_stderr(internal);
     if (ch_internal <= 0) return ch;
     int slot = pal_core_reserve(PAL_RES_CHANNEL);
@@ -271,7 +286,7 @@ pal_channel_t pal_proc_stderr(pal_process_t proc) {
 }
 
 pal_process_t pal_proc_transfer(pal_process_t proc) {
-    if (pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) {
+    if (pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS)) {
         pal_core_transfer(proc.index);
     }
     return proc;
@@ -279,10 +294,9 @@ pal_process_t pal_proc_transfer(pal_process_t proc) {
 
 void pal_proc_close(pal_process_t proc) {
     if (!ops || !ops->proc_close) return;
-    if (pal_core_validate(proc.index, proc.generation, PAL_RES_PROCESS)) {
-        int64_t internal = (int64_t)pal_core_get_internal(proc.index);
-        if (internal) ops->proc_close(internal);
-    }
+    int64_t internal = (int64_t)pal_core_validate_and_get(proc.index, proc.generation, PAL_RES_PROCESS);
+    if (!internal) return;
+    ops->proc_close(internal);
     pal_core_release(proc.index);
 }
 
@@ -314,7 +328,7 @@ pal_listener_t pal_listener_bind(uint16_t port, pal_socket_flags flags) {
 
 pal_socket_t pal_listener_accept(pal_listener_t listener) {
     if (!ops || !ops->listener_accept) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_SOCKET_NULL; }
-    int64_t internal = (int64_t)pal_core_get_internal(listener.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(listener.index, listener.generation, PAL_RES_LISTENER);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return PAL_SOCKET_NULL; }
     int64_t accepted = ops->listener_accept(internal);
     if (accepted <= 0) { pal_set_error(PAL_ERR_IO, "accept failed"); return PAL_SOCKET_NULL; }
@@ -328,29 +342,31 @@ pal_socket_t pal_listener_accept(pal_listener_t listener) {
 
 int64_t pal_socket_send(pal_socket_t sock, const void *buf, int64_t length) {
     if (!ops || !ops->socket_send) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(sock.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(sock.index, sock.generation, PAL_RES_SOCKET);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return -1; }
     return ops->socket_send(internal, buf, length);
 }
 
 int64_t pal_socket_recv(pal_socket_t sock, void *buf, int64_t capacity) {
     if (!ops || !ops->socket_recv) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(sock.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(sock.index, sock.generation, PAL_RES_SOCKET);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return -1; }
     return ops->socket_recv(internal, buf, capacity);
 }
 
 void pal_socket_close(pal_socket_t sock) {
     if (!ops || !ops->socket_close) return;
-    int64_t internal = (int64_t)pal_core_get_internal(sock.index);
-    if (internal) ops->socket_close(internal);
+    int64_t internal = (int64_t)pal_core_validate_and_get(sock.index, sock.generation, PAL_RES_SOCKET);
+    if (!internal) return;
+    ops->socket_close(internal);
     pal_core_release(sock.index);
 }
 
 void pal_listener_close(pal_listener_t listener) {
     if (!ops || !ops->listener_close) return;
-    int64_t internal = (int64_t)pal_core_get_internal(listener.index);
-    if (internal) ops->listener_close(internal);
+    int64_t internal = (int64_t)pal_core_validate_and_get(listener.index, listener.generation, PAL_RES_LISTENER);
+    if (!internal) return;
+    ops->listener_close(internal);
     pal_core_release(listener.index);
 }
 
@@ -370,7 +386,7 @@ pal_channel_t pal_channel_create(void) {
 
 int64_t pal_channel_send(pal_channel_t ch, const void *buf, int64_t length) {
     if (!ops || !ops->channel_send) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(ch.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(ch.index, ch.generation, PAL_RES_CHANNEL);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return -1; }
     return ops->channel_send(internal, buf, length);
 }
@@ -378,7 +394,7 @@ int64_t pal_channel_send(pal_channel_t ch, const void *buf, int64_t length) {
 pal_bytes_t pal_channel_recv(pal_channel_t ch) {
     pal_bytes_t result = {0};
     if (!ops || !ops->channel_recv) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return result; }
-    int64_t internal = (int64_t)pal_core_get_internal(ch.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(ch.index, ch.generation, PAL_RES_CHANNEL);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return result; }
     ops->channel_recv(internal, &result);
     return result;
@@ -386,8 +402,9 @@ pal_bytes_t pal_channel_recv(pal_channel_t ch) {
 
 void pal_channel_close(pal_channel_t ch) {
     if (!ops || !ops->channel_close) return;
-    int64_t internal = (int64_t)pal_core_get_internal(ch.index);
-    if (internal) ops->channel_close(internal);
+    int64_t internal = (int64_t)pal_core_validate_and_get(ch.index, ch.generation, PAL_RES_CHANNEL);
+    if (!internal) return;
+    ops->channel_close(internal);
     pal_core_release(ch.index);
 }
 
@@ -407,8 +424,8 @@ pal_secret_t pal_secret_create(pal_crypto_algorithm_t algorithm) {
 
 pal_pubkey_t pal_secret_export_public(pal_secret_t secret) {
     if (!ops || !ops->secret_export_public) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_PUBKEY_NULL; }
-    if (!pal_core_validate(secret.index, secret.generation, PAL_RES_SECRET)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad secret handle"); return PAL_PUBKEY_NULL; }
-    int64_t internal = (int64_t)pal_core_get_internal(secret.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(secret.index, secret.generation, PAL_RES_SECRET);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad secret handle"); return PAL_PUBKEY_NULL; }
     int64_t pk = ops->secret_export_public(internal);
     if (pk <= 0) return PAL_PUBKEY_NULL;
     int slot = pal_core_reserve(PAL_RES_PUBKEY);
@@ -420,36 +437,34 @@ pal_pubkey_t pal_secret_export_public(pal_secret_t secret) {
 }
 
 int64_t pal_secret_sign(pal_secret_t secret, const void *msg, int64_t msg_len,
-                        void *buf, int64_t capacity) {
+                         void *buf, int64_t capacity) {
     if (!ops || !ops->secret_sign) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
-    if (!pal_core_validate(secret.index, secret.generation, PAL_RES_SECRET)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad secret handle"); return -1; }
-    int64_t internal = (int64_t)pal_core_get_internal(secret.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(secret.index, secret.generation, PAL_RES_SECRET);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad secret handle"); return -1; }
     return ops->secret_sign(internal, msg, msg_len, buf, capacity);
 }
 
 bool pal_pubkey_verify(pal_pubkey_t pubkey, const void *msg, int64_t msg_len,
-                       const void *sig, int64_t sig_len) {
+                        const void *sig, int64_t sig_len) {
     if (!ops || !ops->pubkey_verify) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return false; }
-    if (!pal_core_validate(pubkey.index, pubkey.generation, PAL_RES_PUBKEY)) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad pubkey handle"); return false; }
-    int64_t internal = (int64_t)pal_core_get_internal(pubkey.index);
+    int64_t internal = (int64_t)pal_core_validate_and_get(pubkey.index, pubkey.generation, PAL_RES_PUBKEY);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad pubkey handle"); return false; }
     return ops->pubkey_verify(internal, msg, msg_len, sig, sig_len);
 }
 
 void pal_secret_close(pal_secret_t secret) {
     if (!ops || !ops->secret_close) return;
-    if (pal_core_validate(secret.index, secret.generation, PAL_RES_SECRET)) {
-        int64_t internal = (int64_t)pal_core_get_internal(secret.index);
-        if (internal) ops->secret_close(internal);
-    }
+    int64_t internal = (int64_t)pal_core_validate_and_get(secret.index, secret.generation, PAL_RES_SECRET);
+    if (!internal) return;
+    ops->secret_close(internal);
     pal_core_release(secret.index);
 }
 
 void pal_pubkey_free(pal_pubkey_t pubkey) {
     if (!ops || !ops->pubkey_close) return;
-    if (pal_core_validate(pubkey.index, pubkey.generation, PAL_RES_PUBKEY)) {
-        int64_t internal = (int64_t)pal_core_get_internal(pubkey.index);
-        if (internal) ops->pubkey_close(internal);
-    }
+    int64_t internal = (int64_t)pal_core_validate_and_get(pubkey.index, pubkey.generation, PAL_RES_PUBKEY);
+    if (!internal) return;
+    ops->pubkey_close(internal);
     pal_core_release(pubkey.index);
 }
 
@@ -535,7 +550,10 @@ void pal_secure_free(void *ptr) {
     free(header);
 }
 
-// ── Filesystem (absolute path operations) ────────────────────
+// ══ UNSANDBOXED ── absolute-path filesystem operations ────────
+// See pal.h for the capability-model warning. Only compiled when
+// PAL_ALLOW_UNSANDBOXED is set (default on for runtime compat).
+#ifdef PAL_ALLOW_UNSANDBOXED
 
 bool pal_fs_exists(const char *path) {
     struct stat st;
@@ -554,25 +572,29 @@ bool pal_fs_unlink(const char *path) {
     return unlink(path) == 0;
 }
 
+// [PAL-OWNED] malloc'd NUL-terminated string; caller MUST pal_free().
+// Returns NULL on error (never a string literal — a literal cannot be freed).
 const char *pal_fs_read_file(const char *path) {
-    if (!path) return "";
+    if (!path) return NULL;
     FILE *f = fopen(path, "rb");
-    if (!f) return "";
+    if (!f) return NULL;
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (len <= 0) { fclose(f); return ""; }
+    if (len <= 0) { fclose(f); return NULL; }
     char *buf = malloc((size_t)len + 1);
-    if (!buf) { fclose(f); return ""; }
+    if (!buf) { fclose(f); return NULL; }
     size_t n = fread(buf, 1, (size_t)len, f);
     buf[n] = '\0';
     fclose(f);
     return buf;
 }
 
+#endif // PAL_ALLOW_UNSANDBOXED
+
 // ── Environment ──────────────────────────────────────────────
 
-static char g_cwd_buf[4096];
+static __thread char g_cwd_buf[4096];
 
 const char *pal_env_cwd(void) {
     if (getcwd(g_cwd_buf, sizeof(g_cwd_buf))) {
@@ -586,9 +608,10 @@ const char *pal_env_get(const char *name) {
     return getenv(name);
 }
 
-// ── Process convenience (legacy compatibility) ───────────────
-
-static char g_proc_buf[65536];
+// ══ LEGACY SHELL ── command-injection surface ─────────────────
+// Only compiled when PAL_ALLOW_LEGACY_SHELL is set (default on for compat).
+// These functions run `/bin/sh -c`. NEVER expose to untrusted Mire code.
+#ifdef PAL_ALLOW_LEGACY_SHELL
 
 int64_t pal_proc_system(const char *cmd) {
     if (!cmd) return -1;
@@ -612,21 +635,23 @@ int64_t pal_proc_capture(const char *cmd, void *buf, int64_t capacity) {
     return total;
 }
 
+// [PAL-OWNED] malloc'd NUL-terminated output; caller MUST pal_free().
+// Returns NULL on error (never a string literal).
 const char *pal_proc_capture_output(const char *cmd) {
-    if (!cmd) return "";
+    if (!cmd) return NULL;
     FILE *fp = popen(cmd, "r");
-    if (!fp) return "";
+    if (!fp) return NULL;
     size_t cap = 4096;
     size_t total = 0;
     char *buf = malloc(cap);
-    if (!buf) { pclose(fp); return ""; }
+    if (!buf) { pclose(fp); return NULL; }
     size_t n;
     while ((n = fread(buf + total, 1, cap - total - 1, fp)) > 0) {
         total += n;
         if (total >= cap - 2) {
             cap *= 2;
             char *new_buf = realloc(buf, cap);
-            if (!new_buf) { free(buf); pclose(fp); return ""; }
+            if (!new_buf) { free(buf); pclose(fp); return NULL; }
             buf = new_buf;
         }
     }
@@ -634,6 +659,8 @@ const char *pal_proc_capture_output(const char *cmd) {
     pclose(fp);
     return buf;
 }
+
+#endif // PAL_ALLOW_LEGACY_SHELL
 
 int64_t pal_proc_wait_pid(int64_t pid) {
     if (pid <= 0) return -1;

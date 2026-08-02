@@ -52,8 +52,11 @@ int pal_core_reserve(pal_resource_type_t type) {
 
 void pal_core_release(int64_t slot) {
     if (slot < 0 || slot >= PAL_MAX_SLOTS) return;
-
     pthread_mutex_lock(&g_mutex);
+    if (g_slots[slot].in_use && g_slots[slot].owner_thread != (int64_t)pthread_self()) {
+        pthread_mutex_unlock(&g_mutex);
+        return;
+    }
     g_slots[slot].in_use = false;
     g_slots[slot].internal = NULL;
     g_slots[slot].owner_thread = 0;
@@ -62,12 +65,42 @@ void pal_core_release(int64_t slot) {
 }
 
 int pal_core_validate(int64_t slot, uint32_t generation, pal_resource_type_t expected_type) {
-    if (slot < 0 || slot >= PAL_MAX_SLOTS) return 0;
-    if (!g_slots[slot].in_use) return 0;
-    if (g_slots[slot].generation != generation) return 0;
-    if (g_slots[slot].type != expected_type && expected_type != PAL_RES_ANY) return 0;
-    if (g_slots[slot].owner_thread != (int64_t)pthread_self()) return 0;
-    return 1;
+    pthread_mutex_lock(&g_mutex);
+    int result = 1;
+    if (slot < 0 || slot >= PAL_MAX_SLOTS) { result = 0; }
+    else if (!g_slots[slot].in_use) { result = 0; }
+    else if (g_slots[slot].generation != generation) { result = 0; }
+    else if (g_slots[slot].type != expected_type && expected_type != PAL_RES_ANY) { result = 0; }
+    else if (g_slots[slot].owner_thread != (int64_t)pthread_self()) { result = 0; }
+    pthread_mutex_unlock(&g_mutex);
+    return result;
+}
+
+void *pal_core_validate_and_get(int64_t slot, uint32_t generation, pal_resource_type_t expected_type) {
+    pthread_mutex_lock(&g_mutex);
+    if (slot < 0 || slot >= PAL_MAX_SLOTS) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    if (!g_slots[slot].in_use) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    if (g_slots[slot].generation != generation) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    if (g_slots[slot].type != expected_type && expected_type != PAL_RES_ANY) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    if (g_slots[slot].owner_thread != (int64_t)pthread_self()) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    void *internal = g_slots[slot].internal;
+    pthread_mutex_unlock(&g_mutex);
+    return internal;
 }
 
 void pal_core_transfer(int64_t slot) {
@@ -80,14 +113,18 @@ void pal_core_transfer(int64_t slot) {
 }
 
 void *pal_core_get_internal(int64_t slot) {
-    if (slot < 0 || slot >= PAL_MAX_SLOTS) return NULL;
-    if (!g_slots[slot].in_use) return NULL;
-    return g_slots[slot].internal;
-}
-
-void pal_core_set_internal(int64_t slot, void *internal) {
-    if (slot < 0 || slot >= PAL_MAX_SLOTS) return;
-    g_slots[slot].internal = internal;
+    pthread_mutex_lock(&g_mutex);
+    if (slot < 0 || slot >= PAL_MAX_SLOTS) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    if (!g_slots[slot].in_use) {
+        pthread_mutex_unlock(&g_mutex);
+        return NULL;
+    }
+    void *internal = g_slots[slot].internal;
+    pthread_mutex_unlock(&g_mutex);
+    return internal;
 }
 
 // ── Handle Validation ────────────────────────────────────────
@@ -108,6 +145,10 @@ void pal_set_error(pal_error_code_t code, const char *message) {
 
 pal_error_code_t pal_last_error(void) {
     return t_last_error;
+}
+
+const char *pal_last_error_message(void) {
+    return t_last_message;
 }
 
 const char *pal_strerror(pal_error_code_t code) {

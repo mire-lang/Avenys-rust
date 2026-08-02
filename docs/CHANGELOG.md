@@ -2,7 +2,103 @@
 
 All notable changes to Mire are documented in this file.
 
-## [3.24.22] - 2026-08-01 (enum payloads, array-by-value, cache hardening)
+## [3.24.23] - 2026-08-02 (incremental roundtrip + HOF externs + stale-test migration)
+
+### Fixed
+
+- **Incremental cache version-file parse bug** (`incremental/cache.rs`): `version.txt`
+  is written as two lines `"MIREINC4\n3\n"` (format tag + version) but `load_with_settings`
+  parsed the whole trimmed content as a single `u32`, so the parse always failed and the
+  cache was wiped on every load (regression from 8b5bc4d). Now reads line 1 as the format
+  tag and the last line as the version; wipes only when either mismatches
+  `NEW_CACHE_FORMAT`/`NEW_FORMAT_VERSION` (3). This fixed all 4 `incremental::hashing`
+  roundtrip tests.
+- **Meta key reconstruction after reload** (`incremental/cache.rs`, `cache_types.rs`):
+  `load_*_metas` keyed in-memory maps by the hash-file stem instead of the original key,
+  so `latest_successful_analysis`/`analysis_invalidation_report` false-missed after a
+  reload. Added `#[serde(default)] key: String` to `FileMeta`/`AnalysisMeta`/`BuildMeta`/
+  `MirMeta`; `write_*_meta` stamp it; `load_*_metas` prefer the persisted key (fall back
+  to the stem for pre-key meta files). Removed dead `wal_records` accumulation in `save()`.
+- **HOF `lists::*` builtins emitted undefined rt globals**: `list_hofs` (and downstream
+  list HOF usage) failed with "use of undefined value '@rt_lists_get_i64'". The HOF
+  lowering (`lower/expr_collections.rs`) emits `rt_list_create`/`rt_list_len`/
+  `rt_list_push_i64`/`rt_list_push_ptr`/`rt_lists_get_i64`, but only `rt_lists_contains_i64`
+  was declared in `builtin_runtime_externs` (`lower/mod.rs`). Added the 5 missing externs.
+- **Stale test sources migrated to the current kioto API** (`tests/language_regressions.rs`,
+  `tests/syntax/prototype.mire`, `tests/compiler_benchmarks.rs`): the old kioto
+  `lists`/`dicts` modules were removed (session 2) and kioto functions were namespaced
+  (session 5), leaving 11 regression tests + benchmark snippets broken. Migrated
+  `lists.*` → `vec::*` (`len`, `get::i64`, `first::i64`, `last::i64`, `index::i64`,
+  `contains::i64`, `push::i64`), `dicts.*` → `map::*` (`len`, `has`, `is::empty`,
+  now with explicit `load mire::map`), `env.get` → `env::var`, `fs.mkdir/rmdir` →
+  `fs::dir::create/remove`, `fs.join/dir/name/ext` → `fs::path::*`, `proc.shell/spawn` →
+  `proc::run::shell/spawn`, `async.ready/value` → `async::task::ready/value`,
+  `fs::root_open(".")` → `fs::root::open(".")`, `time::unix::ms()` → `time::now::ms()`.
+
+### Changed
+
+- Stale benchmark `term::bar` section replaced with `kioto_math_ops` (`math::abs`/`math::clamp`)
+  since the kioto `term` module was removed.
+
+## [3.24.23] - 2026-08-02 (PAL Core/backend hardening — races, traversal, slot ownership)
+
+### Fixed
+
+- **Slot table made thread-safe** (`pal_core.c`): added atomic `pal_core_validate_and_get`
+  (validate + internal access under `g_mutex`, replacing the `validate`+`get_internal`
+  two-step that raced with reserve/release). `pal_core_release` now rejects handles owned
+  by another thread (was an ownership/type confusion). `pal_core_validate`/`get_internal`
+  take `g_mutex`; removed dead `pal_core_set_internal`.
+- **Dispatch layer now validates everything** (`pal_dispatch.c`): every operation goes
+  through `pal_core_validate_and_get`; sockets/listeners/channels were previously
+  `get_internal`-only (type confusion could reinterpret memory). All `_close` fns release
+  the slot ONLY after validation succeeds — fixed the unconditional `pal_core_release`
+  that could free a live resource's slot (OS fd/pipe/zombie leaks). `pal_proc_create`
+  validates its 3 channel args (`{0,0}` = "no pipe" passes through).
+- **Path traversal blocked** (`pal_linux.c`): `linux_openat2_sandbox` uses
+  `openat2` + `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` for relative paths
+  (`../`/symlink escapes rejected — verified `../etc/passwd` → EXDEV). Absolute paths fall
+  back to legacy `openat` (kioto passes absolutes through `pal_file_open(root, path)`);
+  ENOSYS (kernel < 5.10) → `openat`. `linux_root_open` TOCTOU removed (redundant `stat`).
+  `linux_dir_next` handles `DT_UNKNOWN` via `fstatat`.
+- **Compiler: member access on `&T`/`&mut T` struct params** lowered to constant 0:
+  `get_struct_name` (`expr_values.rs`) now derefs `Ref`/`RefMut` to the inner struct name
+  (`ch.handle` on `&Channel` was emitting `i64 0`, breaking channel roundtrip).
+- **Thread-safety/minor**: `g_cwd_buf` is now `__thread`; removed dead `g_proc_buf[65536]`;
+  added `pal_last_error_message()` getter ([BORROWED], thread-local, host-side only).
+
+### Changed
+
+- `pal.h`/`pal_core.h`: documented `pal_last_error_message()` (host-side error message
+  getter; not added to codegen catalogue to keep the ABI surface unchanged).
+
+## [3.24.23] - 2026-08-01 (PAL v4 hardening: sandbox isolation, ownership, struct-return audit)
+
+### Fixed
+
+- **PAL absolute-path operations isolated** (`pal_fs_exists/mkdir/rmdir/unlink/read_file`):
+  wrapped in `PAL_ALLOW_UNSANDBOXED` guard (default ON for compat, flip to 0 to strip).
+  Documented as UNSANDBOXED — bypass root capabilities; never expose to untrusted Mire code.
+  `pal_fs_read_file` now returns `NULL` on error instead of a string literal (was `free("")` UB).
+- **Legacy shell operations gated** (`pal_proc_system/capture/capture_output`):
+  wrapped in `PAL_ALLOW_LEGACY_SHELL` guard (default ON). Documented as command-injection surface;
+  `pal_proc_capture_output` now returns `NULL` on error instead of `""` (was `free("")` UB).
+- **Crypto error codes unified**: `pal_crypto.h` functions now return `pal_error_code_t`
+  (`PAL_ERR_OK` / non-zero) instead of raw `int`, matching the PAL error convention.
+  Header includes `pal.h` for the error enum.
+- **Codegen struct-return orphan declarations removed**: `pal_dir_next(i64,ptr)->i1` and
+  `pal_channel_recv(i64,ptr)->i1` in `builtins.rs` had signatures that don't match the C ABI
+  (C returns 259B and 16B structs respectively; codegen has no struct-return support).
+  Removed from codegen and `docs/abi_map.toml` (128 → 126 symbols). Kioto already uses safe
+  bridges (`pal_dir_next_name`, `rt_channel_recv_into`).
+- **Ownership conventions documented** in `PAL-ABI.md`: `[PAL-OWNED]` (caller frees),
+  `[BORROWED]` (static, don't free), `[WRITE-INTO]` (caller buffer).
+  Sandbox boundaries and sret ABI rule also documented.
+
+### Changed
+
+- `docs/abi_map.toml`: `symbol_count` 128 → 126 (removed orphan `pal_dir_next` and
+  `pal_channel_recv` entries).
 
 ### Added
 

@@ -4,7 +4,7 @@
 
 [meta]
 version = "4"
-symbol_count = 128
+symbol_count = 126
 
 # ── PAL — Filesystem ──────────────────────────────────────────
 
@@ -50,10 +50,6 @@ category = "pal"
 
 [symbol.pal_dir_open]
 target = "pal_dir_open"
-category = "pal"
-
-[symbol.pal_dir_next]
-target = "pal_dir_next"
 category = "pal"
 
 [symbol.pal_dir_close]
@@ -102,10 +98,6 @@ category = "pal"
 
 [symbol.pal_channel_send]
 target = "pal_channel_send"
-category = "pal"
-
-[symbol.pal_channel_recv]
-target = "pal_channel_recv"
 category = "pal"
 
 [symbol.pal_channel_close]

@@ -201,6 +201,15 @@ void   rt_free_argv(char **argv, int64_t argc);
 
 // Process shell capture — runs a command and returns output as managed string.
 char   *rt_proc_capture_output(const char *cmd);
+
+// Safe argv-based process execution with output capture (no shell).
+char   *rt_proc_capture_argv(const char *cmd, void *args_vec);
+
+// Read an entire file as a runtime-managed string.
+char   *rt_fs_read_bytes(const char *path);
+
+// Safe channel receive into a caller-owned buffer (no PAL bytes handoff).
+int64_t rt_channel_recv_into(int64_t ch_handle, char *buf, int64_t capacity);
 int64_t rt_lists_pop(void *list);
 void   *rt_lists_slice(void *list, int64_t start, int64_t end);
 void   *rt_lists_concat(void *a, void *b);

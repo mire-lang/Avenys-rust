@@ -266,21 +266,21 @@ fn benchmark_smoke() {
     // 11) Kioto.fs benchmark (file read/write)
     bench_compile(
         "kioto_fs_ops",
-        "load kioto\npub fn main: () {\n  set root = fs::root_open(\".\")\n  use dasu(str(root.handle))\n}\n",
+        "load kioto\npub fn main: () {\n  set root = fs::root::open(\".\")\n  use dasu(str(root.handle))\n}\n",
         OptLevel::O0,
     );
 
-    // 12) Kioto.term progress bar benchmark
+    // 12) Kioto.math benchmark
     bench_compile(
-        "kioto_term_bar",
-        "load kioto\npub fn main: () {\n  set bar = term::bar(\"load\" 12 12 100)\n  use dasu(bar)\n}\n",
+        "kioto_math_ops",
+        "load kioto\npub fn main: () {\n  set v = math::abs(0 - 5) + math::clamp(99 0 10)\n  use dasu(str(v))\n}\n",
         OptLevel::O0,
     );
 
     // 13) Kioto.time benchmark
     bench_compile(
         "kioto_time",
-        "load kioto\npub fn main: () {\n  set t = time::unix::ms()\n  use dasu(str(t))\n}\n",
+        "load kioto\npub fn main: () {\n  set t = time::now::ms()\n  use dasu(str(t))\n}\n",
         OptLevel::O0,
     );
 

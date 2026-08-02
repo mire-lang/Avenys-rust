@@ -39,8 +39,8 @@ pub fn main: () {
     set arr at 1 = 9
 
     set nums = [] :vec[i64] mut
-    set nums = lists.push(nums 4)
-    set nums = lists.push(nums 7)
+    set nums = vec::push::i64(nums, 4)
+    set nums = vec::push::i64(nums, 7)
 
     set inner = {x: 1, y: 2} :map[str i64]
     set outer = {child: inner} :map[str map[str i64]]

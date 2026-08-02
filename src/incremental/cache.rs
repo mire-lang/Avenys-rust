@@ -246,7 +246,9 @@ fn write_file_meta(base_dir: &Path, key: &str, meta: &FileMeta) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let json = serde_json::to_string(meta).map_err(|e| {
+    let mut meta = meta.clone();
+    meta.key = key.to_string();
+    let json = serde_json::to_string(&meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::unknown(),
             message: format!("Cannot serialize file meta: {e}"),
@@ -271,7 +273,9 @@ fn write_analysis_meta(base_dir: &Path, key: &str, meta: &AnalysisMeta) -> Resul
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let json = serde_json::to_string(meta).map_err(|e| {
+    let mut meta = meta.clone();
+    meta.key = key.to_string();
+    let json = serde_json::to_string(&meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::unknown(),
             message: format!("Cannot serialize analysis meta: {e}"),
@@ -296,7 +300,9 @@ fn write_build_meta(base_dir: &Path, key: &str, meta: &BuildMeta) -> Result<()> 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let json = serde_json::to_string(meta).map_err(|e| {
+    let mut meta = meta.clone();
+    meta.key = key.to_string();
+    let json = serde_json::to_string(&meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::unknown(),
             message: format!("Cannot serialize build meta: {e}"),
@@ -315,7 +321,9 @@ fn write_mir_meta(base_dir: &Path, key: &str, meta: &MirMeta) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let json = serde_json::to_string(meta).map_err(|e| {
+    let mut meta = meta.clone();
+    meta.key = key.to_string();
+    let json = serde_json::to_string(&meta).map_err(|e| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::unknown(),
             message: format!("Cannot serialize mir meta: {e}"),
@@ -445,11 +453,25 @@ impl IncrementalCache {
         // Validate the cache format/version. If the cache was produced by a
         // different compiler version, wipe it so stale analyses/builds/MIR are
         // never silently reused after semantics change.
+        //
+        // The version file stores two lines: the format tag (e.g. "MIREINC4")
+        // on line 1 and the version number (e.g. "3") on line 2. Reading the
+        // whole file as a single u32 would always fail (the format tag is not
+        // numeric), so each line is parsed independently. A missing/foreign
+        // format tag or an older version wipes the cache.
         let version_path = cache_dir.join(VERSION_FILE);
-        let stored_version = fs::read_to_string(&version_path)
-            .ok()
-            .and_then(|v| v.trim().parse::<u32>().ok());
-        if stored_version != Some(NEW_FORMAT_VERSION) {
+        let version_content = fs::read_to_string(&version_path).ok();
+        let stored_format = version_content
+            .as_deref()
+            .and_then(|v| v.lines().next().map(|line| line.trim().to_string()));
+        let stored_version = version_content.as_deref().and_then(|v| {
+            v.lines()
+                .last()
+                .and_then(|line| line.trim().parse::<u32>().ok())
+        });
+        if stored_format.as_deref() != Some(NEW_CACHE_FORMAT)
+            || stored_version != Some(NEW_FORMAT_VERSION)
+        {
             wipe_cache_dir(&cache_dir);
         }
         let _ = fs::write(
@@ -500,14 +522,9 @@ impl IncrementalCache {
     }
 
     pub fn save(&mut self) -> Result<()> {
-        let mut wal_records = Vec::new();
-
         for key in self.files.keys() {
             if let Some(meta) = self.files.get(key) {
                 write_file_meta(&self.cache_dir, key, meta)?;
-                wal_records.push(WalRecord::Checkpoint {
-                    timestamp: timestamp_ms(),
-                });
             }
         }
         for key in self.analyses.keys() {
@@ -604,6 +621,7 @@ impl IncrementalCache {
         let blob_hash = store_blob(&self.cache_dir, &blob)?;
 
         let meta = FileMeta {
+            key: key.clone(),
             hash: entry.hash,
             hash2: entry.hash2,
             blob_hash: blob_hash.clone(),
@@ -700,6 +718,7 @@ impl IncrementalCache {
         self.analyses.insert(
             key.clone(),
             AnalysisMeta {
+                key: key.clone(),
                 fingerprint: dep_fingerprint,
                 blob_hash: blob_hash.clone(),
                 last_access_ms: now,
@@ -710,6 +729,7 @@ impl IncrementalCache {
         self.analyses.insert(
             latest_key.clone(),
             AnalysisMeta {
+                key: latest_key.clone(),
                 fingerprint: dep_fingerprint,
                 blob_hash,
                 last_access_ms: now,
@@ -765,6 +785,7 @@ impl IncrementalCache {
         self.analyses.insert(
             key.clone(),
             AnalysisMeta {
+                key: key.clone(),
                 fingerprint: dep_fingerprint,
                 blob_hash: blob_hash.clone(),
                 last_access_ms: now,
@@ -775,6 +796,7 @@ impl IncrementalCache {
         self.analyses.insert(
             latest_key.clone(),
             AnalysisMeta {
+                key: latest_key.clone(),
                 fingerprint: dep_fingerprint,
                 blob_hash,
                 last_access_ms: now,
@@ -852,6 +874,7 @@ impl IncrementalCache {
 
         let now = timestamp_ms();
         let meta = BuildMeta {
+            key: key.clone(),
             fingerprint: entry.fingerprint,
             entry,
             last_access_ms: now,
@@ -928,6 +951,7 @@ impl IncrementalCache {
 
         let now = timestamp_ms();
         let meta = MirMeta {
+            key: key.clone(),
             body_hash,
             blob_hash: blob_hash.clone(),
             last_access_ms: now,
@@ -1016,14 +1040,17 @@ fn load_file_metas(
     };
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
-            && let Ok(meta) = serde_json::from_str::<FileMeta>(&content)
+            && let Ok(mut meta) = serde_json::from_str::<FileMeta>(&content)
         {
-            // Derive key from filename (hash)
-            if let Some(name) = entry.file_name().to_str()
+            // Recover the original key stored in the meta. Old meta files
+            // (without the `key` field) fall back to the hashed filename stem.
+            if meta.key.is_empty()
+                && let Some(name) = entry.file_name().to_str()
                 && let Some(stem) = name.strip_suffix(".meta")
             {
-                files.insert(stem.to_string(), meta);
+                meta.key = stem.to_string();
             }
+            files.insert(meta.key.clone(), meta);
         }
     }
 }
@@ -1039,11 +1066,15 @@ fn load_analysis_metas(
     };
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
-            && let Ok(meta) = serde_json::from_str::<AnalysisMeta>(&content)
-            && let Some(name) = entry.file_name().to_str()
-            && let Some(stem) = name.strip_suffix(".meta")
+            && let Ok(mut meta) = serde_json::from_str::<AnalysisMeta>(&content)
         {
-            analyses.insert(stem.to_string(), meta);
+            if meta.key.is_empty()
+                && let Some(name) = entry.file_name().to_str()
+                && let Some(stem) = name.strip_suffix(".meta")
+            {
+                meta.key = stem.to_string();
+            }
+            analyses.insert(meta.key.clone(), meta);
         }
     }
 }
@@ -1059,11 +1090,15 @@ fn load_build_metas(
     };
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
-            && let Ok(meta) = serde_json::from_str::<BuildMeta>(&content)
-            && let Some(name) = entry.file_name().to_str()
-            && let Some(stem) = name.strip_suffix(".meta")
+            && let Ok(mut meta) = serde_json::from_str::<BuildMeta>(&content)
         {
-            builds.insert(stem.to_string(), meta);
+            if meta.key.is_empty()
+                && let Some(name) = entry.file_name().to_str()
+                && let Some(stem) = name.strip_suffix(".meta")
+            {
+                meta.key = stem.to_string();
+            }
+            builds.insert(meta.key.clone(), meta);
         }
     }
 }
@@ -1079,11 +1114,15 @@ fn load_mir_metas(
     };
     for entry in entries.flatten() {
         if let Ok(content) = fs::read_to_string(entry.path())
-            && let Ok(meta) = serde_json::from_str::<MirMeta>(&content)
-            && let Some(name) = entry.file_name().to_str()
-            && let Some(stem) = name.strip_suffix(".meta")
+            && let Ok(mut meta) = serde_json::from_str::<MirMeta>(&content)
         {
-            mir_fns.insert(stem.to_string(), meta);
+            if meta.key.is_empty()
+                && let Some(name) = entry.file_name().to_str()
+                && let Some(stem) = name.strip_suffix(".meta")
+            {
+                meta.key = stem.to_string();
+            }
+            mir_fns.insert(meta.key.clone(), meta);
         }
     }
 }
@@ -1106,6 +1145,7 @@ fn apply_wal_record(
             timestamp,
         } => {
             let meta = FileMeta {
+                key: key.clone(),
                 hash: *hash,
                 hash2: *hash2,
                 blob_hash: blob_hash.clone(),
@@ -1123,6 +1163,7 @@ fn apply_wal_record(
             unit_count,
         } => {
             let meta = AnalysisMeta {
+                key: key.clone(),
                 fingerprint: *fingerprint,
                 blob_hash: blob_hash.clone(),
                 last_access_ms: *timestamp,
@@ -1138,6 +1179,7 @@ fn apply_wal_record(
             timestamp,
         } => {
             let meta = BuildMeta {
+                key: key.clone(),
                 fingerprint: entry.fingerprint,
                 entry: entry.clone(),
                 last_access_ms: *timestamp,
@@ -1164,6 +1206,7 @@ fn apply_wal_record(
             timestamp,
         } => {
             let meta = MirMeta {
+                key: key.clone(),
                 body_hash: *body_hash,
                 blob_hash: blob_hash.clone(),
                 last_access_ms: *timestamp,

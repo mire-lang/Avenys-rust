@@ -118,12 +118,17 @@ void pal_dispatch_set_ops(const pal_ops_t *ops);
 int pal_core_reserve(pal_resource_type_t type);
 void pal_core_release(int64_t slot);
 int pal_core_validate(int64_t slot, uint32_t generation, pal_resource_type_t expected_type);
+void *pal_core_validate_and_get(int64_t slot, uint32_t generation, pal_resource_type_t expected_type);
 void pal_core_transfer(int64_t slot);
 
-// Internal data access
+// Internal data access — takes g_mutex for thread safety.
+// Prefer pal_core_validate_and_get where both validation and access are needed.
 void *pal_core_get_internal(int64_t slot);
 
 // Error state
 void pal_set_error(pal_error_code_t code, const char *message);
+// [BORROWED] Message set by the last pal_set_error on this thread; NULL if none.
+// Valid until the next pal_set_error/pal_clear_error on the same thread.
+const char *pal_last_error_message(void);
 
 #endif

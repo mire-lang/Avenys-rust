@@ -114,7 +114,9 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         "declare i64 @pal_file_clone(i64)".to_string(),
         "declare void @pal_file_close(i64)".to_string(),
         "declare i64 @pal_dir_open(i64, ptr)".to_string(),
-        "declare i1 @pal_dir_next(i64, ptr)".to_string(),
+        // NOTE: pal_dir_next returns pal_dir_entry_t (259B, struct-return ABI);
+        // the codegen has no struct-return support. Mire code must use the
+        // safe variants: pal_dir_next_name / pal_dir_next_into.
         "declare void @pal_dir_close(i64)".to_string(),
         // ── PAL v4 — Process ───────────────────────────────────────────
         "declare i64 @pal_proc_create(ptr, i32, i64, i64, i64)".to_string(),
@@ -128,7 +130,9 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         // ── PAL v4 — Channels ──────────────────────────────────────────
         "declare i64 @pal_channel_create()".to_string(),
         "declare i64 @pal_channel_send(i64, ptr, i64)".to_string(),
-        "declare i1 @pal_channel_recv(i64, ptr)".to_string(),
+        // NOTE: pal_channel_recv returns pal_bytes_t (16B struct returned in
+        // RAX:RDX); the codegen has no struct-return support. Mire code must
+        // use the runtime bridge: rt_channel_recv_into.
         "declare void @pal_channel_close(i64)".to_string(),
         // ── PAL v4 — Networking ────────────────────────────────────────
         "declare i64 @pal_socket_connect(ptr, i16, i32)".to_string(),

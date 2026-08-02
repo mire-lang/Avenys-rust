@@ -5,9 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include "runtime.h"
+#include "pal.h"
 
+#ifdef PAL_ALLOW_LEGACY_SHELL
 extern const char *pal_proc_capture_output(const char *cmd);
+#endif
 
 // Raw byte access from a managed string.
 int64_t rt_crypto_byte_at(const char *s, int64_t i) {
@@ -31,6 +36,19 @@ char *rt_read_bytes(const char *path) {
     return buf;
 }
 
+// Read an entire file and return it as a runtime-managed string.
+// Does NOT use pal_fs_read_file (unsandboxed; and its returned pointer
+// ownership is easy to get wrong across FFI). Reads through rt_read_bytes
+// and copies into managed storage so the result is always runtime-owned.
+char *rt_fs_read_bytes(const char *path) {
+    if (!path) return rt_managed_from_cstr("");
+    char *raw = rt_read_bytes(path);
+    if (!raw) return rt_managed_from_cstr("");
+    char *managed = rt_managed_from_cstr(raw);
+    free(raw);
+    return managed;
+}
+
 // Decode a hex string and write the raw bytes to a file.
 int rt_hex_to_file(const char *path, const char *hex) {
     if (!path || !hex) return 0;
@@ -52,6 +70,8 @@ int rt_hex_to_file(const char *path, const char *hex) {
 }
 
 // Runs a command via PAL capture and returns the output as a managed string.
+// Requires PAL_ALLOW_LEGACY_SHELL (see pal.h).
+#ifdef PAL_ALLOW_LEGACY_SHELL
 char *rt_proc_capture_output(const char *cmd) {
     if (!cmd) return rt_managed_from_cstr("");
     const char *out = pal_proc_capture_output(cmd);
@@ -59,4 +79,87 @@ char *rt_proc_capture_output(const char *cmd) {
     char *managed = rt_managed_from_cstr(out);
     free((void *)out);
     return managed;
+}
+#endif
+
+// Safe argv-based process execution with output capture.
+// Builds a real argv[] (no shell) and runs fork + execvp directly.
+// Returns the captured stdout as a managed string (empty on failure).
+char *rt_proc_capture_argv(const char *cmd, void *args_vec) {
+    if (!cmd || !args_vec) return rt_managed_from_cstr("");
+    int64_t argc = 0;
+    char **argv = rt_build_argv(cmd, args_vec, &argc);
+    if (!argv) return rt_managed_from_cstr("");
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+
+    if (pid == 0) {
+        // Child: wire stdout to the pipe, exec without a shell.
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+
+    // Parent: read captured output.
+    close(pipefd[1]);
+    size_t cap = 4096;
+    size_t len = 0;
+    char *buf = malloc(cap);
+    if (!buf) {
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+    ssize_t n;
+    while ((n = read(pipefd[0], buf + len, cap - len - 1)) > 0) {
+        len += (size_t)n;
+        if (len + 1 >= cap) {
+            cap *= 2;
+            char *nb = realloc(buf, cap);
+            if (!nb) {
+                free(buf);
+                close(pipefd[0]);
+                waitpid(pid, NULL, 0);
+                rt_free_argv(argv, argc);
+                return rt_managed_from_cstr("");
+            }
+            buf = nb;
+        }
+    }
+    close(pipefd[0]);
+    buf[len] = '\0';
+    waitpid(pid, NULL, 0);
+    char *managed = rt_managed_from_slice(buf, len);
+    free(buf);
+    rt_free_argv(argv, argc);
+    return managed;
+}
+
+// Safe channel receive into a caller-owned buffer.
+// Bridges the PAL pal_bytes_t return (heap-allocated) into a fixed
+// caller buffer, releasing the PAL allocation. Returns bytes copied.
+int64_t rt_channel_recv_into(int64_t ch_handle, char *buf, int64_t capacity) {
+    if (!buf || capacity <= 0) return 0;
+    pal_channel_t ch = { (uint32_t)ch_handle, (uint32_t)((uint64_t)ch_handle >> 32) };
+    pal_bytes_t out = pal_channel_recv(ch);
+    if (!out.data || out.len <= 0) return 0;
+    int64_t n = out.len < capacity ? out.len : capacity;
+    if (n > 0) memcpy(buf, out.data, (size_t)n);
+    pal_free(out.data);
+    return n;
 }

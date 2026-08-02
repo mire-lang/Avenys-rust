@@ -24,6 +24,13 @@ impl MirLower {
         match expr {
             Expression::Identifier(id) => self.var_types.get(&id.name).and_then(|t| match t {
                 DataType::StructNamed(name) => Some(name.clone()),
+                DataType::Ref { inner } | DataType::RefMut { inner } => {
+                    if let DataType::StructNamed(name) = inner.as_ref() {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             }),
             _ => None,

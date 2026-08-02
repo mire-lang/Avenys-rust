@@ -9,11 +9,55 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <sodium.h>
+
+// ── openat2 sandbox helpers ─────────────────────────────
+// openat2(2) was added in Linux 5.10. It allows RESOLVE_BENEATH
+// which prevents path traversal outside the root directory.
+// We define the structures and constants here so the code
+// compiles on older kernels too; the syscall simply returns
+// ENOSYS on kernels that don't support it, and we fall back
+// to openat (which is why PAL_ALLOW_UNSANDBOXED exists).
+
+#ifndef RESOLVE_BENEATH
+#define RESOLVE_BENEATH    0x00000001
+#define RESOLVE_NO_XDEV    0x00000002
+#define RESOLVE_NO_SYMLINKS 0x00000004
+#define RESOLVE_IN_ROOT    0x00000008
+#endif
+
+struct open_how {
+    uint64_t flags;
+    uint64_t mode;
+    uint64_t resolve;
+};
+
+// openat2 at dirfd with RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS.
+// Relative paths are sandboxed against traversal (`..` and symlink
+// escapes outside root are rejected). Absolute paths inherently ignore
+// dirfd, so they fall back to plain openat (legacy semantics). Also
+// falls back to openat on ENOSYS (kernel < 5.10). Returns -1 on error.
+static int linux_openat2_sandbox(int dirfd, const char *path, int flags, mode_t mode) {
+    if (!path || path[0] == '/') {
+        return openat(dirfd, path, flags, mode);
+    }
+    struct open_how how = {
+        .flags = (uint64_t)flags,
+        .mode  = (uint64_t)mode,
+        .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS,
+    };
+    long ret = syscall(SYS_openat2, dirfd, path, &how, sizeof(how));
+    if (ret == -1 && errno == ENOSYS) {
+        return openat(dirfd, path, flags, mode);
+    }
+    return (int)ret;
+}
 
 // ── Linux Internal Types ─────────────────────────────────────
 // These are Linux-specific. Not exposed in ABI.
@@ -74,10 +118,6 @@ static void linux_shutdown(void) {
 
 static int64_t linux_root_open(const char *path) {
     if (!path) return -1;
-    struct stat st;
-    if (stat(path, &st) != 0) return -1;
-    if (!S_ISDIR(st.st_mode)) return -1;
-
     int fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (fd < 0) return -1;
 
@@ -107,7 +147,7 @@ static int64_t linux_file_open(int64_t root_internal, const char *rel_path, pal_
     if (flags & PAL_OPEN_TRUNCATE) linux_flags |= O_TRUNC;
     if (flags & PAL_OPEN_APPEND) linux_flags |= O_APPEND;
 
-    int fd = openat(root->fd, rel_path, linux_flags, 0644);
+    int fd = linux_openat2_sandbox(root->fd, rel_path, linux_flags, 0644);
     if (fd < 0) return -1;
 
     linux_file_t *file = pal_alloc(sizeof(linux_file_t));
@@ -195,7 +235,7 @@ static int64_t linux_dir_open(int64_t root_internal, const char *rel_path) {
     linux_root_t *root = (linux_root_t *)root_internal;
     if (!root || !rel_path) return -1;
 
-    int fd = openat(root->fd, rel_path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    int fd = linux_openat2_sandbox(root->fd, rel_path, O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
     if (fd < 0) return -1;
 
     DIR *dir = fdopendir(fd);
@@ -214,9 +254,25 @@ static bool linux_dir_next(int64_t internal, pal_dir_entry_t *out) {
     if (!de) return false;
     strncpy(out->name, de->d_name, sizeof(out->name) - 1);
     out->name[sizeof(out->name) - 1] = '\0';
-    out->is_file = (de->d_type == DT_REG);
-    out->is_dir = (de->d_type == DT_DIR);
-    out->is_symlink = (de->d_type == DT_LNK);
+    if (de->d_type != DT_UNKNOWN) {
+        out->is_file = (de->d_type == DT_REG);
+        out->is_dir = (de->d_type == DT_DIR);
+        out->is_symlink = (de->d_type == DT_LNK);
+    } else {
+        // Some filesystems (XFS, overlay, network FS) don't fill d_type.
+        // Fall back to fstatat on the dirfd to determine the type.
+        struct stat st;
+        int ddirfd = dirfd(d->dir);
+        if (ddirfd < 0 || fstatat(ddirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+            out->is_file = false;
+            out->is_dir = false;
+            out->is_symlink = false;
+        } else {
+            out->is_file = S_ISREG(st.st_mode);
+            out->is_dir = S_ISDIR(st.st_mode);
+            out->is_symlink = S_ISLNK(st.st_mode);
+        }
+    }
     return true;
 }
 
@@ -230,8 +286,8 @@ static void linux_dir_close(int64_t internal) {
 // ── Process ──────────────────────────────────────────────────
 
 static int64_t linux_proc_create(const char **argv, pal_spawn_flags flags,
-                                 int64_t stdin_internal, int64_t stdout_internal,
-                                 int64_t stderr_internal) {
+                                int64_t stdin_internal, int64_t stdout_internal,
+                                int64_t stderr_internal) {
     if (!argv || !argv[0]) return -1;
 
     // Create pipe pairs for communication
@@ -530,7 +586,7 @@ static int64_t linux_secret_sign(int64_t secret_internal, const void *msg, int64
     if (!secret || !msg || msg_len < 0 || !buf || capacity < crypto_sign_BYTES) return -1;
     unsigned long long signed_length = 0;
     if (crypto_sign_detached(buf, &signed_length, msg, (unsigned long long)msg_len,
-                             secret->private_key) != 0) return -1;
+                            secret->private_key) != 0) return -1;
     return (int64_t)signed_length;
 }
 
@@ -539,7 +595,7 @@ static bool linux_pubkey_verify(int64_t pubkey_internal, const void *msg, int64_
     linux_pubkey_t *public_key = (linux_pubkey_t *)pubkey_internal;
     if (!public_key || !msg || msg_len < 0 || !sig || sig_len != crypto_sign_BYTES) return false;
     return crypto_sign_verify_detached(sig, msg, (unsigned long long)msg_len,
-                                       public_key->public_key) == 0;
+                                        public_key->public_key) == 0;
 }
 
 static void linux_secret_close(int64_t internal) {

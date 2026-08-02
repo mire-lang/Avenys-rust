@@ -104,7 +104,9 @@ No `malloc`/`free`/`strdup` in Host Adapter.
 ### Filesystem (13)
 - `pal_root_open`, `pal_root_close`
 - `pal_file_open`, `pal_file_read`, `pal_file_write`, `pal_file_seek`, `pal_file_stat`, `pal_file_size`, `pal_file_clone`, `pal_file_close`
-- `pal_dir_open`, `pal_dir_next`, `pal_dir_close`
+- `pal_dir_open`, `pal_dir_close`
+- `pal_dir_next` — struct-return (259 B, sret); NOT callable from Mire. Use
+  `pal_dir_next_into` or `pal_dir_next_name` instead.
 
 ### Process (8)
 - `pal_proc_create`, `pal_proc_wait`, `pal_proc_kill`
@@ -112,7 +114,9 @@ No `malloc`/`free`/`strdup` in Host Adapter.
 - `pal_proc_transfer`, `pal_proc_close`
 
 ### Channels (4)
-- `pal_channel_create`, `pal_channel_send`, `pal_channel_recv`, `pal_channel_close`
+- `pal_channel_create`, `pal_channel_send`, `pal_channel_close`
+- `pal_channel_recv` — struct-return (16 B, RAX:RDX); NOT callable from Mire. Use
+  `rt_channel_recv_into` instead.
 
 ### Networking (7)
 - `pal_socket_connect`, `pal_listener_bind`, `pal_listener_accept`

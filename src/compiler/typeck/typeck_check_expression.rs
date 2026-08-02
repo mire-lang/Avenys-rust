@@ -661,6 +661,14 @@ impl TypeChecker {
                 data_type,
             } => {
                 let target_type = self.check_expression(target)?;
+                // Auto-deref: `x.field` on `&T`/`&mut T` resolves through the
+                // reference to the underlying struct, same as a value target.
+                let target_type = match &target_type {
+                    DataType::Ref { inner } | DataType::RefMut { inner } => {
+                        (**inner).clone()
+                    }
+                    other => other.clone(),
+                };
                 if target_type.is_struct_like() {
                     if let Some(struct_name) = self
                         .struct_name_for_expr(target)

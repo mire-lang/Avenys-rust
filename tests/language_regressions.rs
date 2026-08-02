@@ -1935,7 +1935,7 @@ fn kioto_lists_reference_api_reuses_the_same_binding() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3 2] :vec[i64]\n    set len1 = lists.len(nums)\n    set has_two = lists.contains(nums 2)\n    set first = lists.first(nums)\n    set last = lists.last(nums)\n    set idx = lists.index(nums 2)\n    set len2 = lists.len(nums)\n    use dasu(\"{len1}-{has_two}-{first}-{last}-{idx}-{len2}\")\n}\n",
+        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3 2] :vec[i64]\n    set len1 = vec::len(nums)\n    set has_two = vec::contains::i64(nums, 2)\n    set first = vec::first::i64(nums)\n    set last = vec::last::i64(nums)\n    set idx = vec::index::i64(nums, 2)\n    set len2 = vec::len(nums)\n    use dasu(\"{len1}-{has_two}-{first}-{last}-{idx}-{len2}\")\n}\n",
     )
     .expect("write source");
 
@@ -2926,7 +2926,7 @@ fn list_hofs_infer_closure_params_and_execute() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set sum = lists.fold(0, (acc elem) => acc + elem, [1 2 3 4 5])\n    set doubled = lists.map((x) => x * 2, [1 2 3])\n    set filtered = lists.filter((x) => x > 2, [1 2 3 4])\n    use dasu(\"{sum} {lists.get(doubled 2)} {lists.get(filtered 1)}\")\n}\n",
+        "load kioto\n\npub fn main: () {\n    set sum = lists.fold(0, (acc elem) => acc + elem, [1 2 3 4 5])\n    set doubled = lists.map((x) => x * 2, [1 2 3])\n    set filtered = lists.filter((x) => x > 2, [1 2 3 4])\n    use dasu(\"{sum} {vec::get::i64(doubled, 2)} {vec::get::i64(filtered, 1)}\")\n}\n",
     )
     .expect("write source");
 
@@ -3564,7 +3564,7 @@ fn kioto_async_ready_value_compiles_and_runs() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set task = async.ready(\"done\")\n    use dasu(async.value(task \"fallback\"))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set task = async::task::ready(\"done\")\n    use dasu(async::task::value(task \"fallback\"))\n}\n",
     )
     .expect("write source");
 
@@ -3856,7 +3856,7 @@ fn runtime_lists_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(lists.len(xs))\n    use dasu(lists.get(xs, 1))\n    use dasu(lists.first(xs))\n    use dasu(lists.last(xs))\n    use dasu(lists.contains(xs, 20))\n    use dasu(lists.contains(xs, 99))\n    use dasu(lists.index(xs, 30))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(str(vec::len(xs)))\n    use dasu(str(vec::get::i64(xs, 1)))\n    use dasu(str(vec::first::i64(xs)))\n    use dasu(str(vec::last::i64(xs)))\n    use dasu(str(vec::contains::i64(xs, 20)))\n    use dasu(str(vec::contains::i64(xs, 99)))\n    use dasu(str(vec::index::i64(xs, 30)))\n}\n",
     )
     .expect("write source");
 
@@ -3982,7 +3982,7 @@ fn runtime_dicts_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn test_len: (d) :i64 { return dicts.len(d) }\npub fn test_has: (d, k :str) :bool { return dicts.has(d, k) }\npub fn test_is_empty: (d) :bool { return dicts.check::empty(d) }\npub fn main: () {\n    use dasu(test_len({a: 1, b: 2, c: 3} :map[str i64]))\n    use dasu(test_has({a: 1} :map[str i64], \"a\"))\n    use dasu(test_has({a: 1} :map[str i64], \"z\"))\n    use dasu(test_is_empty({} :map[str i64]))\n}\n",
+        "load kioto\nload mire::map\n\npub fn test_len: (d) :i64 { return map::len(d) }\npub fn test_has: (d, k :str) :bool { return map::has(d, k) }\npub fn test_is_empty: (d) :bool { return map::is::empty(d) }\npub fn main: () {\n    use dasu(str(test_len({a: 1, b: 2, c: 3} :map[str i64])))\n    use dasu(str(test_has({a: 1} :map[str i64], \"a\")))\n    use dasu(str(test_has({a: 1} :map[str i64], \"z\")))\n    use dasu(str(test_is_empty({} :map[str i64])))\n}\n",
     )
     .expect("write source");
 
@@ -4033,7 +4033,7 @@ fn pal_env_get_returns_home() {
         "[project]\nname = \"env-get\"\nversion = \"0.1.0\"\nentry = \"env_get.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env.get(\"HOME\")\n    use dasu(home)\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env::var(\"HOME\")\n    use dasu(home)\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4053,12 +4053,12 @@ fn pal_env_get_returns_home() {
         ..Default::default()
         },
     )
-    .expect("env.get should compile");
+    .expect("env::var should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
-    assert!(output.status.success(), "env.get failed: {:?}", output);
+    assert!(output.status.success(), "env::var failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty(), "HOME should not be empty");
 }
@@ -4166,7 +4166,7 @@ fn pal_fs_path_ops_join_dir_name_ext() {
         "[project]\nname = \"fs-path\"\nversion = \"0.1.0\"\nentry = \"fs_path.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs.join(\"/a/b\" \"c.d\")\n    set d = fs.dir(joined)\n    set n = fs.name(joined)\n    set e = fs.ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs::path::join(\"/a/b\" \"c.d\")\n    set d = fs::path::dir(joined)\n    set n = fs::path::name(joined)\n    set e = fs::path::ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4211,7 +4211,7 @@ fn pal_fs_mkdir_rmdir() {
     )
     .expect("write project");
     let src = format!(
-        "load kioto\n\npub fn main: () {{\n    fs.mkdir(\"{dir_path}\")\n    set ok = fs.exists(\"{dir_path}\")\n    fs.rmdir(\"{dir_path}\")\n    set gone = !fs.exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
+        "load kioto\n\npub fn main: () {{\n    fs::dir::create(\"{dir_path}\")\n    set ok = fs::exists(\"{dir_path}\")\n    fs::dir::remove(\"{dir_path}\")\n    set gone = !fs::exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
         dir_path = dir_path,
     );
     fs::write(&source_path, &src).expect("write source");
@@ -4252,7 +4252,7 @@ fn pal_proc_shell_echo() {
         "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc.shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc::run::shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4291,7 +4291,7 @@ fn pal_proc_spawn_exit_code() {
         "[project]\nname = \"proc-run\"\nversion = \"0.1.0\"\nentry = \"proc_run.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set code = proc.spawn(\"/bin/true\", [])\n    use dasu(str(code))\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set code = proc::run::spawn(\"/bin/true\", [])\n    use dasu(str(code))\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(

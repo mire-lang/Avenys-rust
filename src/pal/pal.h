@@ -10,6 +10,18 @@
 // Handles are opaque: {index, generation}. Only PAL Core knows the slot table.
 // Host Adapters receive internal data through Core dispatch, not through handle fields.
 
+// ── Build Toggles ─────────────────────────────────────────────
+// Unsandboxed absolute-path FS ops and the legacy shell are compiled in by
+// default to keep the existing runtime working, but they are OFF-limits for
+// untrusted Mire code. Override from the build (`-DPAL_ALLOW_UNSANDBOXED=0`
+// etc.) to strip them from the PAL surface.
+#ifndef PAL_ALLOW_UNSANDBOXED
+#define PAL_ALLOW_UNSANDBOXED 1
+#endif
+#ifndef PAL_ALLOW_LEGACY_SHELL
+#define PAL_ALLOW_LEGACY_SHELL 1
+#endif
+
 // ── Opaque Handle Types ──────────────────────────────────────
 // Each handle is {uint32_t index; uint32_t generation}.
 // The ABI exposes the struct definition so it has a known size (8 bytes).
@@ -94,6 +106,9 @@ typedef struct {
 
 // ── PAL-owned Bytes ─────────────────────────────────────────
 
+// 16-byte value struct (data ptr + len). Returned by value on x86-64 SysV
+// in RAX:RDX — safe for FFI. [data is PAL-OWNED when returned from a call;
+// release with pal_free(data).]
 typedef struct {
     void *data;
     int64_t len;
@@ -101,6 +116,9 @@ typedef struct {
 
 // ── Directory Entry (PAL-owned) ─────────────────────────────
 
+// 259-byte value struct: returned by value on x86-64 SysV via a hidden
+// sret pointer — do NOT call pal_dir_next from FFI; use pal_dir_next_into
+// or pal_dir_next_name instead.
 typedef struct {
     char name[256];
     bool is_file;
@@ -118,6 +136,19 @@ typedef uint64_t pal_crypto_algorithm_t;
 pal_error_code_t pal_last_error(void);
 const char *pal_strerror(pal_error_code_t code);
 void pal_clear_error(void);
+// [BORROWED] Message from the last pal_set_error on this thread; NULL if none.
+const char *pal_last_error_message(void);
+
+// ── Memory Ownership Conventions ─────────────────────────────
+// Every pointer-returning PAL function documents its ownership:
+//   * [PAL-OWNED]  → the caller owns the memory and MUST release it with
+//                    the documented function (usually `pal_free`). It is
+//                    never NULL-with-""; failure returns NULL.
+//   * [BORROWED]   → the pointer is static/borrowed. The caller MUST NOT
+//                    free it. It may be invalidated by a later PAL call.
+//   * [WRITE-INTO] → caller-provided buffer; the PAL writes into it.
+// New PAL functions should encode ownership in the name where the ABI can
+// change (`*_owned`, `*_borrowed`); stable ABI functions document it here.
 
 // ── Memory (PAL-owned) ─────────────────────────────────────
 void *pal_alloc(int64_t size);
@@ -149,33 +180,51 @@ void pal_dir_next_into(pal_dir_t dir, pal_dir_entry_t *out);
 int64_t pal_dir_next_name(pal_dir_t dir, char *out, int64_t cap);
 void pal_dir_close(pal_dir_t dir);
 
-// ── Filesystem (absolute path operations) ────────────────────
+// ══ UNSANDBOXED ── absolute-path filesystem operations ────────
+// WARNING: these take raw absolute paths and bypass the root-capability
+// model entirely. They are included for the OWN runtime/Owl internal use
+// only and must NEVER be exposed to untrusted Mire code. Prefer the
+// root-relative API above (pal_file_open / pal_dir_open on a pal_root_t).
+#ifdef PAL_ALLOW_UNSANDBOXED
 bool pal_fs_exists(const char *path);
 bool pal_fs_mkdir(const char *path);
 bool pal_fs_rmdir(const char *path);
 bool pal_fs_unlink(const char *path);
+#endif // PAL_ALLOW_UNSANDBOXED
+// pal_fs_read_file: [PAL-OWNED] returns a malloc'd, NUL-terminated string.
+// Caller MUST release with pal_free(). Returns NULL on error (never a
+// literal). Retained under PAL_ALLOW_UNSANDBOXED for the runtime only;
+// kioto prefers rt_fs_read_bytes (runtime-managed copy).
+#ifdef PAL_ALLOW_UNSANDBOXED
 const char *pal_fs_read_file(const char *path);
+#endif // PAL_ALLOW_UNSANDBOXED
 
 // ── Environment ──────────────────────────────────────────────
+// pal_env_cwd / pal_env_get: [BORROWED] static/process-owned buffer.
+// Caller MUST NOT free. May be invalidated by a later PAL call.
 const char *pal_env_cwd(void);
 const char *pal_env_get(const char *name);
 
-// ── Process convenience (legacy compatibility) ───────────────
-// pal_proc_system: blocking shell execution via system(). Never use in
-// production — shell injection surface. Use pal_proc_create +
-// pal_proc_wait for safe execution.
-// pal_proc_wait_pid: PID-based waitpid for rare cases where you only
-// have a raw OS PID (e.g. from pal_proc_spawn's fork). Prefer
-// pal_proc_wait(pal_process_t) which is handle-based, validated, and safe.
+// ══ LEGACY SHELL ── only compiled when PAL_ALLOW_LEGACY_SHELL is set ──
+// pal_proc_system / pal_proc_capture / pal_proc_capture_output run a
+// shell (`/bin/sh -c`) and are a command-injection surface. They exist for
+// compatibility only. NEVER expose to untrusted Mire code; use
+// pal_proc_create (argv-safe, no shell) instead.
+// pal_proc_capture_output: [PAL-OWNED] malloc'd output; caller MUST free.
+#ifdef PAL_ALLOW_LEGACY_SHELL
 int64_t pal_proc_system(const char *cmd);
 int64_t pal_proc_capture(const char *cmd, void *buf, int64_t capacity);
 const char *pal_proc_capture_output(const char *cmd);
+#endif // PAL_ALLOW_LEGACY_SHELL
+// pal_proc_wait_pid: PID-based waitpid for rare cases where you only
+// have a raw OS PID (e.g. from pal_proc_spawn's fork). Prefer
+// pal_proc_wait(pal_process_t) which is handle-based, validated, and safe.
 int64_t pal_proc_wait_pid(int64_t pid);
 
 // ── Process ──────────────────────────────────────────────────
 pal_process_t pal_proc_create(const char **argv, pal_spawn_flags flags,
-                              pal_channel_t stdin_ch, pal_channel_t stdout_ch,
-                              pal_channel_t stderr_ch);
+                            pal_channel_t stdin_ch, pal_channel_t stdout_ch,
+                            pal_channel_t stderr_ch);
 int64_t pal_proc_wait(pal_process_t proc);
 bool pal_proc_kill(pal_process_t proc);
 pal_channel_t pal_proc_stdin(pal_process_t proc);
