@@ -1,5 +1,6 @@
-use crate::error::{Result, type_error_at_span};
+use crate::error::{Result, type_error_at_span, type_error_code_at_span};
 use crate::parser::ast::{DataType, Expression, Literal};
+use crate::error::DiagnosticCode;
 
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
@@ -147,6 +148,27 @@ impl TypeChecker {
                 self.in_use_macro = false;
                 result
             }
+            Expression::MacroCall { inner } => {
+                let name = match inner.as_ref() {
+                    Expression::Call { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
+                    let label = name.unwrap_or_else(|| "?".to_string());
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0019,
+                        format!(
+                            "no macro named '{label}'\n\n\
+                             (macros are declared with `@[macro!]` and invoked with `name!(...)`)"
+                        ),
+                    ));
+                }
+                self.in_macro_call = true;
+                let result = self.check_expression(inner);
+                self.in_macro_call = false;
+                result
+            }
             Expression::Call {
                 name,
                 args,
@@ -174,6 +196,15 @@ impl TypeChecker {
                             ),
                         ));
                     }
+                }
+                if !self.in_macro_call && self.macro_names.contains(&name.clone()) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0020,
+                        format!(
+                            "macro '{name}' must be invoked with `!`: use `{name}!(...)`",
+                        ),
+                    ));
                 }
                 if name == "ireru" && *data_type != DataType::Unknown {
                     *data_type = data_type.clone();

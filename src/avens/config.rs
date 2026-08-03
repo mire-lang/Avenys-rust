@@ -95,10 +95,18 @@ pub struct MireManifest {
     pub bootstrap: Option<BootstrapConfig>,
     #[serde(default)]
     pub builtins: Option<MireBuiltins>,
+    #[serde(default)]
+    pub macros: Option<MireMacros>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExportsSection {
+    #[serde(flatten)]
+    pub entries: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MireMacros {
     #[serde(flatten)]
     pub entries: HashMap<String, String>,
 }

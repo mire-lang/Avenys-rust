@@ -14,6 +14,12 @@ impl Parser {
             self.advance(); // @
             self.advance(); // [
             let name = self.expect_ident()?;
+            let name = if self.check(TokenType::Bang) {
+                self.advance();
+                format!("{name}!")
+            } else {
+                name
+            };
             let mut args = Vec::new();
             if self.check(TokenType::Lparen) {
                 self.advance();

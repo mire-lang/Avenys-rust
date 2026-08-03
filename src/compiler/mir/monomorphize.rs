@@ -426,6 +426,9 @@ fn walk_types_in_expression<F: FnMut(&DataType)>(expr: &Expression, f: &mut F) {
         Expression::UseMacro { inner } => {
             walk_types_in_expression(inner, f);
         }
+        Expression::MacroCall { inner } => {
+            walk_types_in_expression(inner, f);
+        }
     }
 }
 
@@ -822,6 +825,9 @@ fn substitute_generics_in_expression(expr: &mut Expression, bindings: &HashMap<S
         Expression::UseMacro { inner } => {
             substitute_generics_in_expression(inner, bindings);
         }
+        Expression::MacroCall { inner } => {
+            substitute_generics_in_expression(inner, bindings);
+        }
     }
 }
 
@@ -1032,6 +1038,9 @@ fn rewrite_expr(expr: &mut Expression, mono_names: &HashMap<String, String>) {
             rewrite_expr(expr, mono_names);
         }
         Expression::UseMacro { inner } => {
+            rewrite_expr(inner, mono_names);
+        }
+        Expression::MacroCall { inner } => {
             rewrite_expr(inner, mono_names);
         }
         Expression::Tuple { elements, .. } => {

@@ -20,8 +20,20 @@ impl Parser {
         }
 
         let alias = if self.check(TokenType::As) {
-            self.advance();
-            Some(self.expect_ident()?)
+            let as_token = self.peek();
+            self.advance(); // as
+            let _ = self.expect_ident()?;
+            let span = crate::error::Span::new(as_token.line, as_token.column);
+            return Err(crate::error::type_error_code_at_span(
+                span,
+                crate::error::DiagnosticCode::E0018,
+                "Sorry? Did you just use an alias on a `load` statement (`load mire as foo`)?\
+                 \n\nThe alias syntax is intentionally *prohibited*: `load` is the only \
+                 path-based import and it exposes symbols under their real, fully-qualified \
+                 module path (e.g. `mire::vec::push::i64`). Introducing an alias would hide \
+                 where symbols come from and break cross-package analysis."
+                    .to_string(),
+            ));
         } else {
             None
         };

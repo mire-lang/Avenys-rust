@@ -7,7 +7,7 @@ use crate::parser::ast::Statement;
 use super::build_support::{
     apply_cfg_filter, dedup_llvm_declarations, generate_runtime_declarations,
     generate_enum_constructors, generate_struct_constructors, inject_test_harness, precompile_c_object,
-    progress_phase,
+    inject_macros, progress_phase,
     runtime_base,
 };
 use std::hash::{Hash, Hasher};
@@ -178,6 +178,7 @@ fn compile_file_inner(
     } else {
         let mut program = loaded.program;
         apply_cfg_filter(&mut program);
+        inject_macros(&mut program, source_path);
         if options.test_mode {
             inject_test_harness(&mut program);
         }

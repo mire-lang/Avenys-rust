@@ -99,6 +99,7 @@ pub fn expression_location(expression: &Expression) -> Span {
         Expression::EnumVariant { line, column, .. } => Span::new(*line, *column),
         Expression::Ascription { expr, .. } => expression_location(expr),
         Expression::UseMacro { inner } => expression_location(inner),
+        Expression::MacroCall { inner } => expression_location(inner),
         Expression::Literal { line, column, .. } => Span::new(*line, *column),
         Expression::EnumVariantPath { line, column, .. } => Span::new(*line, *column),
     }

@@ -452,6 +452,7 @@ impl MirLower {
                 }
             }
             Expression::UseMacro { inner } => self.lower_expression(inner),
+            Expression::MacroCall { inner } => self.lower_expression(inner),
             Expression::Closure {
                 params,
                 body,

@@ -25,7 +25,7 @@ pub use build_pipeline::{compile_file_with_avenys, default_output_dir};
 pub use config::{
     BootstrapConfig, BuildMode, BuildOptions, BuildResult, ExportsSection, ImportMode,
     MireCacheConfig, MireDependencies, MireDependency, MireLock, MireLockBuild, MireLockProject,
-    MireManifest, MireProject, OptLevel,
+    MireMacros, MireManifest, MireProject, OptLevel,
 };
 pub use manifest::{
     find_project_root, load_exports, load_manifest_dependencies, load_project_manifest,

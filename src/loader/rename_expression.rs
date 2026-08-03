@@ -257,6 +257,7 @@ impl<'a> ModuleRenamer<'a> {
             },
             Expression::Ascription { .. } => expression,
             Expression::UseMacro { .. } => expression,
+            Expression::MacroCall { .. } => expression,
             Expression::Literal { lit: literal, line, column } => Expression::Literal { lit: match literal {
                 Literal::List(elements) => Literal::List(
                     elements

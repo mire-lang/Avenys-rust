@@ -616,3 +616,122 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
         .retain(|s| !matches!(s, Statement::Function { name, .. } if name == "main"));
     program.statements.push(harness);
 }
+
+/// Auto-scope project + dependency `[macros]` declarations so that macro
+/// functions declared with `@[macro!]` in a library are usable as `name!(...)`
+/// in any project that depends on it — without a `load` at the call site.
+///
+/// Only the *project's own* `[macros]` and the `[macros]` of its direct
+/// dependencies are scanned (macro libraries don't chain further). Injected
+/// statements are de-duplicated by kind/name so re-running on the cached path
+/// is safe (this is only called on the uncached build path).
+pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_path: &std::path::Path) {
+    use crate::loader::resolve_dependency_root;
+    use crate::parser::parse_with_recovery;
+    use crate::parser::ast::Statement;
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    let project_root = match find_project_root(source_path) {
+        Some(root) => root,
+        None => return,
+    };
+
+    // Names already present in the program (macros may be declared locally).
+    let mut existing_fns: HashSet<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut existing_externs: HashSet<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::ExternFunction { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let existing_loads: HashSet<Vec<String>> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::Load { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut inject_from = |macros: &MireMacros, root: &Path, _source_label: &str| {
+        for (_name, rel_path) in macros.entries.iter() {
+            let Some(file) = resolve_macro_file(root, rel_path) else {
+                continue;
+            };
+            let src = match std::fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let (parsed, _) = parse_with_recovery(&src);
+            for stmt in parsed.statements {
+                match &stmt {
+                    Statement::ExternFunction { name: ename, .. } => {
+                        if existing_externs.insert(ename.clone()) {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    Statement::Load { path, .. } => {
+                        if !existing_loads.contains(path) {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    Statement::Function {
+                        name: fname, attributes, ..
+                    } => {
+                        if attributes.iter().any(|a| a.name == "macro!")
+                            && existing_fns.insert(fname.clone())
+                        {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
+    if let Ok(Some(manifest)) = load_project_manifest(&project_root)
+        && let Some(macros) = &manifest.macros
+    {
+        inject_from(macros, &project_root, "this project's owl.toml");
+    }
+
+    if let Ok(Some(manifest)) = load_project_manifest(&project_root) {
+        for (dep_name, dep) in manifest.dependencies.entries.iter() {
+            let Some(root) = resolve_dependency_root(&project_root, dep_name, dep) else {
+                continue;
+            };
+            if let Ok(Some(dep_manifest)) = load_project_manifest(&root)
+                && let Some(dep_macros) = &dep_manifest.macros
+            {
+                inject_from(dep_macros, &root, dep_name);
+            }
+        }
+    }
+}
+
+fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::path::PathBuf> {
+    let candidate = root.join(rel_path);
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+    let with_ext = candidate.with_extension("mire");
+    if with_ext.is_file() {
+        return Some(with_ext);
+    }
+    let mod_file = candidate.join("mod.mire");
+    if mod_file.is_file() {
+        return Some(mod_file);
+    }
+    None
+}

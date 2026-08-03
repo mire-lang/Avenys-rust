@@ -335,6 +335,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
         Expression::UseMacro { inner } => {
             collect_expression_bindings(inner, bindings);
         }
+        Expression::MacroCall { inner } => {
+            collect_expression_bindings(inner, bindings);
+        }
         Expression::EnumVariantPath { .. }
         | Expression::Identifier { .. }
         | Expression::Literal { .. } => {}
@@ -445,6 +448,9 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
             collect_expression_dependencies(value, deps);
         }
         Expression::UseMacro { inner } => {
+            collect_expression_dependencies(inner, deps);
+        }
+        Expression::MacroCall { inner } => {
             collect_expression_dependencies(inner, deps);
         }
         Expression::Literal { .. } => {}

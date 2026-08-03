@@ -153,6 +153,8 @@ struct TypeChecker {
     nested_statement_masks: HashMap<String, Vec<bool>>,
     load_local_modules: HashSet<String>,
     in_use_macro: bool,
+    in_macro_call: bool,
+    macro_names: HashSet<String>,
     allowed_builtins: Option<HashSet<String>>,
     constant_scopes: Vec<HashSet<String>>,
 }
@@ -188,6 +190,8 @@ impl TypeChecker {
             nested_statement_masks: HashMap::new(),
             load_local_modules: HashSet::new(),
             in_use_macro: false,
+            in_macro_call: false,
+            macro_names: HashSet::new(),
             allowed_builtins: Self::load_allowed_builtins(),
             constant_scopes: vec![HashSet::new()],
         }
@@ -210,12 +214,24 @@ impl TypeChecker {
         Some(builtins.allow.into_iter().collect())
     }
 
-    fn collect_load_local_modules(&mut self, statements: &[Statement]) {
+     fn collect_load_local_modules(&mut self, statements: &[Statement]) {
         for statement in statements {
-            if let Statement::LoadLocal { rel_path, .. } = statement
-                && let Some(prefix) = rel_path.last()
-            {
-                self.load_local_modules.insert(prefix.clone());
+            match statement {
+                Statement::LoadLocal { rel_path, .. }
+                    if let Some(prefix) = rel_path.last()
+                =>
+                {
+                    self.load_local_modules.insert(prefix.clone());
+                }
+                Statement::Function {
+                    name, attributes, ..
+                } =>
+                {
+                    if attributes.iter().any(|a| a.name == "macro!") {
+                        self.macro_names.insert(name.clone());
+                    }
+                }
+                _ => {}
             }
         }
     }

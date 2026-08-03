@@ -21,6 +21,8 @@ mod rename;
 mod rename_expression;
 mod select;
 
+pub(crate) use load::resolve_dependency_root;
+
 use crate::avens::{ImportMode, MireDependency, find_project_root, load_manifest_dependencies};
 use crate::error::{ErrorKind, MireError, Result, Span};
 use crate::incremental::{

@@ -224,14 +224,26 @@ fn reject_dot_slash_load() {
 }
 
 #[test]
-fn parse_load_with_alias() {
+fn load_with_alias_is_rejected() {
+    // Phase 4: `load x as y` is intentionally prohibited — aliases hide where
+    // symbols originate. The parser now emits E0018 instead of accepting an
+    // `alias` field.
     let source = "load kioto as std\npub fn main: () {\n    use dasu(\"ok\")\n}\n";
-    let program = parse(source).expect("load with alias should parse");
-    let Statement::Load { path, alias, .. } = &program.statements[0] else {
-        panic!("expected load statement");
-    };
-    assert_eq!(path, &["kioto".to_string()]);
-    assert_eq!(alias.as_deref(), Some("std"));
+    let err = parse(source).expect_err("load with alias must be rejected");
+    match &err.kind {
+        ErrorKind::Type { code, message, .. } => {
+            assert_eq!(
+                code.as_ref().map(|c| c.as_str()),
+                Some("E0018"),
+                "expected E0018, got {code:?}"
+            );
+            assert!(
+                message.contains("alias"),
+                "expected an alias-related message, got: {message}"
+            );
+        }
+        other => panic!("expected Type error with E0018, got {other:?}"),
+    }
 }
 
 #[test]

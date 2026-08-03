@@ -569,6 +569,9 @@ impl SemanticModelBuilder {
             Expression::UseMacro { inner, .. } => {
                 self.visit_expression(inner);
             }
+            Expression::MacroCall { inner, .. } => {
+                self.visit_expression(inner);
+            }
         }
     }
 

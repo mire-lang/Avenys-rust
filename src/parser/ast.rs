@@ -366,6 +366,13 @@ pub enum Expression {
     UseMacro {
         inner: Box<Expression>,
     },
+    /// Macro call `name!(args)`. `inner` is the underlying call expression; the
+    /// `!` is sugar that routes the call to a function declared `@[macro!]`.
+    /// Mirrors `UseMacro`: the pipeline lower/borrowck/codegen arms simply
+    /// delegate to `inner`, so a MacroCall lowers to an ordinary call.
+    MacroCall {
+        inner: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

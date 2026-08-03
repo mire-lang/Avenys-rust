@@ -7,16 +7,17 @@
 
 use super::{ImportResolver, PackageEntry};
 use super::files::load_or_parse_file;
-use crate::avens::{load_exports, load_project_manifest, resolve_export_path};
+use crate::avens::{load_exports, load_project_manifest, resolve_export_path, MireDependency};
 use crate::canonical_fn_name;
 use crate::error::Result;
+use crate::parser::ast::Statement;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::error::Span;
 
 /// Path to the `~/.owl/libs` directory (or `$MIRE_OWL_HOME`).
-pub(super) fn owl_home_libs() -> PathBuf {
+pub(crate) fn owl_home_libs() -> PathBuf {
     if let Some(home) = std::env::var_os("MIRE_OWL_HOME") {
         return PathBuf::from(home);
     }
@@ -33,13 +34,35 @@ pub(super) fn lib_dir_fallback() -> Option<PathBuf> {
 }
 
 /// Expand a leading `~` in a path to the user's home directory.
-pub(super) fn expand_tilde(path: &str) -> PathBuf {
+pub(crate) fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {
             return PathBuf::from(home).join(rest);
         }
     }
     PathBuf::from(path)
+}
+
+/// Resolve a declared dependency (from `[dependencies]`) to its package root.
+/// Mirrors the dependency branch of `resolve_package` without needing the full
+/// `ImportResolver` machinery. Returns `None` if the root does not exist.
+pub(crate) fn resolve_dependency_root(
+    project_root: &Path,
+    name: &str,
+    dep: &MireDependency,
+) -> Option<PathBuf> {
+    let root = match dep {
+        MireDependency::PathOnly { path } | MireDependency::WithPath { path, .. } => {
+            let expanded = expand_tilde(path);
+            if expanded.is_absolute() {
+                expanded
+            } else {
+                project_root.join(expanded)
+            }
+        }
+        MireDependency::Simple { .. } => owl_home_libs().join(name),
+    };
+    if root.exists() { Some(root) } else { None }
 }
 
 /// Resolve a package name to its `(root_path, entry_string)`.
@@ -247,8 +270,35 @@ pub(super) fn infer_reachable_import_items(
         return Ok(None);
     }
 
+    // `extern lib` and `module` statements are not selectable exports — they
+    // are pulled in transitively when a real export's dependency chain is
+    // resolved. Treating them as exports lets a bare lib name (e.g. "SDL3"
+    // from `extern fn ... lib "SDL3"`) match the candidate set and select
+    // only the extern-lib statement, dropping the module's actual functions.
+    let mut non_selectable = HashSet::new();
+    let mut namespace_exports = HashSet::new();
+    for statement in &parsed.program.statements {
+        match statement {
+            Statement::ExternLib { name, .. } | Statement::Module { name } => {
+                non_selectable.insert(name.clone());
+            }
+            Statement::Load { path, alias, .. } => {
+                let name = alias
+                    .as_deref()
+                    .unwrap_or_else(|| path.last().map(String::as_str).unwrap_or(""));
+                if !name.is_empty() {
+                    namespace_exports.insert(name.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     let mut selected = Vec::new();
     for export in &parsed.exports {
+        if non_selectable.contains(export) {
+            continue;
+        }
         let normalized = canonical_fn_name(export);
         let export_tail = normalized
             .rsplit_once('.')
@@ -262,6 +312,21 @@ pub(super) fn infer_reachable_import_items(
                 .is_some_and(|value| candidates.contains(value))
         {
             selected.push(export.to_string());
+            continue;
+        }
+        // A sub-module Load statement is a namespace export. When a caller
+        // references a symbol under that namespace (`timer.delay_precise` →
+        // export `timer`), the whole namespace tree must be pulled in: nested
+        // sub-modules keep their own independent prefixes (e.g. kioto's
+        // `complex.new`, not `math.complex.new`), so a per-statement selection
+        // on the `math.` prefix would drop them. Bail to a full load instead.
+        if namespace_exports.contains(export)
+            && candidates.iter().any(|candidate| {
+                candidate.starts_with(&format!("{export}."))
+                    || candidate.starts_with(&format!("{export}::"))
+            })
+        {
+            return Ok(None);
         }
     }
 

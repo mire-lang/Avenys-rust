@@ -142,6 +142,38 @@ impl Parser {
         let mut expr = self.parse_primary()?;
 
         loop {
+            if self.check(TokenType::Bang) {
+                let (name, name_line, name_column) = match &expr {
+                    Expression::Identifier(Identifier { name, line, column, .. }) => {
+                        (name.clone(), *line, *column)
+                    }
+                    _ => {
+                        return Err(self.error(
+                            "macro invocation requires a function name before '!'",
+                        ))
+                    }
+                };
+                self.advance(); // !
+                if !self.check(TokenType::Lparen) {
+                    return Err(self.error(&format!(
+                        "macro '{name}!' must be invoked with arguments: {name}!(...)"
+                    )));
+                }
+                let args = self.parse_call_arguments()?;
+                let inner = Expression::Call {
+                    name,
+                    args,
+                    type_args: Vec::new(),
+                    name_line,
+                    name_column,
+                    data_type: DataType::Unknown,
+                };
+                expr = Expression::MacroCall {
+                    inner: Box::new(inner),
+                };
+                continue;
+            }
+
             if self.check(TokenType::Lbracket) && self.bracket_followed_by_lparen() {
                 let call_target = match &expr {
                     Expression::Identifier(Identifier { name, .. }) => Some(name.clone()),

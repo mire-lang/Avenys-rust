@@ -230,6 +230,10 @@ pub(super) fn hash_expression(expr: &Expression, hasher: &mut FxHasher) {
             hasher.write_u8(22);
             hash_expression(inner, hasher);
         }
+        Expression::MacroCall { inner } => {
+            hasher.write_u8(97);
+            hash_expression(inner, hasher);
+        }
     }
 }
 

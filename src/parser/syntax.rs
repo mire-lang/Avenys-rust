@@ -50,6 +50,7 @@ pub(super) fn contains_self_placeholder(expr: &Expression) -> bool {
             contains_self_placeholder(value)
         }
         Expression::UseMacro { inner } => contains_self_placeholder(inner),
+        Expression::MacroCall { inner } => contains_self_placeholder(inner),
     }
 }
 

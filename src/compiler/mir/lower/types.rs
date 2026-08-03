@@ -38,6 +38,7 @@ pub(crate) fn extract_data_type(expr: &Expression) -> DataType {
         Expression::EnumVariant { data_type, .. } => data_type.clone(),
         Expression::Ascription { data_type, .. } => data_type.clone(),
         Expression::UseMacro { inner } => extract_data_type(inner),
+        Expression::MacroCall { inner } => extract_data_type(inner),
     }
 }
 
