@@ -142,12 +142,18 @@ pub fn resolve_export_path(
     package_root: &Path,
     name: &str,
 ) -> Option<PathBuf> {
-    exports.get(name).map(|relative| {
+    exports.get(name).and_then(|relative| {
         let candidate = package_root.join(relative);
-        if candidate.extension().is_some() {
-            candidate
+        let canonical = candidate.canonicalize().ok()?;
+        let canonical_root = package_root.canonicalize().ok()?;
+        if canonical.starts_with(canonical_root.as_path()) {
+            if canonical.extension().is_some() {
+                Some(canonical)
+            } else {
+                Some(canonical.join("mod.mire"))
+            }
         } else {
-            candidate.join("mod.mire")
+            None
         }
     })
 }

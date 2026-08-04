@@ -97,6 +97,8 @@ pub struct MireManifest {
     pub builtins: Option<MireBuiltins>,
     #[serde(default)]
     pub macros: Option<MireMacros>,
+    #[serde(default)]
+    pub security: Option<SecurityConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -109,6 +111,44 @@ pub struct ExportsSection {
 pub struct MireMacros {
     #[serde(flatten)]
     pub entries: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum TrustTier {
+    Code,
+    Macros,
+    Ffi,
+}
+
+impl Default for TrustTier {
+    fn default() -> Self {
+        Self::Code
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub mode: SecurityMode,
+    #[serde(default)]
+    pub unsafe_allowed: bool,
+    #[serde(default)]
+    pub asm_allowed: bool,
+    #[serde(default)]
+    pub externs: Vec<String>,
+    #[serde(default)]
+    pub extern_libs: Vec<String>,
+    #[serde(default)]
+    pub macros: Vec<String>,
+    #[serde(default)]
+    pub deps: HashMap<String, TrustTier>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum SecurityMode {
+    #[default]
+    Open,
+    Strict,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

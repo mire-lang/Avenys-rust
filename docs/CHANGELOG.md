@@ -2,6 +2,11 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.24] - 2026-08-04 (.method() syntax for builtin collections)
+
+### Added
+- **`.method()` syntax for builtin collections**: `v.len()`, `v.get::i64(1)`, `m.len()`, `s.len()` now work. The parser normalizes `::` to `.` in dotted names (`src/parser/expression_primary.rs`); `builtin_method_target` in `typeck_expressions.rs` now produces `.`-separated names matching the function table keys. Overloaded methods with type suffixes (`v.get::i64(1)`) are handled by extracting the base method name and delegating type-suffix selection to `builtin_method_target` — no double-suffix appending.
+
 ## [3.24.23] - 2026-08-02 (incremental roundtrip + HOF externs + stale-test migration)
 
 ### Fixed

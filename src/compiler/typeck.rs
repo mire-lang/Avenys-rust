@@ -16,14 +16,17 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::load_project_manifest;
+use crate::avens::{SecurityConfig, SecurityMode, TrustTier};
 
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
 use crate::compiler::{AnalysisSelection, location};
-use crate::error::{MireError, Result, type_error_at_span};
+use crate::error::{MireError, Result, type_error_at_span, type_error_code_at_span};
+use crate::error::diagnostic::DiagnosticCode;
 use crate::incremental::analysis_unit_key;
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement, TraitMethodSig,
 };
+use crate::canonical_fn_name;
 
 #[cfg(test)]
 #[path = "typeck_tests.rs"]
@@ -154,8 +157,11 @@ struct TypeChecker {
     load_local_modules: HashSet<String>,
     in_use_macro: bool,
     in_macro_call: bool,
+    in_macro_definition: bool,
     macro_names: HashSet<String>,
     allowed_builtins: Option<HashSet<String>>,
+    security_config: Option<SecurityConfig>,
+    extern_fn_names: HashSet<String>,
     constant_scopes: Vec<HashSet<String>>,
 }
 
@@ -191,8 +197,11 @@ impl TypeChecker {
             load_local_modules: HashSet::new(),
             in_use_macro: false,
             in_macro_call: false,
+            in_macro_definition: false,
             macro_names: HashSet::new(),
             allowed_builtins: Self::load_allowed_builtins(),
+            security_config: Self::load_security_config(),
+            extern_fn_names: HashSet::new(),
             constant_scopes: vec![HashSet::new()],
         }
     }
@@ -211,10 +220,95 @@ impl TypeChecker {
         if builtins.allow.is_empty() {
             return None;
         }
-        Some(builtins.allow.into_iter().collect())
+Some(builtins.allow.into_iter().collect())
     }
 
-     fn collect_load_local_modules(&mut self, statements: &[Statement]) {
+    /// Loads the `[security]` configuration from the project's owl.toml.
+    /// When the section is absent, returns None (open mode, backward compatible).
+    fn load_security_config() -> Option<SecurityConfig> {
+        let cwd = std::env::current_dir().ok()?;
+        let manifest = load_project_manifest(&cwd).ok()??;
+        manifest.security
+    }
+
+    /// Check if an extern symbol is allowed in strict mode.
+    /// Supports `*` suffix patterns (e.g. `rt_*` matches `rt_panic_loc`).
+    fn is_extern_allowed(&self, symbol: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.externs.is_empty() {
+            return false;
+        }
+        config.externs.iter().any(|pattern| {
+            if let Some(prefix) = pattern.strip_suffix('*') {
+                symbol.starts_with(prefix)
+            } else {
+                symbol == pattern
+            }
+        })
+    }
+
+    /// Check if an extern lib is allowed in strict mode.
+    fn is_extern_lib_allowed(&self, lib: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.extern_libs.is_empty() {
+            return false;
+        }
+        config.extern_libs.iter().any(|allowed| allowed == lib)
+    }
+
+    /// Check if a macro name is allowed in strict mode.
+    fn is_macro_allowed(&self, name: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.macros.is_empty() {
+            return false;
+        }
+        config.macros.iter().any(|allowed| allowed == name)
+    }
+
+    /// Check if `unsafe` is allowed in strict mode.
+    fn is_unsafe_allowed(&self) -> bool {
+        match &self.security_config {
+            Some(c) => c.unsafe_allowed || c.mode != SecurityMode::Strict,
+            None => true,
+        }
+    }
+
+    /// Check if `asm` is allowed in strict mode.
+    fn is_asm_allowed(&self) -> bool {
+        match &self.security_config {
+            Some(c) => c.asm_allowed || c.mode != SecurityMode::Strict,
+            None => true,
+        }
+    }
+
+    /// Get the trust tier for a dependency by name.
+    fn dep_trust_tier(&self, dep_name: &str) -> TrustTier {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return TrustTier::Ffi,
+        };
+        config.deps.get(dep_name).copied().unwrap_or(TrustTier::Code)
+    }
+
+      fn collect_load_local_modules(&mut self, statements: &[Statement]) {
         for statement in statements {
             match statement {
                 Statement::LoadLocal { rel_path, .. }
@@ -418,8 +512,40 @@ impl TypeChecker {
                 cases,
                 default,
             } => self.check_match_statement(value, cases, default),
-            Statement::Unsafe { body, .. } => self.check_scoped_body(body),
-            Statement::Asm { instructions } => self.check_asm_statement(instructions),
+Statement::Unsafe { body, .. } => {
+                if !self.is_unsafe_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0023,
+                        "unsafe blocks are not allowed in strict [security] mode".to_string(),
+                    ));
+                }
+                if self.in_macro_definition && !self.is_unsafe_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0023,
+                        "unsafe blocks are not allowed in macro bodies".to_string(),
+                    ));
+                }
+                self.check_scoped_body(body)
+            }
+            Statement::Asm { instructions } => {
+                if !self.is_asm_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0024,
+                        "asm blocks are not allowed in strict [security] mode".to_string(),
+                    ));
+                }
+                if self.in_macro_definition && !self.is_asm_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0024,
+                        "asm blocks are not allowed in macro bodies".to_string(),
+                    ));
+                }
+                self.check_asm_statement(instructions)
+            }
             Statement::Drop { value } => self.check_drop_statement(value),
             Statement::New {
                 value,
@@ -443,11 +569,42 @@ impl TypeChecker {
             } => self.check_impl_statement(trait_name, type_name, type_params, methods),
             Statement::Type { name, parent, fields, .. } => self.check_type_statement(name, parent.as_deref(), fields),
             Statement::Skill { name, parent, methods, .. } => self.check_skill_statement(name, parent.as_deref(), methods),
-            Statement::Break
-            | Statement::Continue
-            | Statement::ExternLib { .. }
-            | Statement::ExternFunction { .. }
-            | Statement::Enum { .. }
+Statement::Break | Statement::Continue => Ok(()),
+            Statement::ExternLib { name, .. } => {
+                if !self.is_extern_lib_allowed(name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern lib '{name}' is not allowed in [security].extern_libs"
+                        ),
+                    ));
+                }
+                Ok(())
+            }
+            Statement::ExternFunction { name, lib_name, .. } => {
+                self.extern_fn_names.insert(canonical_fn_name(name));
+                if !self.is_extern_allowed(name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern function '{name}' is not allowed in [security].externs"
+                        ),
+                    ));
+                }
+                if !self.is_extern_lib_allowed(lib_name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern lib '{lib_name}' is not allowed in [security].extern_libs"
+                        ),
+                    ));
+                }
+                Ok(())
+            }
+            Statement::Enum { .. }
             | Statement::Module { .. } => Ok(()),
             Statement::Load { .. } => Ok(()),
             Statement::LoadLocal { .. } => Ok(()),

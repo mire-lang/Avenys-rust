@@ -1,6 +1,6 @@
 # Mire Language Reference
 
-Version: **3.24.21**
+Version: **3.24.24**
 
 ---
 
@@ -841,6 +841,36 @@ set val = strings::to_i64("42")
 set full = s + " world"
 ```
 
+### 9.7 Collection method call syntax (`.method()`)
+
+Collection functions can be called with dot syntax instead of the
+`module::function` form. The parser normalizes `::` to `.` in
+dotted names, so the function table keys use `.` as the namespace
+separator (e.g. `vec.len`, not `vec::len`).
+
+```mire
+set nums = [1 2 3] :vec[i64] mut
+
+// Dot syntax — equivalent to vec::len(nums)
+set n = nums.len()
+
+// Overloaded methods with type suffix — equivalent to vec::get::i64(nums 0)
+set first = nums.get::i64(0)
+
+// Map dot syntax — equivalent to map::len(m)
+set m = {} :map[str i64]
+set m = map::set(m "key" 42)
+set size = m.len()
+
+// String dot syntax — equivalent to str::len(s)
+set s = "hello" :str
+set n = s.len()
+```
+
+The compiler resolves the base method name (e.g. `len`) and then
+selects the correct overload from the receiver's element type
+(e.g. `i64` for `vec[i64]`). No double-suffix appending occurs.
+
 ---
 
 ## 10. Structs
@@ -1451,3 +1481,77 @@ pub fn main: () :i64 {
  return 0
 }
 ```
+
+## 19. Macros
+
+A macro is a function whose call syntax uses `!` instead of
+regular call parentheses. Macros are declared with the
+`@[macro!]` attribute and invoked as `name!(args)`.
+
+```mire
+@[macro!] pub fn assert: (cond :bool msg :str) {
+ if !cond { rt_panic_loc msg }
+}
+
+@[macro!] pub fn dbg: (v :i64) :i64 {
+ dasu(v); return v
+}
+```
+
+**Key properties:**
+
+- **Macros are function-call sugar.** `name!(args)` is parsed as a
+  regular `Call` expression wrapped in a `MacroCall` node. Every
+  compiler phase (typeck, borrowck, MIR lowering, codegen) treats
+  it as a pass-through to the inner call — there is no AST rewriting,
+  no compile-time evaluation, and no access to the caller's source.
+- **No host AST access.** A macro receives only runtime values
+  matching its signature (`:str`, `:i64`, `:bool`, etc.). It cannot
+  see or modify the caller's AST, token stream, or surrounding code.
+- **Hygiene is guaranteed by construction.** Since macros are compiled
+  as ordinary functions with lexical scope, there is no token capture,
+  no name collision, and no quote/unquote splicing. Variable hygiene
+  follows the same rules as any other Mire function.
+- **Macro names are allowlisted.** Only functions declared with
+  `@[macro!]` whose names appear in the project's `[macros]` section
+  of `owl.toml` can be invoked with `!` syntax. Calling a macro name
+  without `!` is rejected (E0020); calling a non-allowlisted name with
+  `!` is rejected (E0019).
+- **No compile-time execution.** Macros run at runtime inside the
+  final binary, with the same privileges and restrictions as any other
+  function. There is no interpreter, const-eval, or macro-expansion
+  engine in the compiler.
+
+### 19.1 Built-in macros
+
+The standard library provides three macros:
+
+| Macro | Signature | Description |
+|-------|-----------|-------------|
+| `assert!` | `(cond :bool, msg :str)` | Panic with message if condition is false |
+| `dbg!` | `(v :i64) :i64` | Print value to stdout, return it unchanged |
+| `panic!` | `(msg :str)` | Halt with message (never returns) |
+| `unreachable` | `()` | Assert code is unreachable (never returns) |
+
+### 19.2 Writing custom macros
+
+```mire
+@[macro!] pub fn clamp: (v :i64 lo :i64 hi :i64) :i64 {
+ if v < lo { return lo }
+ if v > hi { return hi }
+ return v
+}
+
+set x = clamp!(42 0 100)  // → 42
+```
+
+Custom macros are declared in the project's `owl.toml` under
+`[macros]`:
+
+```toml
+[macros]
+clamp = "core/macros/clamp.mire"
+```
+
+The macro file must contain a function with the `@[macro!]`
+attribute matching the declared name.

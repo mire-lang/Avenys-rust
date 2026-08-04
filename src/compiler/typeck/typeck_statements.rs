@@ -357,6 +357,10 @@ impl TypeChecker {
         body: &mut [Statement],
         return_type: &mut DataType,
     ) -> Result<()> {
+        let is_macro = self.macro_names.contains(name);
+        let old_in_macro_def = self.in_macro_definition;
+        self.in_macro_definition = is_macro;
+
         self.functions.insert(
             canonical_fn_name(name),
             FunctionSig {
@@ -410,6 +414,8 @@ impl TypeChecker {
         }
 
         self.pop_scope();
+
+        self.in_macro_definition = old_in_macro_def;
 
         if let Some(sig) = self.functions.get_mut(name) {
             sig.return_type = return_type.clone();

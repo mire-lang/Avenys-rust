@@ -625,10 +625,14 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
 /// dependencies are scanned (macro libraries don't chain further). Injected
 /// statements are de-duplicated by kind/name so re-running on the cached path
 /// is safe (this is only called on the uncached build path).
+///
+/// In strict security mode, macros from dependencies are only injected when
+/// the dependency's trust tier is `macros` or `ffi`.
 pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_path: &std::path::Path) {
     use crate::loader::resolve_dependency_root;
     use crate::parser::parse_with_recovery;
     use crate::parser::ast::Statement;
+    use crate::avens::config::{SecurityConfig, SecurityMode, TrustTier};
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -636,6 +640,8 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
         Some(root) => root,
         None => return,
     };
+
+    let security_config = load_security_config();
 
     // Names already present in the program (macros may be declared locally).
     let mut existing_fns: HashSet<String> = program
@@ -708,6 +714,13 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
 
     if let Ok(Some(manifest)) = load_project_manifest(&project_root) {
         for (dep_name, dep) in manifest.dependencies.entries.iter() {
+            let tier = security_config
+                .as_ref()
+                .and_then(|c| c.deps.get(dep_name).copied())
+                .unwrap_or(TrustTier::Code);
+            if tier < TrustTier::Macros {
+                continue;
+            }
             let Some(root) = resolve_dependency_root(&project_root, dep_name, dep) else {
                 continue;
             };
@@ -720,16 +733,26 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
     }
 }
 
+fn load_security_config() -> Option<SecurityConfig> {
+    let cwd = std::env::current_dir().ok()?;
+    let manifest = crate::load_project_manifest(&cwd).ok()??;
+    manifest.security
+}
+
 fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::path::PathBuf> {
     let candidate = root.join(rel_path);
-    if candidate.is_file() {
-        return Some(candidate);
+    let canonical = candidate.canonicalize().ok()?;
+    if !canonical.starts_with(root.canonicalize().ok()?.as_path()) {
+        return None;
     }
-    let with_ext = candidate.with_extension("mire");
+    if canonical.is_file() {
+        return Some(canonical);
+    }
+    let with_ext = canonical.with_extension("mire");
     if with_ext.is_file() {
         return Some(with_ext);
     }
-    let mod_file = candidate.join("mod.mire");
+    let mod_file = canonical.join("mod.mire");
     if mod_file.is_file() {
         return Some(mod_file);
     }

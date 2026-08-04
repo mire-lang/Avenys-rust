@@ -1,5 +1,6 @@
 use crate::error::{Result, type_error_at_span, type_error_code_at_span, DiagnosticCode};
 use crate::parser::ast::{DataType, Expression, Identifier, Literal};
+use crate::canonical_fn_name;
 
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
@@ -147,27 +148,37 @@ impl TypeChecker {
                 self.in_use_macro = false;
                 result
             }
-            Expression::MacroCall { inner } => {
-                let name = match inner.as_ref() {
-                    Expression::Call { name, .. } => Some(name.clone()),
-                    _ => None,
-                };
-                if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
-                    let label = name.unwrap_or_else(|| "?".to_string());
-                    return Err(type_error_code_at_span(
-                        self.current_span,
-                        DiagnosticCode::E0019,
-                        format!(
-                            "no macro named '{label}'\n\n\
-                             (macros are declared with `@[macro!]` and invoked with `name!(...)`)"
-                        ),
-                    ));
-                }
-                self.in_macro_call = true;
-                let result = self.check_expression(inner);
-                self.in_macro_call = false;
-                result
-            }
+Expression::MacroCall { inner } => {
+                 let name = match inner.as_ref() {
+                     Expression::Call { name, .. } => Some(name.clone()),
+                     _ => None,
+                 };
+                 if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
+                     let label = name.unwrap_or_else(|| "?".to_string());
+                     return Err(type_error_code_at_span(
+                         self.current_span,
+                         DiagnosticCode::E0019,
+                         format!(
+                             "no macro named '{label}'\n\n\
+                              (macros are declared with `@[macro!]` and invoked with `name!(...)`)"
+                         ),
+                     ));
+                 }
+                 let label = name.clone().unwrap_or_default();
+                 if !self.is_macro_allowed(&label) {
+                     return Err(type_error_code_at_span(
+                         self.current_span,
+                         DiagnosticCode::E0021,
+                         format!(
+                             "macro '{label}' is not allowed in this project's [security].macros allowlist"
+                         ),
+                     ));
+                 }
+                 self.in_macro_call = true;
+                 let result = self.check_expression(inner);
+                 self.in_macro_call = false;
+                 result
+             }
             Expression::Call {
                 name,
                 args,
@@ -202,6 +213,19 @@ impl TypeChecker {
                         DiagnosticCode::E0020,
                         format!(
                             "macro '{name}' must be invoked with `!`: use `{name}!(...)`",
+                        ),
+                    ));
+                }
+                // Macro body sandbox: macro bodies cannot call extern functions
+                // unless they are in the [security].externs allowlist.
+                if self.in_macro_definition && self.extern_fn_names.contains(&canonical_fn_name(name))
+                    && !self.is_extern_allowed(name)
+                {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0021,
+                        format!(
+                            "macro bodies cannot call extern function '{name}' (not in [security].externs allowlist)"
                         ),
                     ));
                 }
