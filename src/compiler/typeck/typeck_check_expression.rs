@@ -1,6 +1,5 @@
-use crate::error::{Result, type_error_at_span, type_error_code_at_span};
-use crate::parser::ast::{DataType, Expression, Literal};
-use crate::error::DiagnosticCode;
+use crate::error::{Result, type_error_at_span, type_error_code_at_span, DiagnosticCode};
+use crate::parser::ast::{DataType, Expression, Identifier, Literal};
 
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
@@ -173,8 +172,8 @@ impl TypeChecker {
                 name,
                 args,
                 type_args,
-                name_line: _,
-                name_column: _,
+                name_line,
+                name_column,
                 data_type,
             } => {
                 // A qualified call into a `load!`-imported module is only
@@ -418,6 +417,34 @@ impl TypeChecker {
                             *data_type = DataType::Unknown;
                             return Ok(DataType::Unknown);
                         }
+                    }
+                }
+
+                // Phase 3c: builtin collection methods via `.method()` syntax.
+                // `v.len()` parses to Call{ name: "v.len", args: [...] } (the
+                // receiver identifier is folded into the dotted name). Rewrite
+                // to the namespaced library call (e.g. "vec.len(v, ...)") with
+                // the receiver prepended, then let normal resolution below handle
+                // the rewritten call. Only fires for `ident.method` where `ident`
+                // is a collection-typed local; struct methods and enum variants
+                // fall through to their existing handlers untouched.
+                // Overloaded methods like `v.get::i64(1)` parse as "v.get.i64"
+                // (the parser converts `::` to `.`); the type suffix after the
+                // second dot is handled by builtin_method_target which picks the
+                // correct variant based on the receiver's actual element type.
+                if let Some((receiver_name, method)) = name.split_once('.')
+                    && let Some((receiver_ty, _)) = self.lookup_var(receiver_name)
+                {
+                    let base_method = method.split_once('.').map(|(base, _)| base).unwrap_or(method);
+                    if let Some(target) = Self::builtin_method_target(&receiver_ty, base_method) {
+                        let receiver = Expression::Identifier(Identifier {
+                            name: receiver_name.to_string(),
+                            data_type: receiver_ty.clone(),
+                            line: *name_line,
+                            column: *name_column,
+                        });
+                        args.insert(0, receiver);
+                        *name = target;
                     }
                 }
 

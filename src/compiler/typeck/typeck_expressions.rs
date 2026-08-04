@@ -627,4 +627,97 @@ impl TypeChecker {
             ),
         ))
     }
+
+    /// Phase 3c: route `receiver.method(args)` to the underlying collection
+    /// library call (e.g. `v.len()` -> `vec::len(v)`) by computing the
+    /// namespaced target name. `method` is the bare method name (no receiver).
+    /// Type-directed: the element/value type selects the `::i64`/`:str` variant
+    /// of overloaded stdlib functions (e.g. `vec::contains::i64`).
+    pub(super) fn builtin_method_target(
+        receiver: &DataType,
+        method: &str,
+    ) -> Option<String> {
+        let receiver = match receiver {
+            DataType::Ref { inner } | DataType::RefMut { inner } => inner.as_ref(),
+            other => other,
+        };
+        match receiver {
+            DataType::Vector { element_type, .. } => {
+                let e = type_suffix(element_type);
+                let name = match method {
+                    "len" => return Some("vec.len".to_string()),
+                    "contains" => format!("vec.contains.{e}"),
+                    "get" => format!("vec.get.{e}"),
+                    "set" => format!("vec.set.{e}"),
+                    "push" => format!("vec.push.{e}"),
+                    "first" => format!("vec.first.{e}"),
+                    "last" => format!("vec.last.{e}"),
+                    "index" => format!("vec.index.{e}"),
+                    "remove" => "vec.remove".to_string(),
+                    "clear" => "vec.clear".to_string(),
+                    "sort" => "vec.sort".to_string(),
+                    "reverse" => "vec.reverse".to_string(),
+                    "unique" => "vec.unique".to_string(),
+                    "flatten" => "vec.flatten".to_string(),
+                    "concat" => "vec.concat".to_string(),
+                    "join" => "vec.join".to_string(),
+                    "slice" => "vec.slice".to_string(),
+                    _ => return None,
+                };
+                Some(name)
+            }
+            DataType::Map { value_type, .. } => {
+                let v = type_suffix(value_type);
+                let name = match method {
+                    "len" => return Some("map.len".to_string()),
+                    "has" => return Some("map.has".to_string()),
+                    "remove" => return Some("map.remove".to_string()),
+                    "keys" => return Some("map.keys".to_string()),
+                    "entries" => return Some("map.entries".to_string()),
+                    "count" => return Some("map.count".to_string()),
+                    "merge" => return Some("map.merge".to_string()),
+                    "get" => format!("map.get.{v}"),
+                    "set" => format!("map.set.{v}"),
+                    "values" => format!("map.values.{v}"),
+                    "is_empty" => "map.is.empty".to_string(),
+                    _ => return None,
+                };
+                Some(name)
+            }
+            DataType::Str => Some(match method {
+                "len" => "str.len",
+                "contains" => "str.contains",
+                "index" => "str.index",
+                "replace" => "str.replace",
+                "replace_first" => "str.replace.first",
+                "starts_with" => "str.starts.with",
+                "ends_with" => "str.ends.with",
+                "trim" => "str.trim",
+                "strip" => "str.strip",
+                "to_upper" => "str.upper",
+                "to_lower" => "str.lower",
+                "pad_left" => "str.pad.left",
+                "pad_right" => "str.pad.right",
+                "split" => "str.split",
+                "substr" => "str.substr",
+                "repeat" => "str.repeat",
+                "copy" => "str.copy",
+                "is_empty" => "str.is.empty",
+                "concat" => "str.concat",
+                _ => return None,
+            }.to_string()),
+            _ => None,
+        }
+    }
+}
+
+fn type_suffix(t: &DataType) -> &'static str {
+    match t {
+        DataType::I64 | DataType::I32 | DataType::I16 | DataType::I8 | DataType::U64 | DataType::U32 => "i64",
+        DataType::Str => "str",
+        DataType::Bool => "bool",
+        DataType::F64 => "f64",
+        DataType::Char => "char",
+        _ => "i64",
+    }
 }

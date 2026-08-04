@@ -210,6 +210,32 @@ char   *rt_fs_read_bytes(const char *path);
 
 // Safe channel receive into a caller-owned buffer (no PAL bytes handoff).
 int64_t rt_channel_recv_into(int64_t ch_handle, char *buf, int64_t capacity);
+
+// ── Raw buffer allocation ──────────────────────────────────────────
+// Unmanaged malloc/free for opaque FFI buffers (SDL_Event, pixels, ...).
+void   *rt_alloc_raw(int64_t size);
+void    rt_free_raw(void *ptr);
+
+// ── Raw memory readers (little-endian) ──────────────────────────────
+// Used by FFI bindings to decode C structs (SDL_Event, SDL_Rect, ...).
+int64_t rt_read_u8(const void *ptr);
+int64_t rt_read_u16(const void *ptr);
+int64_t rt_read_u32(const void *ptr);
+int64_t rt_read_i32(const void *ptr);
+int64_t rt_read_u64(const void *ptr);
+int64_t rt_read_ptr(const void *ptr);
+double  rt_read_f64(const void *ptr);
+
+// ── Raw memory writers (little-endian) ──────────────────────────────
+// Used by FFI bindings to encode C structs before passing to C.
+void rt_write_u8(void *ptr, int64_t value);
+void rt_write_u16(void *ptr, int64_t value);
+void rt_write_u32(void *ptr, int64_t value);
+void rt_write_i32(void *ptr, int64_t value);
+void rt_write_f32(void *ptr, double value);
+void rt_write_f64(void *ptr, double value);
+void rt_write_u64(void *ptr, int64_t value);
+
 int64_t rt_lists_pop(void *list);
 void   *rt_lists_slice(void *list, int64_t start, int64_t end);
 void   *rt_lists_concat(void *a, void *b);

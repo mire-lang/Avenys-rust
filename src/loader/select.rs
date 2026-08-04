@@ -34,25 +34,31 @@ pub(super) fn select_imported_statements(
         let mut selected_indices = Vec::new();
         let mut selected = HashSet::new();
         for item in items {
-            let statement_idx = statements
+            // Exact export match, or namespace-prefix match when `item` refers
+            // to a sub-module Load statement (e.g. `timer` → `timer.delay_precise`).
+            let matched: Vec<usize> = statements
                 .iter()
                 .enumerate()
-                .find(|statement| {
-                    statement_export_name(&statement.1.statement) == Some(item.as_str())
+                .filter(|statement| {
+                    statement_export_name(&statement.1.statement)
+                        .is_some_and(|name| name == item.as_str() || name.starts_with(&format!("{item}.")))
                 })
                 .map(|(idx, _)| idx)
-                .ok_or_else(|| {
-                    MireError::new(ErrorKind::Runtime {
-                        span,
-                        message: format!(
-                            "Local load '{}' does not export '{}'",
-                            import_path.display(),
-                            item
-                        ),
-                    })
-                })?;
-            if selected.insert(statement_idx) {
-                selected_indices.push(statement_idx);
+                .collect();
+            if matched.is_empty() {
+                return Err(MireError::new(ErrorKind::Runtime {
+                    span,
+                    message: format!(
+                        "Local load '{}' does not export '{}'",
+                        import_path.display(),
+                        item
+                    ),
+                }));
+            }
+            for idx in matched {
+                if selected.insert(idx) {
+                    selected_indices.push(idx);
+                }
             }
         }
 

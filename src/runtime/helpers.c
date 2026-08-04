@@ -163,3 +163,89 @@ int64_t rt_channel_recv_into(int64_t ch_handle, char *buf, int64_t capacity) {
     pal_free(out.data);
     return n;
 }
+
+// ── Raw buffer allocation ─────────────────────────────────────────
+// Unmanaged malloc/free for passing opaque buffers (SDL_Event, SDL_Rect,
+// pixel data) across FFI. Caller is responsible for pairing these; the
+// runtime never touches the memory (not managed, not GC'd).
+void *rt_alloc_raw(int64_t size) {
+    if (size <= 0) return NULL;
+    return malloc((size_t)size);
+}
+void rt_free_raw(void *ptr) {
+    if (ptr) free(ptr);
+}
+
+// ── Raw memory readers (little-endian) ────────────────────────────
+// Little-endian typed reads from arbitrary buffers (used by FFI bindings
+// to decode C structs such as SDL_Event without needing struct support).
+int64_t rt_read_u8(const void *ptr) {
+    return (int64_t)(unsigned char)((const unsigned char *)ptr)[0];
+}
+int64_t rt_read_u16(const void *ptr) {
+    const unsigned char *p = (const unsigned char *)ptr;
+    return (int64_t)(p[0] | ((unsigned int)p[1] << 8));
+}
+int64_t rt_read_u32(const void *ptr) {
+    const unsigned char *p = (const unsigned char *)ptr;
+    return (int64_t)((unsigned int)p[0] | ((unsigned int)p[1] << 8) |
+                     ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24));
+}
+int64_t rt_read_i32(const void *ptr) {
+    const unsigned char *p = (const unsigned char *)ptr;
+    uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                 ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return (int64_t)(int32_t)v;
+}
+int64_t rt_read_u64(const void *ptr) {
+    uint64_t v = 0;
+    const unsigned char *p = (const unsigned char *)ptr;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
+    return (int64_t)v;
+}
+int64_t rt_read_ptr(const void *ptr) {
+    return rt_read_u64(ptr);
+}
+double rt_read_f64(const void *ptr) {
+    union { uint64_t u; double f; } conv;
+    conv.u = 0;
+    const unsigned char *p = (const unsigned char *)ptr;
+    for (int i = 0; i < 8; i++) conv.u |= (uint64_t)p[i] << (8 * i);
+    return conv.f;
+}
+
+// ── Raw memory writers ────────────────────────────────────────────
+void rt_write_u8(void *ptr, int64_t value) {
+    ((unsigned char *)ptr)[0] = (unsigned char)value;
+}
+void rt_write_u16(void *ptr, int64_t value) {
+    unsigned char *p = (unsigned char *)ptr;
+    p[0] = (unsigned char)value;
+    p[1] = (unsigned char)(value >> 8);
+}
+void rt_write_u32(void *ptr, int64_t value) {
+    unsigned char *p = (unsigned char *)ptr;
+    p[0] = (unsigned char)value;
+    p[1] = (unsigned char)(value >> 8);
+    p[2] = (unsigned char)(value >> 16);
+    p[3] = (unsigned char)(value >> 24);
+}
+void rt_write_i32(void *ptr, int64_t value) {
+    rt_write_u32(ptr, (int64_t)(int32_t)value);
+}
+void rt_write_f32(void *ptr, double value) {
+    union { uint32_t u; float f; } conv;
+    conv.f = (float)value;
+    rt_write_u32(ptr, (int64_t)conv.u);
+}
+void rt_write_f64(void *ptr, double value) {
+    union { uint64_t u; double f; } conv;
+    conv.f = value;
+    rt_write_u64(ptr, (int64_t)conv.u);
+}
+void rt_write_u64(void *ptr, int64_t value) {
+    unsigned char *p = (unsigned char *)ptr;
+    uint64_t v = (uint64_t)value;
+    for (int i = 0; i < 8; i++) p[i] = (unsigned char)(v >> (8 * i));
+}
+
