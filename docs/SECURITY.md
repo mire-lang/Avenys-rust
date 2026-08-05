@@ -131,7 +131,7 @@ mire = "macros"
 1. **"Extern function not allowed"**: Add the symbol pattern to `[security].externs`.
 2. **"Macro not allowed"**: Add the macro name to `[security].macros`.
 3. **"Dependency trust tier insufficient"**: Add the dependency to `[security.deps]` with the appropriate tier.
-4. **"Unsafe block not allowed"**: Remove `unsafe` blocks or add `unsafe = true` (not recommended).
+4. **"Unsafe block not allowed"**: Remove `unsafe` blocks or add `unsafe_allowed = true` (not recommended).
 
 ### Upgrading from open to strict
 

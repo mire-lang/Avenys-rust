@@ -114,6 +114,7 @@ pub struct MireMacros {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TrustTier {
     Code,
     Macros,
@@ -145,6 +146,7 @@ pub struct SecurityConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
     #[default]
     Open,
