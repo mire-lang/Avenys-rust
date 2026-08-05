@@ -2,6 +2,103 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.26] - 2026-08-05 (shell migration: proc::run::shell removed)
+
+### Removed
+
+- **`proc::run::shell` removed**: the last Mire surface that invoked a shell
+  (`/bin/sh -c`) via `popen`/`system()` is gone. All process launching is now
+  argv-safe (`fork`+`execvp`, no shell interpolation). The old escape hatch
+  `proc::run::shell(cmd)` is replaced by:
+  - `proc::run::output_cwd(cmd, args, cwd, merge_err)` — argv capture with
+    optional working directory and stderr merge.
+  - `proc::run::last_exit()` — exit code of the last capture (0 = success,
+    126 = bad cwd, 127 = spawn failure).
+  - `proc::run::read_line()` — reads the controlling terminal directly (no
+    subprocess; returns `"y"` in non-interactive contexts).
+- **`PAL_ALLOW_LEGACY_SHELL` default flipped to `0`**: `pal_proc_system`,
+  `pal_proc_capture`, `pal_proc_capture_output`, and `rt_proc_capture_output`
+  are compiled out by default. Re-enable with `-DPAL_ALLOW_LEGACY_SHELL=1`
+  only for explicitly-trusted host-side code.
+- **`language_regressions.rs` test `pal_proc_shell_echo`** renamed to
+  `pal_proc_argv_echo` and rewritten to use `proc::run::output` (argv) instead
+  of `proc::run::shell`.
+
+### Changed
+
+- **`PAL_ALLOW_LEGACY_SHELL` default changed from `1` to `0`** in
+  `src/pal/pal.h`. All runtime shell functions are now gated behind this flag.
+- **kioto `core/proc/mod.mire`**: removed `proc::run::shell` and its
+  `rt_proc_capture_output` extern; added `rt_proc_capture_argv2`,
+  `rt_proc_last_exit`, `rt_read_tty` externs and the `output_cwd`,
+  `last_exit`, `read_line` APIs.
+- **owl tool**: `code/upgrade/mod.mire`, `code/install/mod.mire`, and
+  `code/registry/mod.mire` migrated from shell commands to argv-safe
+  `proc::run::output_cwd` / `proc::run::read_line` calls.
+- **owl test suite**: all 5 `test_owl_*.mire` files rewritten to use argv
+  APIs exclusively (no `cd &&`, no `2>&1`, no `mkdir -p`, no `rm -rf` via
+  shell — all via `proc::run::output` / `proc::run::output_cwd`).
+
+## [3.24.25] - 2026-08-05 (WAL cache concurrency hardening)
+
+### Fixed
+
+- **WAL cache corruption under parallel builds** (`incremental/cache.rs`): `mire test -j N` runs
+  N threads in one process, each with its own `IncrementalCache` but all sharing one `bin/.cache`.
+  The old WAL filename was just `{timestamp_ms}.wal`, so two writers starting in the same
+  millisecond opened the same path with `File::create` — one truncating the other's file to
+  invalid/partial UTF-8 JSON. The next load then failed hard with
+  `Cannot decode WAL file '<path>/wal/<ts>.wal' at line 1: EOF while parsing an object ...`,
+  which only self-healed when a concurrent `clear_wal` happened to delete the corrupt file
+  (the "must `rm -rf bin/.cache`" failure).
+- **Hard load failure on any corrupt WAL line**: a truncated/interleaved WAL line now drops
+  just that file (with a warning) and replays the records that decoded, instead of failing the
+  whole cache load.
+- **WAL files removed only by their owner**: `save()` previously ran `clear_wal`, deleting WAL
+  files that a concurrent writer may still have been writing. It now tracks the paths this
+  instance created and removes only those; abandoned writers' files are bounded by age.
+- **Fresh-cache wipe race** (`incremental/cache.rs` `load_with_settings`): on a brand-new
+  `bin/.cache` every parallel `mire test` thread read "no version file" and each ran
+  `remove_dir_all` on the shared directory while its siblings were mid-write — deleting their
+  blobs/WAL files. Cache initialization (version check + wipe + version write + WAL prune) is
+  now serialized with an exclusive `create_dir` init lock; non-holders wait (stale-lock timeout
+  for crashed holders).
+- **Test harness leaked into the analysis cache** (`avens/build_pipeline.rs`): the uncached
+  build path ran `inject_test_harness` (which replaces the user's `main` with the test runner)
+  *before* `store_analysis`, so `mire test` persisted the harness-injected program under the
+  normal analysis key. A later `mire run`/`owl run` (same source/hash/fingerprint) loaded that
+  polluted entry and executed tests instead of the real `main`. The harness is now injected only
+  into the codegen copy, after analysis and after the clean program is stored.
+- **Build cache could not tell test and normal builds apart** (`incremental/utils.rs`
+  `build_cache_key`): `test_mode` was not part of the key, so a test-mode build and a run-mode
+  build with the same profile collided and served each other's binaries. `test_mode` is now a
+  key component (passed through `build_entry`/`store_build`).
+
+### Changed
+
+- WAL filenames are now `{timestamp_ms}-{pid}-{seq}.wal`, created with `O_CREAT|O_EXCL`
+  (`create_new`), so concurrent writers can never collide. Records are flushed with `sync_all`.
+- All meta writes (`index/*`, `version.txt`) and blob stores go through `atomic_write`
+  (unique `.name.tmp.{seq}` temp + `fs::rename`); readers never observe a partial file.
+- Blob GC and WAL pruning are age-gated (`WAL_GRACE_SECS=60`, `BLOB_GRACE_SECS=30`) so cleanup
+  never races an in-flight writer's freshly written file.
+- `NEW_FORMAT_VERSION` bumped 3 → 5: caches holding corrupt same-ms WAL files, and caches whose
+  analysis entries may hold a baked-in test harness, are wiped once so every consumer starts
+  from a clean, concurrency-safe layout.
+
+### Tests
+
+- `wal_filenames_are_collision_free_across_writes`: 50 back-to-back WAL writes produce 50
+  unique files that all replay.
+- `replay_wal_ignores_corrupt_and_truncated_files`: a truncated JSON WAL and a binary-garbage
+  WAL are dropped (with warnings) while the valid file's records still replay.
+- `prune_stale_wal_removes_only_old_files`: only files older than the grace window are removed.
+- `concurrent_caches_share_one_cache_dir_without_corruption`: 8 threads × 16 store rounds on a
+  single shared `bin/.cache` (including the simultaneous cold start), then a fresh load must see
+  all 8 writers' final entries.
+- `build_cache_distinguishes_test_and_normal_builds`: storing the same build with `test_mode`
+  true then false yields two distinct entries, each retrievable by its own key.
+
 ## [3.24.24] - 2026-08-04 (.method() syntax for builtin collections)
 
 ### Added

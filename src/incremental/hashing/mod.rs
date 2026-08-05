@@ -845,4 +845,137 @@ mod tests {
         assert!(report.changed_units.contains(&"Point#x".to_string()));
         assert!(report.invalidated_units.contains(&"main".to_string()));
     }
+
+    #[test]
+    fn build_cache_distinguishes_test_and_normal_builds() {
+        // `mire test` (test harness injected) and `mire run`/`build` share a
+        // mode/import_mode/emit/persist profile, so the build cache key MUST
+        // include test_mode — otherwise a harness binary is served to `owl run`
+        // (tests print instead of the report). Regression for the
+        // test-then-run build-cache collision.
+        use crate::avens::{BuildMode, ImportMode, OptLevel};
+
+        let root = std::env::temp_dir().join(format!("mire_cache_testmode_{}", now_epoch_ms()));
+        setup_test_root(&root, &root.join("main.mire"));
+
+        let mut cache =
+            IncrementalCache::load_with_settings(&root.join("main.mire"), test_settings())
+                .expect("load");
+
+        let entry = |emit: bool, persist: bool| BuildCacheEntry {
+            fingerprint: 42,
+            mode: BuildMode::Debug,
+            import_mode: ImportMode::default(),
+            opt_level: OptLevel::O0,
+            emit_binary: emit,
+            persist_ir: persist,
+            binary_path: PathBuf::from("test_bin"),
+            ir_path: None,
+            optimized_ir_path: None,
+        };
+
+        cache.store_build(&root.join("main.mire"), entry(true, false), true);
+        cache.store_build(&root.join("main.mire"), entry(true, false), false);
+
+        assert!(
+            cache
+                .build_entry(
+                    &root.join("main.mire"),
+                    BuildMode::Debug,
+                    ImportMode::default(),
+                    true,
+                    false,
+                    true
+                )
+                .is_some(),
+            "test-mode build entry must be found"
+        );
+        let normal = cache
+            .build_entry(
+                &root.join("main.mire"),
+                BuildMode::Debug,
+                ImportMode::default(),
+                true,
+                false,
+                false,
+            )
+            .expect("normal build entry must be found");
+        assert_eq!(normal.binary_path, PathBuf::from("test_bin"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn concurrent_caches_share_one_cache_dir_without_corruption() {
+        // Mirrors `mire test -j N`: N threads each own an IncrementalCache but
+        // all write to the same bin/.cache. Previously the shared WAL
+        // `{ts}.wal` filename collided across threads and truncated a file to
+        // invalid UTF-8 JSON, hard-failing the next load. The hardened WAL
+        // (pid+seq names, create_new, tolerant replay) must make this safe.
+        let root = std::env::temp_dir().join(format!("mire_cache_par_{}", now_epoch_ms()));
+        fs::create_dir_all(&root).expect("temp dir");
+        fs::write(
+            root.join("owl.toml"),
+            "[project]\nname = \"test\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n",
+        )
+        .expect("owl.toml");
+        for i in 0..8 {
+            fs::write(root.join(format!("mod{i}.mire")), "pub fn main: () {}\n").expect("source");
+        }
+
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for i in 0..8 {
+                let root = root.clone();
+                handles.push(scope.spawn(move || {
+                    let source_path = root.join(format!("mod{i}.mire"));
+                    let mut cache =
+                        IncrementalCache::load_with_settings(&source_path, test_settings())
+                            .expect("load");
+                    for round in 0..16 {
+                        cache
+                            .store_file(
+                                &source_path,
+                                CachedParsedFile {
+                                    hash: i as u64 + round,
+                                    hash2: i as u64 + round,
+                                    program: demo_program(&format!("main_{i}")),
+                                    exports: vec!["main".to_string()],
+                                    local_imports: Vec::new(),
+                                },
+                            )
+                            .expect("store file");
+                        cache
+                            .store_analysis(
+                                &source_path,
+                                i as u64 + round,
+                                0,
+                                &demo_program(&format!("typed_{i}")),
+                            )
+                            .expect("store analysis");
+                    }
+                    cache.save().expect("save");
+                    (i, source_path)
+                }));
+            }
+            for handle in handles {
+                handle.join().expect("thread joined");
+            }
+        });
+
+        // Every writer's entries must survive a fresh load: no truncation, no
+        // lost WAL records, no hard failures.
+        let mut found = 0usize;
+        for i in 0..8 {
+            let source_path = root.join(format!("mod{i}.mire"));
+            let mut cache =
+                IncrementalCache::load_with_settings(&source_path, test_settings()).expect("reload");
+            if cache.cached_analysis(&source_path, i as u64 + 15, 0).is_some() {
+                found += 1;
+            }
+        }
+        assert_eq!(found, 8, "all writers' final entries must roundtrip");
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

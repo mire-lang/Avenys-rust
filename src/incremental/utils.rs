@@ -67,9 +67,10 @@ pub(crate) fn build_cache_key(
     import_mode: ImportMode,
     emit_binary: bool,
     persist_ir: bool,
+    test_mode: bool,
 ) -> String {
     format!(
-        "{}::{mode:?}::{import_mode:?}::{emit_binary}::{persist_ir}",
+        "{}::{mode:?}::{import_mode:?}::{emit_binary}::{persist_ir}::test={test_mode}",
         normalize_path_key(source_path)
     )
 }

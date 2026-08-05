@@ -126,6 +126,7 @@ fn compile_file_inner(
         options.import_mode,
         options.emit_binary,
         options.persist_ir,
+        options.test_mode,
     ) && entry.fingerprint == fingerprint
         && (!options.emit_binary || entry.binary_path.exists())
         && entry.binary_path == binary_path
@@ -168,9 +169,6 @@ fn compile_file_inner(
         match cached {
             CachedAnalysis::Success(mut program) => {
                 apply_cfg_filter(&mut program);
-                if options.test_mode {
-                    inject_test_harness(&mut program);
-                }
                 program
             }
             CachedAnalysis::Error(error) => return Err(error),
@@ -179,9 +177,6 @@ fn compile_file_inner(
         let mut program = loaded.program;
         apply_cfg_filter(&mut program);
         inject_macros(&mut program, source_path);
-        if options.test_mode {
-            inject_test_harness(&mut program);
-        }
         let analysis_result = if let Some(cached) =
             cache.latest_successful_analysis(source_path, source_file_hash)
         {
@@ -237,6 +232,16 @@ fn compile_file_inner(
         );
         program
     };
+
+    // The test harness replaces the user's `main` with a runner. It is applied
+    // only to the codegen copy AFTER analysis so the persisted analysis cache
+    // entry always holds the clean program: a test-mode build stores clean
+    // analysis, and a later `mire run`/`owl run` (same analysis key) must load
+    // the user's real `main`, never a baked-in test runner.
+    let mut program = program;
+    if options.test_mode {
+        inject_test_harness(&mut program);
+    }
 
     let warnings = check_warnings_with_origins(
         &program,
@@ -478,6 +483,7 @@ fn compile_file_inner(
             ir_path: ir_path.clone(),
             optimized_ir_path: optimized_ir_path.clone(),
         },
+        options.test_mode,
     );
     if options.debug_dump {
         let metrics = cache.metrics();

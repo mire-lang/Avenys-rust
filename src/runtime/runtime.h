@@ -205,6 +205,19 @@ char   *rt_proc_capture_output(const char *cmd);
 // Safe argv-based process execution with output capture (no shell).
 char   *rt_proc_capture_argv(const char *cmd, void *args_vec);
 
+// Extended argv-based capture (no shell): optional working directory
+// ("" = inherit current), optional stderr merge (merge_err != 0 dup2's stderr
+// onto the capture pipe). The child's exit code is stored in a thread-local
+// slot readable via rt_proc_last_exit (127 = spawn failure, 126 = bad cwd).
+char   *rt_proc_capture_argv2(const char *cmd, void *args_vec,
+                              const char *cwd, int64_t merge_err);
+int64_t rt_proc_last_exit(void);
+
+// Read a single line from the controlling terminal (/dev/tty) without a shell.
+// Returns "y" when no controlling terminal is available (non-interactive), so
+// callers can default a Y/n prompt exactly like the old `read ... || echo y`.
+char   *rt_read_tty(void);
+
 // Read an entire file as a runtime-managed string.
 char   *rt_fs_read_bytes(const char *path);
 

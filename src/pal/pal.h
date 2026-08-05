@@ -11,15 +11,16 @@
 // Host Adapters receive internal data through Core dispatch, not through handle fields.
 
 // ── Build Toggles ─────────────────────────────────────────────
-// Unsandboxed absolute-path FS ops and the legacy shell are compiled in by
-// default to keep the existing runtime working, but they are OFF-limits for
-// untrusted Mire code. Override from the build (`-DPAL_ALLOW_UNSANDBOXED=0`
-// etc.) to strip them from the PAL surface.
+// Unsandboxed absolute-path FS ops remain on for runtime compat (opt-out via
+// `-DPAL_ALLOW_UNSANDBOXED=0`). The legacy shell (pal_proc_system /
+// pal_proc_capture* / rt_proc_capture_output → /bin/sh -c) is OFF by default:
+// no runtime surface invokes a shell anymore (kioto proc is fully argv-based).
+// Re-enable with `-DPAL_ALLOW_LEGACY_SHELL=1` only for explicitly-trusted code.
 #ifndef PAL_ALLOW_UNSANDBOXED
 #define PAL_ALLOW_UNSANDBOXED 1
 #endif
 #ifndef PAL_ALLOW_LEGACY_SHELL
-#define PAL_ALLOW_LEGACY_SHELL 1
+#define PAL_ALLOW_LEGACY_SHELL 0
 #endif
 
 // ── Opaque Handle Types ──────────────────────────────────────

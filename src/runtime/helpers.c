@@ -150,6 +150,109 @@ char *rt_proc_capture_argv(const char *cmd, void *args_vec) {
     return managed;
 }
 
+// Thread-local exit status of the most recent argv-based capture. Mirrors the
+// shell capture's implicit status without needing an extra out-parameter that
+// Mire cannot express. Single mire process = single sequential proc user.
+static _Thread_local int64_t g_last_proc_exit = -1;
+
+int64_t rt_proc_last_exit(void) {
+    return g_last_proc_exit;
+}
+
+// Extended argv capture: optional working directory + optional stderr merge.
+// Everything else mirrors rt_proc_capture_argv (pipe + fork + execvp, no shell).
+char *rt_proc_capture_argv2(const char *cmd, void *args_vec, const char *cwd, int64_t merge_err) {
+    g_last_proc_exit = -1;
+    if (!cmd || !args_vec) return rt_managed_from_cstr("");
+    int64_t argc = 0;
+    char **argv = rt_build_argv(cmd, args_vec, &argc);
+    if (!argv) return rt_managed_from_cstr("");
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]);
+        if (cwd && *cwd && chdir(cwd) != 0) _exit(126);
+        dup2(pipefd[1], STDOUT_FILENO);
+        if (merge_err != 0) dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    size_t cap = 4096;
+    size_t len = 0;
+    char *buf = malloc(cap);
+    if (!buf) {
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        rt_free_argv(argv, argc);
+        return rt_managed_from_cstr("");
+    }
+    ssize_t n;
+    while ((n = read(pipefd[0], buf + len, cap - len - 1)) > 0) {
+        len += (size_t)n;
+        if (len + 1 >= cap) {
+            cap *= 2;
+            char *nb = realloc(buf, cap);
+            if (!nb) {
+                free(buf);
+                close(pipefd[0]);
+                waitpid(pid, NULL, 0);
+                rt_free_argv(argv, argc);
+                return rt_managed_from_cstr("");
+            }
+            buf = nb;
+        }
+    }
+    close(pipefd[0]);
+    buf[len] = '\0';
+    int status = 0;
+    if (waitpid(pid, &status, 0) > 0) {
+        if (WIFEXITED(status)) {
+            g_last_proc_exit = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+            g_last_proc_exit = 128 + WTERMSIG(status);
+        }
+    }
+    char *managed = rt_managed_from_slice(buf, len);
+    free(buf);
+    rt_free_argv(argv, argc);
+    return managed;
+}
+
+// Read one line from the controlling terminal. No shell, no subprocess.
+// Non-interactive contexts (no /dev/tty) default to "y" so a Y/n prompt can
+// proceed — the same default the shell-based `read ... || echo y` produced.
+char *rt_read_tty(void) {
+    FILE *tty = fopen("/dev/tty", "r");
+    if (!tty) return rt_managed_from_cstr("y");
+    char buf[256];
+    if (fgets(buf, sizeof(buf), tty) == NULL) {
+        fclose(tty);
+        return rt_managed_from_cstr("y");
+    }
+    fclose(tty);
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    return rt_managed_from_slice(buf, len);
+}
+
 // Safe channel receive into a caller-owned buffer.
 // Bridges the PAL pal_bytes_t return (heap-allocated) into a fixed
 // caller buffer, releasing the PAL allocation. Returns bytes copied.

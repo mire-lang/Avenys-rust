@@ -4256,7 +4256,7 @@ fn pal_fs_mkdir_rmdir() {
 }
 
 #[test]
-fn pal_proc_shell_echo() {
+fn pal_proc_argv_echo() {
     let root = make_temp_project_root("mire_pal_proc_sh");
     let source_path = root.join("proc_sh.mire");
     fs::write(
@@ -4264,7 +4264,7 @@ fn pal_proc_shell_echo() {
         "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc::run::shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc::run::output(\"/bin/echo\" [\"hello_pal\"] :vec[str])\n    use dasu(out)\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4284,12 +4284,12 @@ fn pal_proc_shell_echo() {
         ..Default::default()
         },
     )
-    .expect("proc.shell should compile");
+    .expect("proc argv echo should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
-    assert!(output.status.success(), "proc.shell failed: {:?}", output);
+    assert!(output.status.success(), "proc argv echo failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("hello_pal"), "echo: {stdout}");
 }
