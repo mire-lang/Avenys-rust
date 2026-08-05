@@ -222,6 +222,7 @@ pub struct MireCacheConfig {
     pub max_units: Option<usize>,
     pub analysis_cache: Option<bool>,
     pub compression: Option<bool>,
+    pub blob_checksum: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

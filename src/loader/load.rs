@@ -7,7 +7,10 @@
 
 use super::{ImportResolver, PackageEntry};
 use super::files::load_or_parse_file;
-use crate::avens::{load_exports, load_project_manifest, resolve_export_path, MireDependency};
+use crate::avens::{
+    check_entry_containment, load_exports, load_project_manifest, resolve_export_path,
+    EntryContainment, MireDependency,
+};
 use crate::canonical_fn_name;
 use crate::error::Result;
 use crate::parser::ast::Statement;
@@ -140,6 +143,15 @@ pub(super) fn resolve_package(
         .as_ref()
         .map(|m| m.project.entry.clone())
         .unwrap_or_else(|| "mod.mire".to_string());
+
+    // Path containment (docs/SECURITY.md item 5): a manifest entry that is
+    // absolute or resolves outside the package root must not be loaded.
+    if check_entry_containment(&canonical_root, &entry) == EntryContainment::EscapesRoot {
+        return Err(resolver.loader_error(span, format!(
+            "Package '{}' entry '{}' escapes the package root",
+            name, entry
+        )));
+    }
 
     if let Some(ref m) = manifest {
         for (dep_name, dep) in &m.dependencies.entries {

@@ -183,9 +183,17 @@ fn store_blob(base_dir: &Path, blob: &[u8]) -> Result<String> {
     Ok(hash)
 }
 
-fn read_blob(base_dir: &Path, blob_hash: &str) -> Option<Vec<u8>> {
+fn read_blob(base_dir: &Path, blob_hash: &str, verify: bool) -> Option<Vec<u8>> {
     let path = base_dir.join(BLOBS_DIR).join(blob_hash);
-    fs::read(&path).ok()
+    let blob = fs::read(&path).ok()?;
+    if verify && compute_blob_hash(&blob) != blob_hash {
+        // Cache poisoning / on-disk corruption: drop the blob so the next
+        // `store_blob` rewrites it (store_blob skips existing files), and
+        // treat this entry as a miss instead of trusting the tampered bytes.
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    Some(blob)
 }
 
 fn gc_blobs(base_dir: &Path, referenced: &HashSet<String>) -> Result<()> {
@@ -587,7 +595,7 @@ impl IncrementalCache {
             return None;
         }
 
-        let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
+        let blob = read_blob(&self.cache_dir, &meta.blob_hash, self.settings.blob_checksum)?;
         let stored: StoredParsedFile = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::File);
@@ -665,7 +673,7 @@ impl IncrementalCache {
             }
         };
 
-        let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
+        let blob = read_blob(&self.cache_dir, &meta.blob_hash, self.settings.blob_checksum)?;
         let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::Analysis);
@@ -829,7 +837,7 @@ impl IncrementalCache {
     ) -> Option<CachedAnalysisSnapshot> {
         let key = latest_analysis_key(source_path);
         let meta = self.analyses.get(&key)?;
-        let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
+        let blob = read_blob(&self.cache_dir, &meta.blob_hash, self.settings.blob_checksum)?;
         let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         let StoredAnalysisOutcome::Success(s) = stored.outcome else {
             return None;
@@ -917,7 +925,7 @@ impl IncrementalCache {
             return None;
         }
 
-        let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
+        let blob = read_blob(&self.cache_dir, &meta.blob_hash, self.settings.blob_checksum)?;
         let ir: String = bincode::deserialize(&blob).ok()?;
 
         self.lru.insert(key, CacheEntryKind::MirFn);
@@ -1021,7 +1029,7 @@ impl IncrementalCache {
     ) -> Option<Vec<AnalysisUnitMetadata>> {
         let key = latest_analysis_key(source_path);
         let meta = self.analyses.get(&key)?;
-        let blob = read_blob(&self.cache_dir, &meta.blob_hash)?;
+        let blob = read_blob(&self.cache_dir, &meta.blob_hash, self.settings.blob_checksum)?;
         let stored: StoredAnalysisPayload = bincode::deserialize(&blob).ok()?;
         Some(stored.units)
     }

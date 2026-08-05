@@ -28,8 +28,9 @@ pub use config::{
     MireMacros, MireManifest, MireProject, OptLevel, SecurityConfig, SecurityMode, TrustTier,
 };
 pub use manifest::{
-    find_project_root, load_exports, load_manifest_dependencies, load_project_manifest,
-    project_lock_path, project_manifest_path, resolve_export_path, write_lock_file, write_manifest,
+    check_entry_containment, find_project_root, load_exports, load_manifest_dependencies,
+    load_project_manifest, project_lock_path, project_manifest_path, resolve_export_path,
+    write_lock_file, write_manifest, EntryContainment,
 };
 use reuse::prepare_program_with_partial_analysis_reuse;
 use toolchain::{compile_binary_from_ir, optimize_ir};

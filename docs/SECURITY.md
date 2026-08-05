@@ -79,6 +79,35 @@ In strict mode, `@[macro!]` function bodies are further restricted:
 
 This ensures that even if a malicious macro file is injected, it cannot escape the sandbox.
 
+## Cache Integrity & Path Containment
+
+### Cache blob checksums
+
+The incremental cache (`bin/.cache`) stores parsed/AST blobs under a filename
+that IS the blob's content checksum (`FxHasher`). In strict security mode every
+blob read is re-hashed and compared to its filename: a mismatch (on-disk
+corruption or deliberate tampering) drops the blob and treats the entry as a
+cache miss, so tampered bytes are never deserialized. The corrupt blob file is
+deleted so the next `store_blob` rewrites it (stores skip existing files).
+
+Controlled explicitly via `[cache].blob_checksum`; when unset it defaults to
+`true` in `mode = "strict"` and `false` otherwise:
+
+```toml
+[cache]
+blob_checksum = true   # force on (or "false" to force off in strict mode)
+```
+
+### Entry & export path containment
+
+`[project].entry` and `[exports]` paths in a manifest must resolve inside the
+package root. `check_entry_containment` canonicalizes the joined path and
+rejects absolute paths outside the root and relative paths containing `..`
+that resolve outside it (`EntryContainment::EscapesRoot`). A non-existent
+entry is reported by the normal load path, not silently resolved elsewhere.
+This applies to package loading (`resolve_package`) and the CLI's default
+entry resolution.
+
 ## Migration Guide
 
 ### Enabling strict mode

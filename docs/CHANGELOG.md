@@ -5,6 +5,47 @@ All notable changes to Mire are documented in this file.
 ## [3.24.24] - 2026-08-04 (.method() syntax for builtin collections)
 
 ### Added
+
+- **Cache blob checksum validation (strict mode)** (`incremental/cache.rs`, `incremental/utils.rs`,
+  `incremental/mod.rs`, `avens/config.rs`): in `mode = "strict"`, every cached blob read is
+  re-hashed and compared to its filename (the filename is the content checksum). A mismatch —
+  on-disk corruption or tampering — deletes the blob and treats the entry as a cache miss, so
+  tampered bytes are never deserialized. Controlled via `[cache].blob_checksum`; defaults to
+  `true` under strict security mode, `false` otherwise (`CacheSettings::blob_checksum`,
+  `CacheOverrides::blob_checksum`).
+- **Manifest entry path containment** (`avens/manifest.rs` `check_entry_containment`,
+  `loader/load.rs` `resolve_package`, `cli/options.rs` `default_entry_from_manifest`):
+  `[project].entry` paths that are absolute or resolve outside the package root via `..`
+  are rejected with an explicit error instead of being loaded (`EntryContainment::EscapesRoot`).
+  Replaces the previous load-time-only containment (exports already checked; entry was not).
+
+### Tests
+
+- `cache_blob_checksum_rejects_tampered_blob_in_strict_mode`: tampered blob → miss + blob
+  deleted in checksum mode.
+- `cache_without_checksum_accepts_tampered_blob`: open mode still trusts the cache (miss via
+  deserialization, blob kept).
+- `entry_containment_accepts_entry_inside_root` / `rejects_absolute_escape` /
+  `rejects_dotdot_escape` for `check_entry_containment`.
+
+### Docs
+
+- `docs/SECURITY.md`: new "Cache Integrity & Path Containment" section documenting
+  `[cache].blob_checksum` and `check_entry_containment` behavior.
+
+### Fixed
+
+- **Macro auto-scope strict-mode gate** (`avens/build_support.rs` `inject_macros`):
+  macro injection from dependency `[macros]` sections is gated on `mode = "strict"`
+  security; in strict mode each dep must be at least `TrustTier::Macros`. In open mode
+  all deps' macros auto-scope (the `[macros]` manifest contract), preserving the
+  non-strict behavior.
+- **`resolve_macro_file` canonicalization** (`avens/build_support.rs`): candidate
+  resolution now canonicalizes each candidate and verifies it stays under the
+  canonical dependency root before accepting a file (fixes symlink/`..` escapes and
+  stale-root comparisons).
+
+### Added
 - **`.method()` syntax for builtin collections**: `v.len()`, `v.get::i64(1)`, `m.len()`, `s.len()` now work. The parser normalizes `::` to `.` in dotted names (`src/parser/expression_primary.rs`); `builtin_method_target` in `typeck_expressions.rs` now produces `.`-separated names matching the function table keys. Overloaded methods with type suffixes (`v.get::i64(1)`) are handled by extracting the base method name and delegating type-suffix selection to `builtin_method_target` — no double-suffix appending.
 
 ## [3.24.23] - 2026-08-02 (incremental roundtrip + HOF externs + stale-test migration)

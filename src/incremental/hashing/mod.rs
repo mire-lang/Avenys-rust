@@ -64,6 +64,7 @@ mod tests {
             max_units: Some(256),
             analysis_cache: true,
             compression: false,
+            blob_checksum: false,
         }
     }
 
@@ -142,6 +143,87 @@ mod tests {
     }
 
     #[test]
+    fn cache_blob_checksum_rejects_tampered_blob_in_strict_mode() {
+        let root = std::env::temp_dir().join(format!("mire_cache_checksum_{}", now_epoch_ms()));
+        let source_path = make_cache_path(&root);
+        setup_test_root(&root, &source_path);
+
+        let settings = CacheSettings {
+            max_units: Some(256),
+            analysis_cache: true,
+            compression: false,
+            blob_checksum: true,
+        };
+        let mut cache = IncrementalCache::load_with_settings(&source_path, settings).expect("load");
+        cache
+            .store_file(
+                &source_path,
+                CachedParsedFile {
+                    hash: 1,
+                    hash2: 1,
+                    program: demo_program("main"),
+                    exports: vec!["main".to_string()],
+                    local_imports: Vec::new(),
+                },
+            )
+            .expect("store file");
+
+        // Tamper with the stored blob. The blob filename IS its content
+        // checksum, so any modification makes the read verify fail.
+        let blobs_dir = cache.cache_dir().join("blobs");
+        let blob_file = fs::read_dir(&blobs_dir)
+            .expect("blobs dir")
+            .filter_map(|e| e.ok())
+            .next()
+            .expect("a blob exists")
+            .path();
+        fs::write(&blob_file, b"tampered bytes").expect("tamper blob");
+
+        // In checksum mode the corrupted blob is rejected as a cache miss.
+        assert!(cache.cached_file(&source_path, 1, 1).is_none());
+
+        // The corrupt blob is deleted so a re-store can rewrite it
+        // (store_blob skips files that already exist).
+        assert!(!blob_file.exists(), "corrupt blob should be removed");
+    }
+
+    #[test]
+    fn cache_without_checksum_accepts_tampered_blob() {
+        let root = std::env::temp_dir().join(format!("mire_cache_nocheck_{}", now_epoch_ms()));
+        let source_path = make_cache_path(&root);
+        setup_test_root(&root, &source_path);
+
+        let mut cache =
+            IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
+        cache
+            .store_file(
+                &source_path,
+                CachedParsedFile {
+                    hash: 1,
+                    hash2: 1,
+                    program: demo_program("main"),
+                    exports: vec!["main".to_string()],
+                    local_imports: Vec::new(),
+                },
+            )
+            .expect("store file");
+
+        let blobs_dir = cache.cache_dir().join("blobs");
+        let blob_file = fs::read_dir(&blobs_dir)
+            .expect("blobs dir")
+            .filter_map(|e| e.ok())
+            .next()
+            .expect("a blob exists")
+            .path();
+        fs::write(&blob_file, b"tampered bytes").expect("tamper blob");
+
+        // Open mode trusts the cache: the tampered blob fails bincode
+        // deserialization and is treated as a miss, but it is NOT deleted.
+        assert!(cache.cached_file(&source_path, 1, 1).is_none());
+        assert!(blob_file.exists(), "open mode keeps the blob");
+    }
+
+    #[test]
     fn lru_prunes_when_max_units_is_reached() {
         let root = std::env::temp_dir().join(format!("mire_cache_lru_{}", now_epoch_ms()));
         let source_path = make_cache_path(&root);
@@ -151,6 +233,7 @@ mod tests {
             max_units: Some(1),
             analysis_cache: true,
             compression: false,
+            blob_checksum: false,
         };
         let mut cache = IncrementalCache::load_with_settings(&source_path, settings).expect("load");
         cache
@@ -350,6 +433,7 @@ mod tests {
             max_units: Some(32),
             analysis_cache: true,
             compression: false,
+            blob_checksum: false,
         };
         let mut cache = IncrementalCache::load_with_settings(&source_path, settings).expect("load");
 

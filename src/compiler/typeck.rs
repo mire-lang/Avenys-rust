@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::load_project_manifest;
-use crate::avens::{SecurityConfig, SecurityMode, TrustTier};
+use crate::avens::{SecurityConfig, SecurityMode};
 
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
 use crate::compiler::{AnalysisSelection, location};
@@ -297,15 +297,6 @@ Some(builtins.allow.into_iter().collect())
             Some(c) => c.asm_allowed || c.mode != SecurityMode::Strict,
             None => true,
         }
-    }
-
-    /// Get the trust tier for a dependency by name.
-    fn dep_trust_tier(&self, dep_name: &str) -> TrustTier {
-        let config = match &self.security_config {
-            Some(c) => c,
-            None => return TrustTier::Ffi,
-        };
-        config.deps.get(dep_name).copied().unwrap_or(TrustTier::Code)
     }
 
       fn collect_load_local_modules(&mut self, statements: &[Statement]) {

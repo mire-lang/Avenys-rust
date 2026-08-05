@@ -55,6 +55,7 @@ pub struct CacheSettings {
     pub max_units: Option<usize>,
     pub analysis_cache: bool,
     pub compression: bool,
+    pub blob_checksum: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -62,6 +63,7 @@ pub struct CacheOverrides {
     pub max_units: Option<usize>,
     pub analysis_cache: Option<bool>,
     pub compression: Option<bool>,
+    pub blob_checksum: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,6 +432,7 @@ impl CacheSettings {
             max_units: Some(DEFAULT_MAX_UNITS),
             analysis_cache: true,
             compression: false,
+            blob_checksum: false,
         }
     }
 
@@ -443,6 +446,9 @@ impl CacheSettings {
         }
         if let Some(enabled) = overrides.compression {
             resolved.compression = enabled;
+        }
+        if let Some(enabled) = overrides.blob_checksum {
+            resolved.blob_checksum = enabled;
         }
         Ok(resolved)
     }

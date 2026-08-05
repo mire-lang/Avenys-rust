@@ -9,11 +9,11 @@ pub mod parser;
 pub mod types;
 
 pub use avens::{
-    BuildMode, BuildOptions, BuildResult, ImportMode, MireCacheConfig, MireDependencies,
-    MireDependency, MireLock, MireManifest, MireProject, OptLevel, compile_file_with_avenys,
-    default_output_dir, find_project_root, load_exports, load_manifest_dependencies,
-    load_project_manifest, project_lock_path, project_manifest_path, write_lock_file,
-    write_manifest,
+    BuildMode, BuildOptions, BuildResult, EntryContainment, ImportMode, MireCacheConfig,
+    MireDependencies, MireDependency, MireLock, MireManifest, MireProject, OptLevel,
+    check_entry_containment, compile_file_with_avenys, default_output_dir, find_project_root,
+    load_exports, load_manifest_dependencies, load_project_manifest, project_lock_path,
+    project_manifest_path, write_lock_file, write_manifest,
 };
 pub use compiler::{
     AnalysisReport, WarningConfig, analyze_program, analyze_program_with_warnings,

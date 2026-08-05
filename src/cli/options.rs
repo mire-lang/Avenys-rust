@@ -239,12 +239,19 @@ pub(crate) fn parse_debug_options(cwd: &Path, args: &[String]) -> Result<DebugOp
 }
 
 pub(crate) fn default_entry_from_manifest(cwd: &Path) -> Result<Option<String>, MireError> {
+    use mire::{check_entry_containment, EntryContainment};
     let project_root = match find_project_root(cwd) {
         Some(root) => root,
         None => return Ok(None),
     };
     let manifest = load_project_manifest(&project_root)?;
     let entry = manifest.map(|m| m.project.entry).unwrap_or_default();
+    if check_entry_containment(&project_root, &entry) == EntryContainment::EscapesRoot {
+        return Err(cli_msg(&format!(
+            "owl.toml `entry` '{}' escapes the package root",
+            entry
+        )));
+    }
     let path = project_root.join(&entry);
     Ok(Some(path.to_string_lossy().to_string()))
 }

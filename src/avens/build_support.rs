@@ -632,7 +632,6 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
     use crate::loader::resolve_dependency_root;
     use crate::parser::parse_with_recovery;
     use crate::parser::ast::Statement;
-    use crate::avens::config::{SecurityConfig, SecurityMode, TrustTier};
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -713,13 +712,19 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
     }
 
     if let Ok(Some(manifest)) = load_project_manifest(&project_root) {
+        let strict = security_config
+            .as_ref()
+            .map(|c| c.mode == SecurityMode::Strict)
+            .unwrap_or(false);
         for (dep_name, dep) in manifest.dependencies.entries.iter() {
-            let tier = security_config
-                .as_ref()
-                .and_then(|c| c.deps.get(dep_name).copied())
-                .unwrap_or(TrustTier::Code);
-            if tier < TrustTier::Macros {
-                continue;
+            if strict {
+                let tier = security_config
+                    .as_ref()
+                    .and_then(|c| c.deps.get(dep_name).copied())
+                    .unwrap_or(TrustTier::Code);
+                if tier < TrustTier::Macros {
+                    continue;
+                }
             }
             let Some(root) = resolve_dependency_root(&project_root, dep_name, dep) else {
                 continue;
@@ -740,21 +745,23 @@ fn load_security_config() -> Option<SecurityConfig> {
 }
 
 fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::path::PathBuf> {
+    let canonical_root = root.canonicalize().ok()?;
+    let check = |p: &std::path::Path| -> Option<std::path::PathBuf> {
+        let c = p.canonicalize().ok()?;
+        if c.starts_with(&canonical_root) && c.is_file() {
+            Some(c)
+        } else {
+            None
+        }
+    };
     let candidate = root.join(rel_path);
-    let canonical = candidate.canonicalize().ok()?;
-    if !canonical.starts_with(root.canonicalize().ok()?.as_path()) {
-        return None;
+    if let Some(file) = check(&candidate) {
+        return Some(file);
     }
-    if canonical.is_file() {
-        return Some(canonical);
+    let with_ext = candidate.with_extension("mire");
+    if let Some(file) = check(&with_ext) {
+        return Some(file);
     }
-    let with_ext = canonical.with_extension("mire");
-    if with_ext.is_file() {
-        return Some(with_ext);
-    }
-    let mod_file = canonical.join("mod.mire");
-    if mod_file.is_file() {
-        return Some(mod_file);
-    }
-    None
+    let mod_file = candidate.join("mod.mire");
+    check(&mod_file)
 }
