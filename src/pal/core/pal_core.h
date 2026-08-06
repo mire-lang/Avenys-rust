@@ -44,6 +44,7 @@ typedef struct pal_ops {
     // Root
     int64_t (*root_open)(const char *path);
     void (*root_close)(int64_t internal);
+    bool (*root_remove)(int64_t root_internal, const char *rel_path);
 
     // File
     int64_t (*file_open)(int64_t root_internal, const char *rel_path, pal_open_flags flags);
@@ -96,14 +97,49 @@ typedef struct pal_ops {
     void (*secret_close)(int64_t internal);
     void (*pubkey_close)(int64_t internal);
 
-    // Stateless services (no handles)
-    int64_t (*time_now_ms)(void);
-    int64_t (*time_now_ns)(void);
-    int64_t (*cpu_count)(void);
-    int64_t (*mem_total)(void);
-    int64_t (*mem_available)(void);
-    int64_t (*mem_process)(void);
-    bool (*random_fill)(void *buf, int64_t length);
+// Stateless services (no handles)
+int64_t (*time_now_ms)(void);
+int64_t (*time_now_ns)(void);
+int64_t (*cpu_count)(void);
+int64_t (*mem_total)(void);
+int64_t (*mem_available)(void);
+int64_t (*mem_process)(void);
+bool (*random_fill)(void *buf, int64_t length);
+
+// Extended stateless services
+int64_t (*cpu_time_ms)(void);
+const char *(*cpu_snapshot)(void);
+const char *(*mem_format)(int64_t bytes);
+int64_t (*time_mark)(void);
+int64_t (*time_unix_ms)(void);
+int64_t (*time_unix_ns)(void);
+int64_t (*mem_process_bytes)(void);
+
+// Extended process
+bool (*proc_exists)(int64_t pid);
+int64_t (*proc_run)(const char *cmd, const char **argv);
+
+// Extended filesystem (UNSANBOXED)
+const char *(*fs_ext)(const char *path);
+const char *(*fs_dir)(const char *path);
+const char *(*fs_name)(const char *path);
+bool (*fs_is_file)(const char *path);
+bool (*fs_copy)(const char *src, const char *dst);
+bool (*fs_move)(const char *src, const char *dst);
+
+// Extended environment
+const char *(*env_all)(void);
+
+// Extended I/O
+void (*io_print_err)(const char *msg);
+
+// Legacy shell (conditional)
+#if PAL_ALLOW_LEGACY_SHELL
+int64_t (*proc_system)(const char *cmd);
+int64_t (*proc_capture)(const char *cmd, void *buf, int64_t capacity);
+const char *(*proc_capture_output)(const char *cmd);
+#endif
+
 } pal_ops_t;
 
 // ── Core API ─────────────────────────────────────────────────
@@ -130,5 +166,9 @@ void pal_set_error(pal_error_code_t code, const char *message);
 // [BORROWED] Message set by the last pal_set_error on this thread; NULL if none.
 // Valid until the next pal_set_error/pal_clear_error on the same thread.
 const char *pal_last_error_message(void);
+
+// Map a POSIX errno value to a pal_error_code_t (see pal.h). Used by the
+// dispatch layer and Host Adapters when an fs/proc syscall fails.
+pal_error_code_t pal_core_errno_map(int err);
 
 #endif

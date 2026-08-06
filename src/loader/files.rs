@@ -99,7 +99,24 @@ pub(super) fn collect_program_dependency_candidates(program: &Program) -> HashSe
     }
     // Remove local variable names that would otherwise falsely match
     // external module exports (e.g. parameter name "min" matching a
-    // function export "min" from another module).
-    candidates.retain(|c| !local_bindings.contains(c));
+    // function export "min" from another module). Keep a name when it is
+    // also the tail of a surviving dotted dependency (e.g. local `len`
+    // shadows nothing when `vec.len` is a real call target) so reachable
+    // import inference can still select the module export.
+    let keep_as_tail: HashSet<String> = candidates
+        .iter()
+        .filter(|c| {
+            c.contains('.')
+                && c.rsplit_once('.')
+                    .is_some_and(|(_, t)| local_bindings.contains(t))
+        })
+        .filter_map(|c| c.rsplit_once('.').map(|(_, t)| t.to_string()))
+        .collect();
+    candidates.retain(|c| {
+        if !local_bindings.contains(c) {
+            return true;
+        }
+        keep_as_tail.contains(c)
+    });
     candidates
 }

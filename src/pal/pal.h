@@ -68,6 +68,7 @@ typedef enum {
     PAL_ERR_ALREADY_EXISTS,
     PAL_ERR_INVALID_HANDLE,
     PAL_ERR_OWNERSHIP,
+    PAL_ERR_NOT_EMPTY,
 } pal_error_code_t;
 
 // ── Flags (type-safe, not raw integers) ─────────────────────
@@ -180,31 +181,65 @@ void pal_dir_next_into(pal_dir_t dir, pal_dir_entry_t *out);
 /// Returns name length (>0 if found, 0 if no more entries, -1 on error).
 int64_t pal_dir_next_name(pal_dir_t dir, char *out, int64_t cap);
 void pal_dir_close(pal_dir_t dir);
+/// Capability-based removal of a SINGLE entry relative to a root handle.
+/// Removes a file, symlink, or empty directory. A symlink is unlinked — never
+/// followed — so a link pointing outside the root is normal state and is not
+/// rejected. Parent directories are resolved with RESOLVE_NO_SYMLINKS on
+/// Linux (openat2): intermediate components that are symlinks are rejected
+/// with PAL_ERR_PERMISSION, and "."/".."/empty basenames are invalid. Recursive
+/// removal is NOT a PAL operation; compose it in the host (kioto fs::remove_all)
+/// over pal_dir_open + this primitive.
+/// Returns false and sets pal_last_error() on failure:
+///   PAL_ERR_NOT_FOUND, PAL_ERR_PERMISSION, PAL_ERR_NOT_EMPTY (dir not empty),
+///   PAL_ERR_INVALID (empty/`.`/`..`/trailing-slash path), PAL_ERR_IO.
+bool pal_root_remove(pal_root_t root, const char *rel_path);
 
 // ══ UNSANDBOXED ── absolute-path filesystem operations ────────
 // WARNING: these take raw absolute paths and bypass the root-capability
 // model entirely. They are included for the OWN runtime/Owl internal use
 // only and must NEVER be exposed to untrusted Mire code. Prefer the
 // root-relative API above (pal_file_open / pal_dir_open on a pal_root_t).
-#ifdef PAL_ALLOW_UNSANDBOXED
+#if PAL_ALLOW_UNSANDBOXED
 bool pal_fs_exists(const char *path);
 bool pal_fs_mkdir(const char *path);
 bool pal_fs_rmdir(const char *path);
 bool pal_fs_unlink(const char *path);
+/// Remove a SINGLE entry by absolute path (file, symlink, or empty directory).
+/// Like POSIX remove(3): a symlink is unlinked, never followed. Recursive
+/// removal is NOT a PAL operation; compose it host-side. Returns false and
+/// sets pal_last_error() (PAL_ERR_NOT_FOUND / PAL_ERR_PERMISSION /
+/// PAL_ERR_NOT_EMPTY / PAL_ERR_INVALID / PAL_ERR_IO).
+bool pal_fs_remove(const char *path);
 #endif // PAL_ALLOW_UNSANDBOXED
 // pal_fs_read_file: [PAL-OWNED] returns a malloc'd, NUL-terminated string.
 // Caller MUST release with pal_free(). Returns NULL on error (never a
 // literal). Retained under PAL_ALLOW_UNSANDBOXED for the runtime only;
 // kioto prefers rt_fs_read_bytes (runtime-managed copy).
-#ifdef PAL_ALLOW_UNSANDBOXED
+#if PAL_ALLOW_UNSANDBOXED
 const char *pal_fs_read_file(const char *path);
 #endif // PAL_ALLOW_UNSANDBOXED
 
-// ── Environment ──────────────────────────────────────────────
+// ── Filesystem Path Utilities ──────────────────────────
+// These operate on absolute paths (UNSANBOXED). They are included
+// for runtime/Owl internal use only and must NEVER be exposed to
+// untrusted Mire code. Prefer the root-relative API above.
+#if PAL_ALLOW_UNSANDBOXED
+const char *pal_fs_ext(const char *path);
+const char *pal_fs_dir(const char *path);
+const char *pal_fs_name(const char *path);
+bool pal_fs_is_file(const char *path);
+bool pal_fs_copy(const char *src, const char *dst);
+bool pal_fs_move(const char *src, const char *dst);
+#endif // PAL_ALLOW_UNSANDBOXED
+
+// ── Environment ──────────────────────────────────────────
 // pal_env_cwd / pal_env_get: [BORROWED] static/process-owned buffer.
 // Caller MUST NOT free. May be invalidated by a later PAL call.
 const char *pal_env_cwd(void);
 const char *pal_env_get(const char *name);
+// pal_env_all: [PAL-OWNED] returns a map[str str] of all environment
+// variables. Caller MUST release with pal_free().
+const char *pal_env_all(void);
 
 // ══ LEGACY SHELL ── only compiled when PAL_ALLOW_LEGACY_SHELL is set ──
 // pal_proc_system / pal_proc_capture / pal_proc_capture_output run a
@@ -212,7 +247,7 @@ const char *pal_env_get(const char *name);
 // compatibility only. NEVER expose to untrusted Mire code; use
 // pal_proc_create (argv-safe, no shell) instead.
 // pal_proc_capture_output: [PAL-OWNED] malloc'd output; caller MUST free.
-#ifdef PAL_ALLOW_LEGACY_SHELL
+#if PAL_ALLOW_LEGACY_SHELL
 int64_t pal_proc_system(const char *cmd);
 int64_t pal_proc_capture(const char *cmd, void *buf, int64_t capacity);
 const char *pal_proc_capture_output(const char *cmd);
@@ -233,8 +268,19 @@ pal_channel_t pal_proc_stdout(pal_process_t proc);
 pal_channel_t pal_proc_stderr(pal_process_t proc);
 pal_process_t pal_proc_transfer(pal_process_t proc);
 void pal_proc_close(pal_process_t proc);
+// pal_proc_exists: check if a process with the given PID is still running.
+// Returns true if the process exists, false otherwise.
+bool pal_proc_exists(int64_t pid);
+// pal_proc_run: run a command via argv (no shell). Returns the exit code.
+// This is a convenience wrapper around pal_proc_create + pal_proc_wait.
+int64_t pal_proc_run(const char *cmd, const char **argv);
 
-// ── Networking ───────────────────────────────────────────────
+// ── I/O ────────────────────────────────────────────────────
+// pal_io_print_err: write a message to stderr. [BORROWED] the message
+// is not copied; the caller must ensure the string remains valid.
+void pal_io_print_err(const char *msg);
+
+// ── Networking ─────────────────────────────────────────────
 pal_socket_t pal_socket_connect(const char *host, uint16_t port, pal_socket_flags flags);
 pal_listener_t pal_listener_bind(uint16_t port, pal_socket_flags flags);
 pal_socket_t pal_listener_accept(pal_listener_t listener);
@@ -249,7 +295,7 @@ int64_t pal_channel_send(pal_channel_t ch, const void *buf, int64_t length);
 pal_bytes_t pal_channel_recv(pal_channel_t ch);
 void pal_channel_close(pal_channel_t ch);
 
-// ── Crypto ───────────────────────────────────────────────────
+// ── Crypto ─────────────────────────────────────────────────
 pal_secret_t pal_secret_create(pal_crypto_algorithm_t algorithm);
 pal_pubkey_t pal_secret_export_public(pal_secret_t secret);
 int64_t pal_secret_sign(pal_secret_t secret, const void *msg, int64_t msg_len,
@@ -259,16 +305,33 @@ bool pal_pubkey_verify(pal_pubkey_t pubkey, const void *msg, int64_t msg_len,
 void pal_secret_close(pal_secret_t secret);
 void pal_pubkey_free(pal_pubkey_t pubkey);
 
-// ── Threading ────────────────────────────────────────────────
+// ── Threading ──────────────────────────────────────────────
 int64_t pal_thread_spawn(void *(*start)(void *), void *arg);
 
-// ── Stateless Services (no handles, no lifecycle) ────────────
+// ── Stateless Services (no handles, no lifecycle) ─────────
 int64_t pal_time_now_ms(void);
 int64_t pal_time_now_ns(void);
+// pal_time_mark / pal_time_unix_ms / pal_time_unix_ns: aliases for
+// wall-clock time. pal_time_mark is used by the Mire runtime for
+// elapsed-time measurement; pal_time_unix_ms/ns are the standard
+// POSIX clock_gettime equivalents.
+int64_t pal_time_mark(void);
+int64_t pal_time_unix_ms(void);
+int64_t pal_time_unix_ns(void);
 int64_t pal_cpu_count(void);
+// pal_cpu_time_ms: CPU user+system time in milliseconds (not wall clock).
+int64_t pal_cpu_time_ms(void);
+// pal_cpu_snapshot: returns a map[str i64] with CPU info keys:
+// "count", "user_ms", "system_ms", "idle_ms". [PAL-OWNED] caller must free.
+const char *pal_cpu_snapshot(void);
 int64_t pal_mem_total(void);
 int64_t pal_mem_available(void);
 int64_t pal_mem_process(void);
+// pal_mem_process_bytes: alias for pal_mem_process (process RSS in bytes).
+int64_t pal_mem_process_bytes(void);
+// pal_mem_format: format a byte count into a human-readable string
+// (e.g. "1.5 MiB", "256 KiB"). [PAL-OWNED] caller must free with pal_free().
+const char *pal_mem_format(int64_t bytes);
 bool pal_random_fill(void *buf, int64_t length);
 
 #endif

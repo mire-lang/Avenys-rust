@@ -28,6 +28,13 @@ set len = vec::len(v)
 set s = strings::trim("  hello  ")
 set m = map::set::i64({} :map[str i64] "key" 42)
 
+// Remove a single file/symlink/empty dir (capability-based, never follows symlinks)
+set ok = fs::remove("/tmp/stale.txt")
+// Recursively remove a directory tree (symlink-safe)
+set ok2 = fs::remove_all("/tmp/stale-tree")
+// On failure, query the PAL error code (11 = PAL_ERR_NOT_EMPTY)
+set code = fs::last_error()
+
 // use executes a function for side effects (discards result):
 use dasu("hello")
 use proc::exit(1)
@@ -219,10 +226,19 @@ src/pal/linux/pal_linux.c ← host implementation
 ```
 
 The PAL C sources are compiled and linked by Avenys. New symbols must be added
-to `src/pal/pal.h`, the Core dispatch/backend operation table, and the
-authoritative `docs/abi_map.toml`. Do not copy declarations from historical
+to `src/pal/pal.h`, the Core dispatch/backend operation table, and — if the
+compiler *emits* them (a `declare` in `src/compiler/mir/codegen/builtins.rs`) —
+the authoritative `docs/abi_map.toml`. Do not copy declarations from historical
 PAL documents or add shell/convenience functions to PAL; those belong in
 Kioto when they can be composed from primitives.
+
+> **Two kinds of `pal_*` symbols.** Symbols the compiler emits as builtins
+> (e.g. `pal_time_now_ms`, `pal_file_size`) are catalogued in
+> `docs/abi_map.toml` and checked by `tests/abi_consistency.rs`. Symbols kioto
+> declares directly as `extern fn ... lib "c"` (e.g. `pal_root_remove`,
+> `pal_fs_remove`, `pal_last_error`) are **not** catalogued — adding them to
+> the map creates a stale entry and fails the ABI test. The header
+> `src/pal/pal.h` is authoritative for both.
 
 ---
 

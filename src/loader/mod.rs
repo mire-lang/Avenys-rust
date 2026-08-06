@@ -386,6 +386,27 @@ impl<'a> ImportResolver<'a> {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Remove statements that appear more than once with the exact same content
+/// and origin.
+///
+/// Multiple `load` statements targeting the same module (e.g. the same
+/// dependency loaded from the root file and again from each `load!` group)
+/// expand to byte-identical declarations. Keeping only the first copy avoids
+/// `X redefined` errors while preserving the union of every consumer's
+/// reachable-import selections (subsets differ, so their unique statements
+/// survive; only the identical overlap is dropped).
+fn dedupe_identical_expanded(statements: Vec<ExpandedStatement>) -> Vec<ExpandedStatement> {
+    let mut seen: HashSet<(PathBuf, String)> = HashSet::new();
+    let mut result = Vec::with_capacity(statements.len());
+    for stmt in statements {
+        let key = (stmt.origin.clone(), format!("{:?}", stmt.statement));
+        if seen.insert(key) {
+            result.push(stmt);
+        }
+    }
+    result
+}
+
 pub fn load_program_from_file(path: &Path) -> Result<Program> {
     Ok(load_program_with_metadata(path)?.program)
 }
@@ -424,7 +445,7 @@ pub fn load_program_with_metadata_with_settings(
             import_mode,
             manifest_dependencies,
         );
-        let statements = resolver.load_file(&canonical, Span::unknown())?;
+        let statements = dedupe_identical_expanded(resolver.load_file(&canonical, Span::unknown())?);
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
         let files = std::mem::take(&mut resolver.files);
@@ -447,7 +468,7 @@ pub fn load_program_with_metadata_with_settings(
     let mut cache = IncrementalCache::load_with_settings(&canonical, settings)?;
     let mut resolver =
         ImportResolver::new(project_root, &mut cache, import_mode, manifest_dependencies);
-    let statements = resolver.load_file(&canonical, Span::unknown())?;
+    let statements = dedupe_identical_expanded(resolver.load_file(&canonical, Span::unknown())?);
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     let files = std::mem::take(&mut resolver.files);
@@ -492,7 +513,7 @@ pub fn load_program_with_cache(
         let manifest_dependencies = HashMap::new();
         let mut resolver =
             ImportResolver::new(fallback.clone(), cache, import_mode, manifest_dependencies);
-        let statements = resolver.load_file(&canonical, Span::unknown())?;
+        let statements = dedupe_identical_expanded(resolver.load_file(&canonical, Span::unknown())?);
         let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
         let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
         return Ok(LoadedProgram {
@@ -509,7 +530,7 @@ pub fn load_program_with_cache(
 
     let manifest_dependencies = load_manifest_dependencies(&project_root).unwrap_or_default();
     let mut resolver = ImportResolver::new(project_root, cache, import_mode, manifest_dependencies);
-    let statements = resolver.load_file(&canonical, Span::unknown())?;
+    let statements = dedupe_identical_expanded(resolver.load_file(&canonical, Span::unknown())?);
     let statement_origins = statements.iter().map(|stmt| stmt.origin.clone()).collect();
     let program_statements = statements.into_iter().map(|stmt| stmt.statement).collect();
     Ok(LoadedProgram {

@@ -4256,6 +4256,58 @@ fn pal_fs_mkdir_rmdir() {
 }
 
 #[test]
+fn pal_fs_remove_symlink_safe() {
+    let root = make_temp_project_root("mire_pal_fs_rm");
+    let source_path = root.join("fs_rm.mire");
+    let tree = root.join("tree");
+    let target = root.join("target");
+    let tree_p = tree.to_str().unwrap();
+    let target_p = target.to_str().unwrap();
+    let nd_buf = root.join("nonempty");
+    let nd_p = nd_buf.to_str().unwrap();
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"fs-rm\"\nversion = \"0.1.0\"\nentry = \"fs_rm.mire\"\n",
+    )
+    .expect("write project");
+    let src = format!(
+        "load kioto\n\npub fn main: () {{\n    set tree = \"{tree}\"\n    set target = \"{target}\"\n    set nd = \"{nd}\"\n    fs::remove_all(tree)\n    fs::remove_all(target)\n    fs::mkdir(target)\n    fs::mkdir(tree)\n    fs::mkdir(\"{tree}/sub\")\n    fs::write(\"{target}/secret.txt\" \"secret\")\n    fs::write(\"{tree}/sub/inner.txt\" \"inner\")\n    proc::run::output(\"/bin/ln\" [\"-s\" \"{target}\" \"{tree}/sub/leak\"] :vec[str])\n    set removed = fs::remove_all(tree)\n    set tree_gone = !fs::exists(tree)\n    set secret = strings::trim(fs::read(\"{target}/secret.txt\"))\n    set secret_ok = secret == \"secret\"\n    fs::mkdir(nd)\n    fs::write(\"{nd}/f.txt\" \"x\")\n    set nf = !fs::remove(nd)\n    set err = fs::last_error()\n    set empty_err = err == 11\n    set cleaned = fs::remove_all(nd)\n    use dasu(\"{{removed}}-{{tree_gone}}-{{secret_ok}}-{{nf}}-{{empty_err}}-{{cleaned}}\")\n}}\n",
+        tree = tree_p,
+        target = target_p,
+        nd = nd_p,
+    );
+    fs::write(&source_path, &src).expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::default(),
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+            test_mode: false,
+            ..Default::default()
+        },
+    )
+    .expect("fs remove should compile");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+    assert!(output.status.success(), "fs remove failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("true-true-true-true-true-true"),
+        "remove/symlink safety: {stdout}"
+    );
+}
+
+#[test]
 fn pal_proc_argv_echo() {
     let root = make_temp_project_root("mire_pal_proc_sh");
     let source_path = root.join("proc_sh.mire");

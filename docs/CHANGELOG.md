@@ -2,6 +2,67 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.27] - 2026-08-06 (PAL FS removal API: pal_root_remove / pal_fs_remove)
+
+### Added
+
+- **`pal_root_remove(pal_root_t root, const char *rel_path)`** — the PAL
+  capability primitive for single-entry removal. Unlinks exactly one entry
+  (regular file, symlink, or empty directory) relative to a root handle and
+  never follows symlinks: a trailing symlink is unlinked, and intermediate
+  symlinks in the path are rejected (`PAL_ERR_PERMISSION`). `..`/`.`/empty
+  basenames are rejected (`PAL_ERR_INVALID`). A non-empty directory fails with
+  the new `PAL_ERR_NOT_EMPTY`; the entry is untouched.
+- **`pal_fs_remove(const char *path)`** — host-only absolute-path removal
+  (same errno mapping), gated behind `PAL_ALLOW_UNSANDBOXED` alongside the
+  other `pal_fs_*` primitives.
+- **`PAL_ERR_NOT_EMPTY`** appended to `pal_error_code_t` (append-only enum
+  addition; `pal_strerror`/`pal_core_errno_map` extended: `ENOTEMPTY`/`EEXIST`
+  → `NOT_EMPTY`, `ENOENT`/`ENOTDIR` → `NOT_FOUND`,
+  `EACCES`/`EPERM`/`ELOOP`/`EXDEV` → `PERMISSION`,
+  `EISDIR`/`EINVAL`/`ENAMETOOLONG` → `INVALID`, `EBUSY` → `BUSY`).
+- **kioto `fs::remove(path)` / `fs::remove_all(path)` / `fs::last_error()`**:
+  `fs::remove` is the 1:1 capability wrapper; `fs::remove_all` composes
+  recursion in Mire over `pal_dir_open` + `pal_root_remove` (never in PAL).
+  `fs::last_error()` returns the PAL error code after a failure (used for
+  `PAL_ERR_NOT_EMPTY` on non-empty-directory removal).
+- **Error-code fidelity in dispatch**: the open/create-family dispatch
+  functions (`pal_root_open`, `pal_file_open`, `pal_dir_open`,
+  `pal_proc_create`, `pal_socket_connect`, `pal_listener_bind`,
+  `pal_listener_accept`, `pal_channel_create`, `pal_secret_create`) now map
+  the backend errno through `pal_core_errno_map` instead of reporting a
+  hard-coded `PAL_ERR_IO`. A failed `pal_root_open` on a missing path now
+  reports `PAL_ERR_NOT_FOUND`.
+
+### Changed
+
+- **Linux backend (`src/pal/linux/pal_linux.c`)**: new parameterized
+  `linux_openat2_resolve(dirfd, path, flags, how)` helper; the sandboxed
+  `linux_openat2_sandbox` delegates to it with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. `linux_root_remove` resolves the
+  parent with `RESOLVE_NO_SYMLINKS` only — `RESOLVE_BENEATH` returns `EXDEV`
+  when a relative path crosses a mount point (e.g. relative-to-`/` access to
+  tmpfs `/tmp`), which would make ordinary capability removal fail; `..`
+  is blocked by basename validation instead. Removal then `fstatat` with
+  `AT_SYMLINK_NOFOLLOW` and `unlinkat` (with `AT_REMOVEDIR` for directories).
+
+### Removed
+
+- Nothing removed.
+
+### Tests
+
+- kioto `tests/fs_remove.mire` — 10 tests: single file/empty-dir removal,
+  missing → `NOT_FOUND`, non-empty dir → `NOT_EMPTY` (dir survives), nested
+  `remove_all`, `remove_all` on a file, and four symlink-escape cases
+  (top-level link to outside file/dir, `remove_all` on a top-level link, and a
+  link inside a subdirectory — external targets always left intact).
+- `language_regressions.rs` `pal_fs_remove_symlink_safe` — end-to-end Mire
+  program exercising `fs::remove_all` over a tree containing a symlink, plus
+  `fs::remove` + `fs::last_error() == 11` on a non-empty dir.
+- Standalone C conformance harness (host-side, `/tmp/opencode/rmtest`) — all
+  checks green including traversal rejection and outside-target preservation.
+
 ## [3.24.26] - 2026-08-05 (shell migration: proc::run::shell removed)
 
 ### Removed

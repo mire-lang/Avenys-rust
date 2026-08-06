@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <errno.h>
 
 // ── PAL Dispatch Layer ───────────────────────────────────────
 // This file implements the public ABI functions declared in pal.h.
@@ -41,7 +42,7 @@ pal_root_t pal_root_open(const char *path) {
     pal_ensure_init();
     if (!ops || !ops->root_open) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_ROOT_NULL; }
     int64_t internal = ops->root_open(path);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "root_open failed"); return PAL_ROOT_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "root_open failed"); return PAL_ROOT_NULL; }
     int slot = pal_core_reserve(PAL_RES_ROOT);
     if (slot < 0) { pal_set_error(PAL_ERR_NO_MEM, "no slots"); return PAL_ROOT_NULL; }
     // Store internal in slot
@@ -64,7 +65,7 @@ pal_file_t pal_file_open(pal_root_t root, const char *rel_path, pal_open_flags f
     int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
     if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_FILE_NULL; }
     int64_t internal = ops->file_open(root_internal, rel_path, flags);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "file_open failed"); return PAL_FILE_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "file_open failed"); return PAL_FILE_NULL; }
     int slot = pal_core_reserve(PAL_RES_FILE);
     if (slot < 0) { pal_set_error(PAL_ERR_NO_MEM, "no slots"); return PAL_FILE_NULL; }
     extern pal_slot_t g_slots[];
@@ -137,7 +138,7 @@ pal_dir_t pal_dir_open(pal_root_t root, const char *rel_path) {
     int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
     if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_DIR_NULL; }
     int64_t internal = ops->dir_open(root_internal, rel_path);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "dir_open failed"); return PAL_DIR_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "dir_open failed"); return PAL_DIR_NULL; }
     int slot = pal_core_reserve(PAL_RES_DIR);
     if (slot < 0) return PAL_DIR_NULL;
     extern pal_slot_t g_slots[];
@@ -188,6 +189,17 @@ void pal_dir_close(pal_dir_t dir) {
     pal_core_release(dir.index);
 }
 
+// Capability-based single-entry removal relative to a root handle.
+// The backend resolves the parent directory inside the sandbox and unlinks the
+// basename without following a trailing symlink. Precise error codes are set by
+// the backend via pal_set_error (PAL_ERR_NOT_EMPTY for a non-empty directory).
+bool pal_root_remove(pal_root_t root, const char *rel_path) {
+    if (!ops || !ops->root_remove) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return false; }
+    int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
+    if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return false; }
+    return ops->root_remove(root_internal, rel_path);
+}
+
 // ── Process ──────────────────────────────────────────────────
 
 // Resolve an optional channel handle: {0,0} (PAL_CHANNEL_NULL) means
@@ -214,7 +226,7 @@ pal_process_t pal_proc_create(const char **argv, pal_spawn_flags flags,
         pal_set_error(PAL_ERR_INVALID_HANDLE, "bad stderr channel"); return PAL_PROCESS_NULL;
     }
     int64_t internal = ops->proc_create(argv, flags, stdin_internal, stdout_internal, stderr_internal);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "proc_create failed"); return PAL_PROCESS_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "proc_create failed"); return PAL_PROCESS_NULL; }
     int slot = pal_core_reserve(PAL_RES_PROCESS);
     if (slot < 0) return PAL_PROCESS_NULL;
     extern pal_slot_t g_slots[];
@@ -305,7 +317,7 @@ void pal_proc_close(pal_process_t proc) {
 pal_socket_t pal_socket_connect(const char *host, uint16_t port, pal_socket_flags flags) {
     if (!ops || !ops->socket_connect) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_SOCKET_NULL; }
     int64_t internal = ops->socket_connect(host, port, flags);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "connect failed"); return PAL_SOCKET_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "connect failed"); return PAL_SOCKET_NULL; }
     int slot = pal_core_reserve(PAL_RES_SOCKET);
     if (slot < 0) return PAL_SOCKET_NULL;
     extern pal_slot_t g_slots[];
@@ -317,7 +329,7 @@ pal_socket_t pal_socket_connect(const char *host, uint16_t port, pal_socket_flag
 pal_listener_t pal_listener_bind(uint16_t port, pal_socket_flags flags) {
     if (!ops || !ops->listener_bind) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_LISTENER_NULL; }
     int64_t internal = ops->listener_bind(port, flags);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "bind failed"); return PAL_LISTENER_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "bind failed"); return PAL_LISTENER_NULL; }
     int slot = pal_core_reserve(PAL_RES_LISTENER);
     if (slot < 0) return PAL_LISTENER_NULL;
     extern pal_slot_t g_slots[];
@@ -331,7 +343,7 @@ pal_socket_t pal_listener_accept(pal_listener_t listener) {
     int64_t internal = (int64_t)pal_core_validate_and_get(listener.index, listener.generation, PAL_RES_LISTENER);
     if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad handle"); return PAL_SOCKET_NULL; }
     int64_t accepted = ops->listener_accept(internal);
-    if (accepted <= 0) { pal_set_error(PAL_ERR_IO, "accept failed"); return PAL_SOCKET_NULL; }
+    if (accepted <= 0) { pal_set_error(pal_core_errno_map(errno), "accept failed"); return PAL_SOCKET_NULL; }
     int slot = pal_core_reserve(PAL_RES_SOCKET);
     if (slot < 0) return PAL_SOCKET_NULL;
     extern pal_slot_t g_slots[];
@@ -375,7 +387,7 @@ void pal_listener_close(pal_listener_t listener) {
 pal_channel_t pal_channel_create(void) {
     if (!ops || !ops->channel_create) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_CHANNEL_NULL; }
     int64_t internal = ops->channel_create();
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "channel_create failed"); return PAL_CHANNEL_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "channel_create failed"); return PAL_CHANNEL_NULL; }
     int slot = pal_core_reserve(PAL_RES_CHANNEL);
     if (slot < 0) return PAL_CHANNEL_NULL;
     extern pal_slot_t g_slots[];
@@ -413,7 +425,7 @@ void pal_channel_close(pal_channel_t ch) {
 pal_secret_t pal_secret_create(pal_crypto_algorithm_t algorithm) {
     if (!ops || !ops->secret_create) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_SECRET_NULL; }
     int64_t internal = ops->secret_create(algorithm);
-    if (internal <= 0) { pal_set_error(PAL_ERR_IO, "secret_create failed"); return PAL_SECRET_NULL; }
+    if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "secret_create failed"); return PAL_SECRET_NULL; }
     int slot = pal_core_reserve(PAL_RES_SECRET);
     if (slot < 0) return PAL_SECRET_NULL;
     extern pal_slot_t g_slots[];
@@ -553,7 +565,7 @@ void pal_secure_free(void *ptr) {
 // ══ UNSANDBOXED ── absolute-path filesystem operations ────────
 // See pal.h for the capability-model warning. Only compiled when
 // PAL_ALLOW_UNSANDBOXED is set (default on for runtime compat).
-#ifdef PAL_ALLOW_UNSANDBOXED
+#if PAL_ALLOW_UNSANDBOXED
 
 bool pal_fs_exists(const char *path) {
     struct stat st;
@@ -570,6 +582,18 @@ bool pal_fs_rmdir(const char *path) {
 
 bool pal_fs_unlink(const char *path) {
     return unlink(path) == 0;
+}
+
+// Single-entry removal by absolute path (file, symlink, or empty dir) with
+// precise error codes. Recursive removal is host composition, not PAL.
+bool pal_fs_remove(const char *path) {
+    if (!path || path[0] == '\0') {
+        pal_set_error(PAL_ERR_INVALID, "null or empty path");
+        return false;
+    }
+    if (remove(path) == 0) return true;
+    pal_set_error(pal_core_errno_map(errno), "remove failed");
+    return false;
 }
 
 // [PAL-OWNED] malloc'd NUL-terminated string; caller MUST pal_free().
@@ -608,56 +632,22 @@ const char *pal_env_get(const char *name) {
     return getenv(name);
 }
 
-// ══ LEGACY SHELL ── command-injection surface ─────────────────
-// Only compiled when PAL_ALLOW_LEGACY_SHELL is set (default on for compat).
-// These functions run `/bin/sh -c`. NEVER expose to untrusted Mire code.
-#ifdef PAL_ALLOW_LEGACY_SHELL
+// ══ Legacy Shell ────────────────────────────────────────────────
+#if PAL_ALLOW_LEGACY_SHELL
 
 int64_t pal_proc_system(const char *cmd) {
-    if (!cmd) return -1;
-    int status = system(cmd);
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    return -1;
+    if (!ops || !ops->proc_system) return -1;
+    return ops->proc_system(cmd);
 }
 
 int64_t pal_proc_capture(const char *cmd, void *buf, int64_t capacity) {
-    if (!cmd || !buf || capacity <= 0) return 0;
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return 0;
-    int64_t total = 0;
-    char *out = (char *)buf;
-    size_t n;
-    while (total < capacity - 1 && (n = fread(out + total, 1, (size_t)(capacity - total - 1), fp)) > 0) {
-        total += (int64_t)n;
-    }
-    out[total] = '\0';
-    pclose(fp);
-    return total;
+    if (!ops || !ops->proc_capture) return 0;
+    return ops->proc_capture(cmd, buf, capacity);
 }
 
-// [PAL-OWNED] malloc'd NUL-terminated output; caller MUST pal_free().
-// Returns NULL on error (never a string literal).
 const char *pal_proc_capture_output(const char *cmd) {
-    if (!cmd) return NULL;
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return NULL;
-    size_t cap = 4096;
-    size_t total = 0;
-    char *buf = malloc(cap);
-    if (!buf) { pclose(fp); return NULL; }
-    size_t n;
-    while ((n = fread(buf + total, 1, cap - total - 1, fp)) > 0) {
-        total += n;
-        if (total >= cap - 2) {
-            cap *= 2;
-            char *new_buf = realloc(buf, cap);
-            if (!new_buf) { free(buf); pclose(fp); return NULL; }
-            buf = new_buf;
-        }
-    }
-    buf[total] = '\0';
-    pclose(fp);
-    return buf;
+    if (!ops || !ops->proc_capture_output) return NULL;
+    return ops->proc_capture_output(cmd);
 }
 
 #endif // PAL_ALLOW_LEGACY_SHELL
@@ -669,4 +659,103 @@ int64_t pal_proc_wait_pid(int64_t pid) {
     if (ret < 0) return -1;
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     return -1;
+}
+
+// ── Extended Stateless Services ──────────────────────
+
+int64_t pal_cpu_time_ms(void) {
+    if (!ops || !ops->cpu_time_ms) return 0;
+    return ops->cpu_time_ms();
+}
+
+const char *pal_cpu_snapshot(void) {
+    if (!ops || !ops->cpu_snapshot) return "";
+    return ops->cpu_snapshot();
+}
+
+const char *pal_mem_format(int64_t bytes) {
+    if (!ops || !ops->mem_format) return "";
+    return ops->mem_format(bytes);
+}
+
+int64_t pal_time_mark(void) {
+    if (!ops || !ops->time_mark) return pal_time_now_ms();
+    return ops->time_mark();
+}
+
+int64_t pal_time_unix_ms(void) {
+    if (!ops || !ops->time_unix_ms) return pal_time_now_ms();
+    return ops->time_unix_ms();
+}
+
+int64_t pal_time_unix_ns(void) {
+    if (!ops || !ops->time_unix_ns) return pal_time_now_ns();
+    return ops->time_unix_ns();
+}
+
+int64_t pal_mem_process_bytes(void) {
+    if (!ops || !ops->mem_process_bytes) return pal_mem_process();
+    return ops->mem_process_bytes();
+}
+
+// ── Extended Process ─────────────────────────────────
+
+bool pal_proc_exists(int64_t pid) {
+    if (!ops || !ops->proc_exists) return false;
+    return ops->proc_exists(pid);
+}
+
+int64_t pal_proc_run(const char *cmd, const char **argv) {
+    if (!ops || !ops->proc_run) return -1;
+    return ops->proc_run(cmd, argv);
+}
+
+// ── Extended Filesystem (UNSANBOXED) ────────────────
+
+#if PAL_ALLOW_UNSANDBOXED
+
+const char *pal_fs_ext(const char *path) {
+    if (!ops || !ops->fs_ext) return "";
+    return ops->fs_ext(path);
+}
+
+const char *pal_fs_dir(const char *path) {
+    if (!ops || !ops->fs_dir) return ".";
+    return ops->fs_dir(path);
+}
+
+const char *pal_fs_name(const char *path) {
+    if (!ops || !ops->fs_name) return "";
+    return ops->fs_name(path);
+}
+
+bool pal_fs_is_file(const char *path) {
+    if (!ops || !ops->fs_is_file) return false;
+    return ops->fs_is_file(path);
+}
+
+bool pal_fs_copy(const char *src, const char *dst) {
+    if (!ops || !ops->fs_copy) return false;
+    return ops->fs_copy(src, dst);
+}
+
+bool pal_fs_move(const char *src, const char *dst) {
+    if (!ops || !ops->fs_move) return false;
+    return ops->fs_move(src, dst);
+}
+
+#endif // PAL_ALLOW_UNSANDBOXED
+
+// ── Extended Environment ────────────────────────────
+
+const char *pal_env_all(void) {
+    if (!ops || !ops->env_all) return "";
+    return ops->env_all();
+}
+
+// ── Extended I/O ────────────────────────────────────
+
+void pal_io_print_err(const char *msg) {
+    if (!ops || !ops->io_print_err) return;
+    ops->io_print_err(msg);
 }

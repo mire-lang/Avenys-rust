@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <errno.h>
 
 pal_slot_t g_slots[PAL_MAX_SLOTS];
 static int g_slot_count;
@@ -164,8 +165,30 @@ const char *pal_strerror(pal_error_code_t code) {
         case PAL_ERR_ALREADY_EXISTS: return "already exists";
         case PAL_ERR_INVALID_HANDLE: return "invalid handle";
         case PAL_ERR_OWNERSHIP: return "ownership violation";
+        case PAL_ERR_NOT_EMPTY: return "directory not empty";
     }
     return "unknown error";
+}
+
+pal_error_code_t pal_core_errno_map(int err) {
+    switch (err) {
+        case 0: return PAL_ERR_OK;
+        case ENOENT:
+        case ENOTDIR: return PAL_ERR_NOT_FOUND;
+        case EACCES:
+        case EPERM:
+        case ELOOP:     // symlink encountered during sandboxed (NO_SYMLINKS) resolution
+        case EXDEV:     // `..` escape during RESOLVE_BENEATH resolution
+            return PAL_ERR_PERMISSION;
+        case ENOTEMPTY:
+        case EEXIST: return PAL_ERR_NOT_EMPTY;
+        case EISDIR:
+        case EINVAL:
+        case ENAMETOOLONG: return PAL_ERR_INVALID;
+        case EBUSY: return PAL_ERR_BUSY;
+        case ENOMEM: return PAL_ERR_NO_MEM;
+        default: return PAL_ERR_IO;
+    }
 }
 
 void pal_clear_error(void) {

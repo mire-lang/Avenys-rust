@@ -72,7 +72,7 @@ Two legacy groups opt out of that model and are **compile-time gated** in
 `pal.h` so they are never part of a hardened build:
 
 - `PAL_ALLOW_UNSANDBOXED` — `pal_fs_*` absolute-path operations
-  (`pal_fs_exists/mkdir/rmdir/unlink/read_file`). They bypass root
+  (`pal_fs_exists/mkdir/rmdir/unlink/read_file/remove`). They bypass root
   capabilities entirely and exist only for the runtime's own internal use.
 - `PAL_ALLOW_LEGACY_SHELL` — `pal_proc_system`, `pal_proc_capture`,
   `pal_proc_capture_output`. They invoke `/bin/sh -c` and are a
@@ -115,6 +115,7 @@ typedef enum {
     PAL_ERR_ALREADY_EXISTS,
     PAL_ERR_INVALID_HANDLE,
     PAL_ERR_OWNERSHIP,
+    PAL_ERR_NOT_EMPTY,
 } pal_error_code_t;
 
 pal_error_code_t pal_last_error(void);
@@ -126,6 +127,56 @@ Errors must be checked before a caller discards a failure result. The PAL does
 not retry, normalize paths, invoke a shell, convert encodings, or silently
 replace unsupported host capabilities.
 
+### errno mapping
+
+Backend operations set `errno` on failure; the dispatch layer maps it to the
+PAL error via `pal_core_errno_map(errno)` (in `src/pal/core/pal_core.c`):
+
+| errno | PAL error |
+|-------|-----------|
+| `ENOENT`, `ENOTDIR` | `PAL_ERR_NOT_FOUND` |
+| `EACCES`, `EPERM`, `ELOOP`, `EXDEV` | `PAL_ERR_PERMISSION` |
+| `ENOTEMPTY`, `EEXIST` | `PAL_ERR_NOT_EMPTY` |
+| `EISDIR`, `EINVAL`, `ENAMETOOLONG` | `PAL_ERR_INVALID` |
+| `EBUSY` | `PAL_ERR_BUSY` |
+| `ENOMEM` | `PAL_ERR_NO_MEM` |
+| anything else | `PAL_ERR_IO` |
+
+The open/create-family dispatch functions (`pal_root_open`, `pal_file_open`,
+`pal_dir_open`, `pal_proc_create`, `pal_socket_connect`, `pal_listener_bind`,
+`pal_listener_accept`, `pal_channel_create`, `pal_secret_create`) all use this
+map, so a failed `pal_root_open` on a missing path reports `NOT_FOUND`, a
+failed `pal_root_remove` on a non-empty directory reports `NOT_EMPTY`, etc.
+Never report a hard-coded `PAL_ERR_IO` for a syscall failure — it hides the
+real cause.
+
+### Worked example: capability removal
+
+```c
+// Remove the empty directory "logs" under the root handle, then a file.
+pal_root_t root = pal_root_open("/srv/app");      // cap = /srv/app
+if (root.index == 0) { /* pal_last_error() == PAL_ERR_NOT_FOUND */ }
+
+// unlinkat-based, relative to the root's fd; no path string is ever built.
+bool ok1 = pal_root_remove(root, "logs");          // true
+bool ok2 = pal_root_remove(root, "state/pid");     // true (nested parent ok)
+
+bool ok3 = pal_root_remove(root, "data");          // false if "data" is
+                                                   // non-empty:
+// pal_last_error() == PAL_ERR_NOT_EMPTY; "data" was NOT touched.
+
+// A symlink is unlinked, never followed:
+bool ok4 = pal_root_remove(root, "link_to_etc");   // removes the link only;
+                                                   // its target is untouched.
+
+pal_root_close(root);
+```
+
+`..` is impossible: basenames of `.`, `..`, or empty are rejected with
+`PAL_ERR_INVALID`, and the parent is resolved with `RESOLVE_NO_SYMLINKS`
+(beneath-style mount crossings are allowed — `RESOLVE_BENEATH` would reject
+ordinary paths that cross into tmpfs, e.g. relative-to-`/` access to `/tmp`).
+
 ## Primitive groups
 
 The public header currently exposes:
@@ -134,6 +185,12 @@ The public header currently exposes:
   `pal_secure_alloc`, `pal_secure_free`.
 - Root-scoped filesystem: root/file/directory handles, byte read/write/seek,
   stat, size, clone, and directory entry iteration.
+- Single-entry removal: `pal_root_remove(root, rel_path)` unlinks exactly one
+  entry (regular file, symlink, or empty directory) relative to a root handle.
+  A trailing symlink is unlinked, **never followed**; intermediate symlinks in
+  the path are rejected. Non-empty directories fail with `PAL_ERR_NOT_EMPTY`.
+  Recursive removal is a Kioto-side composition over `pal_dir_open` +
+  `pal_root_remove` — it is not a PAL primitive (composition belongs in Kioto).
 - Host process resources: create, wait, kill, standard-channel access,
   transfer, and close.
 - Sockets, listeners, and byte channels.
@@ -142,8 +199,8 @@ The public header currently exposes:
 - Threads and stateless host queries for time, CPU, memory, and randomness.
 - Environment access (`pal_env_cwd`, `pal_env_get`): `[BORROWED]` static
   buffers — read-only, never freed.
-- Absolute-path primitives (`pal_fs_*`) and shell helpers
-  (`pal_proc_system`/`capture*`): compile-time gated behind
+- Absolute-path primitives (`pal_fs_*`, including `pal_fs_remove`) and shell
+  helpers (`pal_proc_system`/`capture*`): compile-time gated behind
   `PAL_ALLOW_UNSANDBOXED` / `PAL_ALLOW_LEGACY_SHELL`; they do not implement
   filesystem composition and are never exposed to untrusted Mire code.
 
@@ -176,9 +233,14 @@ matching PAL release operation rather than guessing an allocator.
 2. Add the typed declaration to `src/pal/pal.h`.
 3. Add the backend operation and dispatch implementation, preserving handle
    validation and error information.
-4. Register the symbol in `docs/abi_map.toml` and update ABI conformance tests.
+4. If the codegen emits the symbol (a `declare` in
+   `src/compiler/mir/codegen/builtins.rs`), register it in `docs/abi_map.toml`
+   and update ABI conformance tests. Symbols Kioto declares directly as
+   `extern fn ... lib "c"` (e.g. `pal_root_remove`, `pal_fs_remove`,
+   `pal_last_error`) are NOT catalogued — adding them to the map creates a
+   stale entry and fails `tests/abi_consistency.rs`.
 5. Add a Kioto wrapper only when it contributes composition or Mire-facing
    semantics.
 
-The ABI map and PAL conformance tests are authoritative for the currently
-implemented host surface.
+The ABI map and PAL conformance tests are authoritative for the compiler-
+emitted host surface; `src/pal/pal.h` is authoritative for the full ABI.

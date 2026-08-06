@@ -85,9 +85,8 @@ mod tests {
     #[test]
     fn cache_roundtrips_parsed_and_analysis_entries() {
         let root = std::env::temp_dir().join(format!("mire_cache_test_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let mut cache =
             IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
@@ -126,9 +125,8 @@ mod tests {
     #[test]
     fn cache_persists_across_reload() {
         let root = std::env::temp_dir().join(format!("mire_cache_persist_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let mut cache =
             IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
@@ -287,9 +285,8 @@ mod tests {
     #[test]
     fn cache_metrics_track_file_and_analysis_hits_and_misses() {
         let root = std::env::temp_dir().join(format!("mire_cache_metrics_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let mut cache =
             IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");
@@ -323,9 +320,8 @@ mod tests {
     #[test]
     fn cache_roundtrips_analysis_errors() {
         let root = std::env::temp_dir().join(format!("mire_cache_error_{}", now_epoch_ms()));
-        fs::create_dir_all(&root).expect("temp dir");
         let source_path = make_cache_path(&root);
-        fs::write(&source_path, "pub fn main: () {}\n").expect("source");
+        setup_test_root(&root, &source_path);
 
         let mut cache =
             IncrementalCache::load_with_settings(&source_path, test_settings()).expect("load");

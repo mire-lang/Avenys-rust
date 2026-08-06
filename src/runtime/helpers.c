@@ -10,7 +10,7 @@
 #include "runtime.h"
 #include "pal.h"
 
-#ifdef PAL_ALLOW_LEGACY_SHELL
+#if PAL_ALLOW_LEGACY_SHELL
 extern const char *pal_proc_capture_output(const char *cmd);
 #endif
 
@@ -71,7 +71,7 @@ int rt_hex_to_file(const char *path, const char *hex) {
 
 // Runs a command via PAL capture and returns the output as a managed string.
 // Requires PAL_ALLOW_LEGACY_SHELL (see pal.h).
-#ifdef PAL_ALLOW_LEGACY_SHELL
+#if PAL_ALLOW_LEGACY_SHELL
 char *rt_proc_capture_output(const char *cmd) {
     if (!cmd) return rt_managed_from_cstr("");
     const char *out = pal_proc_capture_output(cmd);
@@ -85,7 +85,13 @@ char *rt_proc_capture_output(const char *cmd) {
 // Safe argv-based process execution with output capture.
 // Builds a real argv[] (no shell) and runs fork + execvp directly.
 // Returns the captured stdout as a managed string (empty on failure).
+// Thread-local exit status of the most recent argv-based capture. Mirrors the
+// shell capture's implicit status without needing an extra out-parameter that
+// Mire cannot express. Single mire process = single sequential proc user.
+static _Thread_local int64_t g_last_proc_exit = -1;
+
 char *rt_proc_capture_argv(const char *cmd, void *args_vec) {
+    g_last_proc_exit = -1;
     if (!cmd || !args_vec) return rt_managed_from_cstr("");
     int64_t argc = 0;
     char **argv = rt_build_argv(cmd, args_vec, &argc);
@@ -143,7 +149,14 @@ char *rt_proc_capture_argv(const char *cmd, void *args_vec) {
     }
     close(pipefd[0]);
     buf[len] = '\0';
-    waitpid(pid, NULL, 0);
+    int status = 0;
+    if (waitpid(pid, &status, 0) > 0) {
+        if (WIFEXITED(status)) {
+            g_last_proc_exit = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+            g_last_proc_exit = 128 + WTERMSIG(status);
+        }
+    }
     char *managed = rt_managed_from_slice(buf, len);
     free(buf);
     rt_free_argv(argv, argc);
@@ -153,8 +166,6 @@ char *rt_proc_capture_argv(const char *cmd, void *args_vec) {
 // Thread-local exit status of the most recent argv-based capture. Mirrors the
 // shell capture's implicit status without needing an extra out-parameter that
 // Mire cannot express. Single mire process = single sequential proc user.
-static _Thread_local int64_t g_last_proc_exit = -1;
-
 int64_t rt_proc_last_exit(void) {
     return g_last_proc_exit;
 }

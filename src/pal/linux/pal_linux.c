@@ -16,6 +16,8 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sodium.h>
+#include <sys/resource.h>
+#include <time.h>
 
 // ── openat2 sandbox helpers ─────────────────────────────
 // openat2(2) was added in Linux 5.10. It allows RESOLVE_BENEATH
@@ -38,25 +40,37 @@ struct open_how {
     uint64_t resolve;
 };
 
-// openat2 at dirfd with RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS.
-// Relative paths are sandboxed against traversal (`..` and symlink
-// escapes outside root are rejected). Absolute paths inherently ignore
-// dirfd, so they fall back to plain openat (legacy semantics). Also
-// falls back to openat on ENOSYS (kernel < 5.10). Returns -1 on error.
-static int linux_openat2_sandbox(int dirfd, const char *path, int flags, mode_t mode) {
+// openat2 at dirfd with a caller-chosen set of resolve flags.
+// RESOLVE_NO_SYMLINKS alone rejects symlinks in intermediate components but
+// permits mount-point crossings (RESOLVE_BENEATH returns EXDEV when a path
+// crosses a mount, e.g. relative-to-"/" access to a tmpfs /tmp — see
+// linux_root_remove). Absolute paths fall back to plain openat (legacy).
+// ENOSYS (kernel < 5.10) falls back to openat. Returns -1 on error.
+static int linux_openat2_resolve(int dirfd, const char *path, int flags, mode_t mode,
+                                 uint64_t resolve) {
     if (!path || path[0] == '/') {
         return openat(dirfd, path, flags, mode);
     }
     struct open_how how = {
         .flags = (uint64_t)flags,
         .mode  = (uint64_t)mode,
-        .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS,
+        .resolve = resolve,
     };
     long ret = syscall(SYS_openat2, dirfd, path, &how, sizeof(how));
     if (ret == -1 && errno == ENOSYS) {
         return openat(dirfd, path, flags, mode);
     }
     return (int)ret;
+}
+
+// openat2 at dirfd with RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS.
+// Relative paths are sandboxed against traversal (`..` and symlink
+// escapes outside root are rejected). Absolute paths inherently ignore
+// dirfd, so they fall back to plain openat (legacy semantics). Also
+// falls back to openat on ENOSYS (kernel < 5.10). Returns -1 on error.
+static int linux_openat2_sandbox(int dirfd, const char *path, int flags, mode_t mode) {
+    return linux_openat2_resolve(dirfd, path, flags, mode,
+                                 RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS);
 }
 
 // ── Linux Internal Types ─────────────────────────────────────
@@ -132,6 +146,81 @@ static void linux_root_close(int64_t internal) {
     if (!root) return;
     if (root->fd >= 0) close(root->fd);
     pal_free(root);
+}
+
+// Capability-based single-entry removal relative to a root handle.
+// Splits rel_path into parent + basename, resolves the parent inside the
+// sandbox, then unlinks the basename without following it:
+//   dir      -> unlinkat(dir_fd, base, AT_REMOVEDIR)  (PAL_ERR_NOT_EMPTY if full)
+//   file/symlink/other -> unlinkat(dir_fd, base, 0)   (link unlinked, never followed)
+// This fixes the prior bug of calling fstatat/unlinkat with an empty "name"
+// on a bare fd: the parent directory is always resolved first.
+// Parent resolution uses RESOLVE_NO_SYMLINKS (not RESOLVE_BENEATH): BENEATH
+// returns EXDEV when the path crosses a mount point (relative-to-"/" access to
+// a tmpfs /tmp), which would break removal of ordinary mount-backed paths. The
+// anti-escape guarantee that matters for removal is that intermediate symlinks
+// are never followed — provided by NO_SYMLINKS. "."/".." basenames are rejected
+// below, and hosts compose only downward paths from the root handle.
+static bool linux_root_remove(int64_t root_internal, const char *rel_path) {
+    linux_root_t *root = (linux_root_t *)root_internal;
+    if (!root || !rel_path || rel_path[0] == '\0') {
+        pal_set_error(PAL_ERR_INVALID, "bad rel_path");
+        return false;
+    }
+
+    size_t len = strlen(rel_path);
+    while (len > 1 && rel_path[len - 1] == '/') len--; // "dir/" == "dir"
+    if (len == 0) { pal_set_error(PAL_ERR_INVALID, "invalid rel_path"); return false; }
+
+    size_t base_start = len;
+    while (base_start > 0 && rel_path[base_start - 1] != '/') base_start--;
+    const char *base = rel_path + base_start;
+    size_t base_len = len - base_start;
+    if (base_len == 0) { pal_set_error(PAL_ERR_INVALID, "invalid rel_path"); return false; }
+    if (base_len == 1 && base[0] == '.') { pal_set_error(PAL_ERR_INVALID, "cannot remove ."); return false; }
+    if (base_len == 2 && base[0] == '.' && base[1] == '.') { pal_set_error(PAL_ERR_INVALID, "cannot remove .."); return false; }
+
+    int dir_fd;
+    if (base_start == 0) {
+        dir_fd = root->fd;
+    } else {
+        char parent[4096];
+        if (base_start > sizeof(parent)) {
+            pal_set_error(PAL_ERR_INVALID, "rel_path too long");
+            return false;
+        }
+        memcpy(parent, rel_path, base_start - 1);
+        parent[base_start - 1] = '\0';
+        int fd = linux_openat2_resolve(root->fd, parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0,
+                                       RESOLVE_NO_SYMLINKS);
+        if (fd < 0) {
+            pal_set_error(pal_core_errno_map(errno), "resolve parent");
+            return false;
+        }
+        dir_fd = fd;
+    }
+
+    bool ok = false;
+    struct stat st;
+    if (fstatat(dir_fd, base, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        pal_set_error(pal_core_errno_map(errno), "stat entry");
+    } else if (S_ISDIR(st.st_mode)) {
+        if (unlinkat(dir_fd, base, AT_REMOVEDIR) != 0) {
+            pal_set_error(pal_core_errno_map(errno), "remove dir");
+        } else {
+            ok = true;
+        }
+    } else {
+        // file, symlink, fifo, socket: unlink the entry itself, never follow it
+        if (unlinkat(dir_fd, base, 0) != 0) {
+            pal_set_error(pal_core_errno_map(errno), "unlink entry");
+        } else {
+            ok = true;
+        }
+    }
+
+    if (dir_fd != root->fd) close(dir_fd);
+    return ok;
 }
 
 // ── File ─────────────────────────────────────────────────────
@@ -290,60 +379,77 @@ static int64_t linux_proc_create(const char **argv, pal_spawn_flags flags,
                                 int64_t stderr_internal) {
     if (!argv || !argv[0]) return -1;
 
-    // Create pipe pairs for communication
-    int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
-    if (pipe(stdin_pipe) != 0) return -1;
-    if (pipe(stdout_pipe) != 0) { close(stdin_pipe[0]); close(stdin_pipe[1]); return -1; }
-    if (pipe(stderr_pipe) != 0) {
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
+    // Only create pipe pairs for channels the caller actually requested.
+    // A 0 internal (PAL_CHANNEL_NULL) means "no pipe": the child inherits
+    // the parent's fd for that stream instead of writing into a swallowed
+    // pipe. Previously every stream was piped unconditionally, so
+    // pal_proc_create(..., {0,0}, {0,0}, {0,0}) + pal_proc_wait silently
+    // discarded the child's output (and could deadlock once >64KB wrote).
+    int stdin_pipe[2] = {-1, -1}, stdout_pipe[2] = {-1, -1}, stderr_pipe[2] = {-1, -1};
+    int has_stdin = stdin_internal != 0;
+    int has_stdout = stdout_internal != 0;
+    int has_stderr = stderr_internal != 0;
+    if (has_stdin && pipe(stdin_pipe) != 0) return -1;
+    if (has_stdout && pipe(stdout_pipe) != 0) {
+        if (has_stdin) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
+        return -1;
+    }
+    if (has_stderr && pipe(stderr_pipe) != 0) {
+        if (has_stdin) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
+        if (has_stdout) { close(stdout_pipe[0]); close(stdout_pipe[1]); }
         return -1;
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
-        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        if (has_stdin) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
+        if (has_stdout) { close(stdout_pipe[0]); close(stdout_pipe[1]); }
+        if (has_stderr) { close(stderr_pipe[0]); close(stderr_pipe[1]); }
         return -1;
     }
 
     if (pid == 0) {
-        // Child: wire up pipes
-        close(stdin_pipe[1]);   // Close write end
-        close(stdout_pipe[0]);  // Close read end
-        close(stderr_pipe[0]);  // Close read end
-
-        dup2(stdin_pipe[0], STDIN_FILENO);
-        dup2(stdout_pipe[1], STDOUT_FILENO);
-        dup2(stderr_pipe[1], STDERR_FILENO);
-
-        close(stdin_pipe[0]);
-        close(stdout_pipe[1]);
-        close(stderr_pipe[1]);
+        // Child: wire up pipes for requested streams, keep the inherited
+        // parent fds for any stream the caller left as "no pipe".
+        if (has_stdin) {
+            close(stdin_pipe[1]);   // Close write end
+            dup2(stdin_pipe[0], STDIN_FILENO);
+            close(stdin_pipe[0]);
+        }
+        if (has_stdout) {
+            close(stdout_pipe[0]);  // Close read end
+            dup2(stdout_pipe[1], STDOUT_FILENO);
+            close(stdout_pipe[1]);
+        }
+        if (has_stderr) {
+            close(stderr_pipe[0]);  // Close read end
+            dup2(stderr_pipe[1], STDERR_FILENO);
+            close(stderr_pipe[1]);
+        }
 
         execvp(argv[0], (char *const *)argv);
         _exit(127);
     }
 
     // Parent
-    close(stdin_pipe[0]);   // Close read end
-    close(stdout_pipe[1]);  // Close write end
-    close(stderr_pipe[1]);  // Close write end
+    int stdin_fd = -1, stdout_fd = -1, stderr_fd = -1;
+    if (has_stdin) { close(stdin_pipe[0]); stdin_fd = stdin_pipe[1]; }
+    if (has_stdout) { close(stdout_pipe[1]); stdout_fd = stdout_pipe[0]; }
+    if (has_stderr) { close(stderr_pipe[1]); stderr_fd = stderr_pipe[0]; }
 
     linux_process_t *proc = pal_alloc(sizeof(linux_process_t));
     if (!proc) {
-        close(stdin_pipe[1]);
-        close(stdout_pipe[0]);
-        close(stderr_pipe[0]);
+        if (stdin_fd >= 0) close(stdin_fd);
+        if (stdout_fd >= 0) close(stdout_fd);
+        if (stderr_fd >= 0) close(stderr_fd);
         kill(pid, SIGKILL);
         waitpid(pid, NULL, 0);
         return -1;
     }
     proc->pid = pid;
-    proc->stdin_fd = stdin_pipe[1];
-    proc->stdout_fd = stdout_pipe[0];
-    proc->stderr_fd = stderr_pipe[0];
+    proc->stdin_fd = stdin_fd;
+    proc->stdout_fd = stdout_fd;
+    proc->stderr_fd = stderr_fd;
     proc->waited = false;
 
     return (int64_t)proc;
@@ -681,6 +787,193 @@ static bool linux_random_fill(void *buf, int64_t length) {
     return n == (size_t)length;
 }
 
+/* ─── Path / filesystem utility functions (PAL_ALLOW_UNSANDBOXED) ─── */
+
+static const char *linux_fs_ext(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot || dot == path) return strdup("");
+    return strdup(dot + 1);
+}
+
+static const char *linux_fs_dir(const char *path) {
+    char *dup = strdup(path);
+    char *slash = strrchr(dup, '/');
+    if (!slash) {
+        free(dup);
+        return strdup(".");
+    }
+    if (slash == dup) {
+        slash[1] = '\0';
+        return dup;
+    }
+    *slash = '\0';
+    return dup;
+}
+
+static const char *linux_fs_name(const char *path) {
+    const char *slash = strrchr(path, '/');
+    if (!slash) return strdup(path);
+    return strdup(slash + 1);
+}
+
+static bool linux_fs_is_file(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return false;
+    return S_ISREG(st.st_mode);
+}
+
+static bool linux_fs_copy(const char *src, const char *dst) {
+    int fin = open(src, O_RDONLY);
+    if (fin < 0) return false;
+    int fout = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fout < 0) { close(fin); return false; }
+    char buf[8192];
+    ssize_t n;
+    while ((n = read(fin, buf, sizeof(buf))) > 0) {
+        if (write(fout, buf, (size_t)n) != n) break;
+    }
+    close(fin);
+    close(fout);
+    if (n < 0) { unlink(dst); return false; }
+    return true;
+}
+
+static bool linux_fs_move(const char *src, const char *dst) {
+    return rename(src, dst) == 0;
+}
+
+/* ─── CPU / process timing ─── */
+
+static int64_t linux_cpu_time_ms(void) {
+    struct rusage ru;
+    if (getrusage(RUSAGE_SELF, &ru) != 0) return pal_time_now_ms();
+    int64_t user_ms = (int64_t)ru.ru_utime.tv_sec * 1000 + ru.ru_utime.tv_usec / 1000;
+    int64_t sys_ms  = (int64_t)ru.ru_stime.tv_sec * 1000 + ru.ru_stime.tv_usec / 1000;
+    return user_ms + sys_ms;
+}
+
+static const char *linux_cpu_snapshot(void) {
+    struct rusage ru;
+    if (getrusage(RUSAGE_SELF, &ru) != 0) return "";
+    char buf[512];
+    int64_t user_ms  = (int64_t)ru.ru_utime.tv_sec * 1000 + ru.ru_utime.tv_usec / 1000;
+    int64_t sys_ms   = (int64_t)ru.ru_stime.tv_sec * 1000 + ru.ru_stime.tv_usec / 1000;
+    int64_t total_ms = user_ms + sys_ms;
+    int n = snprintf(buf, sizeof(buf),
+        "{\"user_ms\":%lld,\"system_ms\":%lld,\"total_ms\":%lld,"
+        "\"max_rss_kb\":%ld,\"voluntary_cs\":%ld,\"involuntary_cs\":%ld}",
+        (long long)user_ms, (long long)sys_ms, (long long)total_ms,
+        (long)ru.ru_maxrss, (long)ru.ru_nvcsw, (long)ru.ru_nivcsw);
+    if (n < 0) return "";
+    return strdup(buf);
+}
+
+/* ─── Memory utilities ─── */
+
+static const char *linux_mem_format(int64_t bytes) {
+    static const char *units[] = {"B", "KB", "MB", "GB", "TB", "PB"};
+    int unit = 0;
+    double sz = (double)bytes;
+    while (sz >= 1024.0 && unit < 5) { sz /= 1024.0; unit++; }
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.1f %s", sz, units[unit]);
+    return strdup(buf);
+}
+
+/* ─── Time snapshots (aliases / convenience) ─── */
+
+static int64_t linux_time_mark(void) {
+    return pal_time_now_ms();
+}
+
+static int64_t linux_time_unix_ms(void) {
+    return pal_time_now_ms();
+}
+
+static int64_t linux_time_unix_ns(void) {
+    return pal_time_now_ns();
+}
+
+/* ─── Environment ─── */
+
+static const char *linux_env_all(void) {
+    extern char **environ;
+    size_t cap = 256;
+    size_t len = 0;
+    char *out = malloc(cap);
+    if (!out) return "";
+    out[0] = '\0';
+    for (char **e = environ; *e; e++) {
+        size_t elen = strlen(*e);
+        if (len + elen + 2 > cap) {
+            while (len + elen + 2 > cap) cap *= 2;
+            out = realloc(out, cap);
+        }
+        memcpy(out + len, *e, elen);
+        len += elen;
+        out[len++] = '\n';
+        out[len] = '\0';
+    }
+    return out;
+}
+
+/* ─── IO / diagnostics ─── */
+
+static void linux_io_print_err(const char *msg) {
+    if (msg) fputs(msg, stderr);
+}
+
+/* ─── Process management ─── */
+
+static bool linux_proc_exists(int64_t pid) {
+    return kill((pid_t)pid, 0) == 0;
+}
+
+static int64_t linux_proc_run(const char *cmd, const char **argv) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execvp(cmd, (char *const *)argv);
+        _exit(127);
+    }
+    int status;
+    if (waitpid(pid, &status, 0) < 0) return -1;
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return -1;
+}
+
+/* ─── Legacy shell (PAL_ALLOW_LEGACY_SHELL) ─── */
+
+#if PAL_ALLOW_LEGACY_SHELL
+static int64_t linux_proc_system(const char *cmd) {
+    return (int64_t)system(cmd);
+}
+
+static int64_t linux_proc_capture(const char *cmd, void *buf, int64_t capacity) {
+    if (!buf || capacity <= 0) return -1;
+    FILE *p = popen(cmd, "r");
+    if (!p) return -1;
+    size_t n = fread(buf, 1, (size_t)capacity, p);
+    pclose(p);
+    return (int64_t)n;
+}
+
+static const char *linux_proc_capture_output(const char *cmd) {
+    FILE *p = popen(cmd, "r");
+    if (!p) return NULL;
+    char *buf = malloc(4096);
+    size_t cap = 4096, n = 0;
+    int c;
+    while ((c = fgetc(p)) != EOF) {
+        if (n + 1 >= cap) { cap *= 2; buf = realloc(buf, cap); }
+        buf[n++] = (char)c;
+    }
+    pclose(p);
+    buf[n] = '\0';
+    return buf;
+}
+#endif
+
 // ── Backend Registration ─────────────────────────────────────
 
 static const pal_ops_t linux_ops = {
@@ -688,6 +981,7 @@ static const pal_ops_t linux_ops = {
     .shutdown = linux_shutdown,
     .root_open = linux_root_open,
     .root_close = linux_root_close,
+    .root_remove = linux_root_remove,
     .file_open = linux_file_open,
     .file_read = linux_file_read,
     .file_write = linux_file_write,
@@ -730,6 +1024,28 @@ static const pal_ops_t linux_ops = {
     .mem_available = linux_mem_available,
     .mem_process = linux_mem_process,
     .random_fill = linux_random_fill,
+    .fs_ext = linux_fs_ext,
+    .fs_dir = linux_fs_dir,
+    .fs_name = linux_fs_name,
+    .fs_is_file = linux_fs_is_file,
+    .fs_copy = linux_fs_copy,
+    .fs_move = linux_fs_move,
+    .cpu_time_ms = linux_cpu_time_ms,
+    .cpu_snapshot = linux_cpu_snapshot,
+    .mem_format = linux_mem_format,
+    .time_mark = linux_time_mark,
+    .time_unix_ms = linux_time_unix_ms,
+    .time_unix_ns = linux_time_unix_ns,
+    .mem_process_bytes = linux_mem_process,
+    .proc_exists = linux_proc_exists,
+    .proc_run = linux_proc_run,
+    .env_all = linux_env_all,
+    .io_print_err = linux_io_print_err,
+#if PAL_ALLOW_LEGACY_SHELL
+    .proc_system = linux_proc_system,
+    .proc_capture = linux_proc_capture,
+    .proc_capture_output = linux_proc_capture_output,
+#endif
 };
 
 __attribute__((constructor))

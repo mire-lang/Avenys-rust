@@ -232,21 +232,27 @@ avenys/
 
 ## Standard library (Kioto)
 
-Kioto lives at `~/.owl/modules/kioto/` and provides:
+Kioto lives at `~/.owl/libs/kioto/` and provides:
 
 | Module | What it does |
 |--------|-------------|
 | `strings` | upper/lower, split/join, replace, trim, pad, substr |
 | `math` | trig, log, powers, statistics, random, complex numbers |
-| `fs` | read, write, exists, mkdir, drop, dir/file handles |
+| `fs` | read, write, exists, mkdir, remove/remove_all, dir/file handles |
 | `env` | get, cwd, args |
-| `proc` | create, spawn, shell, wait, kill, stdio channels |
+| `proc` | create, spawn (argv-safe, no shell), wait, kill, stdio channels |
 | `async` | channels, Task, ready/value, spawn/wait |
 | `time` | now_ms, now_ns, mark, elapsed |
 | `mem` / `cpu` | system resource queries |
 | `net` | TCP sockets and listeners |
 | `log` / `cli` | logging and CLI parsing |
 | `crypto` | SHA-256/512, hex/base64, CSPRNG, Ed25519 |
+
+`fs::remove` removes a single entry (file, symlink, or empty dir) without ever
+following symlinks; `fs::remove_all` recursively removes a tree (still
+symlink-safe — external targets are never entered). On failure,
+`fs::last_error()` returns the PAL error code (`11` = directory not empty).
+See `kioto/README.md` for examples.
 
 Dynamic collections (`vec`, `map`) are provided by the `mire` standard library,
 loaded with `load mire::vec` / `load mire::map`. See `mire/README.md`.

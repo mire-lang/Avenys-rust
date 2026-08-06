@@ -8,6 +8,7 @@
 //! selected types.
 
 use super::ExpandedStatement;
+use crate::canonical_fn_name;
 use crate::error::{ErrorKind, MireError, Result};
 use crate::incremental::{collect_statement_dependencies, statement_export_name};
 use crate::parser::ast::{AssignmentTarget, Statement};
@@ -139,15 +140,17 @@ fn resolve_statement_deps(
     let mut deps = Vec::new();
     collect_statement_dependencies(statement, &mut deps);
     for dependency in deps {
+        let normalized_dep = canonical_fn_name(&dependency);
         for candidate in [
-            Some(dependency.as_str()),
-            dependency.rsplit_once('.').map(|(_, tail)| tail),
+            Some(normalized_dep.as_str()),
+            normalized_dep.rsplit_once('.').map(|(_, tail)| tail),
         ] {
             let Some(candidate_name) = candidate else {
                 continue;
             };
             for (dep_idx, stmt) in all_statements.iter().enumerate() {
                 let export_name = statement_export_name(&stmt.statement);
+                let normalized_export = export_name.map(canonical_fn_name);
                 let internal_name = match &stmt.statement {
                     Statement::ExternFunction { name, .. }
                     | Statement::ExternLib { name, .. } => Some(name.as_str()),
@@ -158,8 +161,16 @@ fn resolve_statement_deps(
                     } => Some(name.as_str()),
                     _ => None,
                 };
-                if (export_name == Some(candidate_name)
-                    || internal_name == Some(candidate_name))
+                // A namespace-parent export (e.g. `vec.push`) satisfies a
+                // dependency on one of its children (e.g. `vec.push.i64`)
+                // because the child lives nested in the parent's body.
+                let namespace_parent_match = normalized_export.as_deref().is_some_and(|name| {
+                    normalized_dep.starts_with(name)
+                        && normalized_dep.as_bytes().get(name.len()) == Some(&b'.')
+                });
+                if (normalized_export.as_deref() == Some(candidate_name)
+                    || internal_name == Some(candidate_name)
+                    || namespace_parent_match)
                     && selected.insert(dep_idx)
                 {
                     selected_indices.push(dep_idx);
