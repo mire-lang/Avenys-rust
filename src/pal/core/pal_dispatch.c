@@ -525,6 +525,13 @@ int64_t pal_thread_spawn(void *(*start)(void *), void *arg) {
     return (int64_t)tid;
 }
 
+int64_t pal_thread_join(int64_t tid, void *ret_storage) {
+    void *retval = NULL;
+    if (pthread_join((pthread_t)tid, &retval) != 0) return -1;
+    if (ret_storage) { *(void **)ret_storage = retval; }
+    return 0;
+}
+
 // ── Memory ───────────────────────────────────────────────────
 
 void *pal_alloc(int64_t size) {

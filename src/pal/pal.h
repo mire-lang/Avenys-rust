@@ -306,7 +306,14 @@ void pal_secret_close(pal_secret_t secret);
 void pal_pubkey_free(pal_pubkey_t pubkey);
 
 // ── Threading ──────────────────────────────────────────────
+// pal_thread_spawn returns the new thread's pthread_t (as int64); an opaque
+// token the caller later passes to pal_thread_join. A return of -1 means
+// the thread could not be created.
 int64_t pal_thread_spawn(void *(*start)(void *), void *arg);
+// pal_thread_join blocks until the thread (pthread_t tid) exits and, if
+// ret_storage is non-NULL, stores the thread's return value pointer there.
+// Returns 0 on success, -1 on error (errno set). Mirrors pthread_join.
+int64_t pal_thread_join(int64_t tid, void *ret_storage);
 
 // ── Stateless Services (no handles, no lifecycle) ─────────
 int64_t pal_time_now_ms(void);
