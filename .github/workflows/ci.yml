@@ -105,7 +105,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
-          path: mire-src
+          path: mire
           ref: main
 
       - name: Setup owl dependencies
@@ -113,7 +113,6 @@ jobs:
           mkdir -p ~/.owl/modules
           cp -r kioto-src ~/.owl/modules/kioto
           cp -r kioto-src ./kioto
-          cp -r mire-src ../mire
           # owl-src/owl.toml hardcodes Evelyn's local kioto path; repoint to
           # the sibling checkout so `load kioto` resolves in CI.
           sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
