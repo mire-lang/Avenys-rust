@@ -29,6 +29,16 @@ jobs:
       - name: Setup kioto for tests
         run: cp -r kioto-src ../kioto
 
+      - name: Checkout mire stdlib (Evelynx-Dev fork, needed by `load kioto`)
+        uses: actions/checkout@v4
+        with:
+          repository: Evelynx-Dev/mire-lib
+          path: mire-src
+          ref: main
+
+      - name: Setup mire stdlib for tests
+        run: cp -r mire-src ../mire
+
       - name: Build
         run: cargo build --release
 
@@ -91,11 +101,22 @@ jobs:
           path: owl-src
           ref: pr-0.27.0
 
+      - name: Checkout mire stdlib (Evelynx-Dev fork; kioto `load kioto` transitivity)
+        uses: actions/checkout@v4
+        with:
+          repository: Evelynx-Dev/mire-lib
+          path: mire-src
+          ref: main
+
       - name: Setup owl dependencies
         run: |
           mkdir -p ~/.owl/modules
           cp -r kioto-src ~/.owl/modules/kioto
           cp -r kioto-src ./kioto
+          cp -r mire-src ../mire
+          # owl-src/owl.toml hardcodes Evelyn's local kioto path; repoint to
+          # the sibling checkout so `load kioto` resolves in CI.
+          sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
 
       - name: Build owl
         working-directory: owl-src
