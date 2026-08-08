@@ -29,12 +29,12 @@ jobs:
       - name: Setup kioto for tests
         run: cp -r kioto-src ../kioto
 
-      - name: Checkout mire stdlib (mire-lang/mire-lib main; fork kioto `load kioto` transitivity)
+      - name: Checkout mire stdlib (mire-lang/mire-lib @ a60f60e = local Arch/mire, kioto transitivity)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
           path: mire-src
-          ref: main
+          ref: a60f60e
 
       - name: Setup mire stdlib for tests
         run: cp -r mire-src ../mire
@@ -101,12 +101,12 @@ jobs:
           path: owl-src
           ref: pr-0.27.0
 
-      - name: Checkout mire stdlib (mire-lang/mire-lib main; kioto `load kioto` transitivity)
+      - name: Checkout mire stdlib (mire-lang/mire-lib @ a60f60e = local Arch/mire)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
           path: mire-src
-          ref: main
+          ref: a60f60e
 
       - name: Setup owl dependencies
         run: |
