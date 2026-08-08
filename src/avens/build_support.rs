@@ -1,6 +1,9 @@
 use super::*;
 use crate::parser::ast::DataType;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static C_PRECOMPILE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn runtime_base() -> PathBuf {
     if let Ok(dir) = std::env::var("MIRE_RUNTIME_DIR") {
@@ -426,26 +429,57 @@ pub(super) fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: 
         })
     })?;
     let obj_path = cache_dir.join(format!("{:x}.o", hash));
-    if !obj_path.exists() {
-        let status = std::process::Command::new("clang")
-            .args(["-c", "-O0", "-o"])
-            .arg(&obj_path)
-            .arg(c_path)
-            .arg("-I")
-            .arg(runtime_base.join("runtime"))
-            .arg("-I")
-            .arg(runtime_base.join("pal"))
-            .status()
-            .map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    span: crate::error::Span::unknown(),
-                    message: format!("Failed to run clang for '{}': {}", c_path, err),
-                })
-            })?;
-        if !status.success() {
+    // Fast path: a concurrent compiler or an earlier build already published a
+    // complete (byte-identical, content-keyed) object. Readers only ever see
+    // a fully-renamed file, so this is always a valid read.
+    if obj_path.exists() {
+        return Ok(obj_path.to_string_lossy().to_string());
+    }
+    // Compile into a UNIQUE temp object so that concurrent compilers for the
+    // SAME cache key (identical source hash -> identical object) never
+    // truncate one another's in-progress output. We then publish ours
+    // atomically via rename; on Linux `rename` overwrites an existing file
+    // with the new (identical) bytes in one atomic step.
+    let unique = (std::process::id() as u64)
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        .wrapping_add(C_PRECOMPILE_SEQ.fetch_add(1, Ordering::Relaxed));
+    let tmp_path = cache_dir.join(format!("{:x}.{:016x}.o", hash, unique));
+    let status = std::process::Command::new("clang")
+        .args(["-c", "-O0", "-o"])
+        .arg(&tmp_path)
+        .arg(c_path)
+        .arg("-I")
+        .arg(runtime_base.join("runtime"))
+        .arg("-I")
+        .arg(runtime_base.join("pal"))
+        .status()
+        .map_err(|err| {
+            MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: format!("Failed to run clang for '{}': {}", c_path, err),
+            })
+        })?;
+    if !status.success() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!("clang -c failed for '{}'", c_path),
+        }));
+    }
+    // Atomic publish. A sibling compiler may have landed an identical .o in
+    // the meantime; rename still atomically replaces it. If rename loses a
+    // race (no EEXIST on Linux rename-overwrite), we simply drop our temp —
+    // the winner's bytes are identical.
+    if let Err(err) = fs::rename(&tmp_path, &obj_path) {
+        // rename only fails on real errors (cross-device, ENOENT of temp,
+        // permissions); a pre-existing obj_path does NOT cause failure on
+        // Linux. Treat a missing temp as "sibling won" only if obj exists.
+        if obj_path.exists() {
+            let _ = fs::remove_file(&tmp_path);
+        } else {
             return Err(MireError::new(ErrorKind::Runtime {
                 span: crate::error::Span::unknown(),
-                message: format!("clang -c failed for '{}'", c_path),
+                message: format!("Could not publish C object '{}': {}", c_path, err),
             }));
         }
     }
