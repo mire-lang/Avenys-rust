@@ -264,6 +264,25 @@ fn compile_file_inner(
     let (mut ir, extern_libs) = {
         let mut mir = lower_program_with_filename(&program, source_filename);
 
+        // Pre-codegen validation: surface calls to symbols the backend cannot
+        // resolve (stale bare builtins, removed PAL functions, or unloaded
+        // externs) at their source location instead of letting LLVM-opt fail
+        // later with an opaque `use of undefined value '@x'` and
+        // `<no source location available>`.
+        if let Some((bad_name, (line, col))) =
+            crate::compiler::mir::codegen::find_first_undefined_call(&mir)
+        {
+            return Err(MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::new(line, col),
+                message: format!(
+                    "undefined function '{}': cannot resolve a codegen target for this \
+                     call (the symbol is not loaded, was removed, or uses a bare name the \
+                     compiler no longer emits). Use the namespaced form, e.g. `fs::exists`.",
+                    bad_name
+                ),
+            }));
+        }
+
         // Compute combined hash of all MIR function bodies for caching
         let mir_hash: u64 = {
             let mut hasher = crate::incremental::FxHasher::new();
@@ -382,6 +401,7 @@ fn compile_file_inner(
     let final_ir = if matches!(options.opt_level, OptLevel::O0) {
         ir
     } else {
+        let _ = fs::write("/tmp/opencode/preopt.ll", &ir);
         optimize_ir(&ir, options.opt_level, source_filename)?
     };
     let phase_llvm = build_start.elapsed().as_millis() as u64;

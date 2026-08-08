@@ -12,6 +12,9 @@ pub(crate) mod builtins;
 pub(crate) mod expr;
 pub(crate) mod resolve;
 pub(crate) mod types;
+pub(crate) mod validate;
+
+pub(crate) use self::validate::find_first_undefined_call;
 pub(crate) mod wrapper;
 
 pub(crate) struct LlvmCtx<'a> {

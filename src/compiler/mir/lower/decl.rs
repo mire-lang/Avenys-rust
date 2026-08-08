@@ -76,6 +76,7 @@ impl MirLower {
             bare_to_qualified: self.bare_to_qualified.clone(),
             method_map: self.method_map.clone(),
             current_block: 0,
+            loop_stack: Vec::new(),
             closure_functions: Vec::new(),
             closure_counter: 0,
             filename: self.filename.clone(),

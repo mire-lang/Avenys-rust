@@ -76,17 +76,19 @@ jobs:
           fi
           mire --version || echo "mire installed"
 
-      - name: Checkout kioto
+      - name: Checkout kioto (up-to-date Evelynx-Dev fork, PR #2 = v2.4.7)
         uses: actions/checkout@v4
         with:
-          repository: mire-lang/Kioto
+          repository: Evelynx-Dev/Kioto-1
           path: kioto-src
+          ref: master
 
-      - name: Checkout owl source
+      - name: Checkout owl source (up-to-date Evelynx-Dev fork, PR #14 = migrated namespaced API)
         uses: actions/checkout@v4
         with:
-          repository: mire-lang/owl
+          repository: Evelynx-Dev/owl
           path: owl-src
+          ref: pr-0.27.0
 
       - name: Setup owl dependencies
         run: |

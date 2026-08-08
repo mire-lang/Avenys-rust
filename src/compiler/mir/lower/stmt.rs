@@ -341,11 +341,15 @@ impl MirLower {
                 let cond = self.lower_expression(condition);
 
                 let body_block = self.new_block("while_body");
+                let end_block = self.new_block("while_end");
+
+                self.loop_stack.push((cond_block, end_block));
                 self.current_block = body_block;
 
                 for stmt in body {
                     self.lower_statement(stmt);
                 }
+                self.loop_stack.pop();
                 if matches!(
                     self.func.blocks[self.current_block].terminator,
                     MirTerminator::Unreachable
@@ -353,7 +357,6 @@ impl MirLower {
                     self.func.blocks[self.current_block].terminator = MirTerminator::Br(cond_block);
                 }
 
-                let end_block = self.new_block("while_end");
                 self.func.blocks[cond_block].terminator =
                     MirTerminator::BrCond(cond, body_block, end_block);
                 self.func.blocks[pre_while_block].terminator = MirTerminator::Br(cond_block);
@@ -421,6 +424,10 @@ impl MirLower {
                 );
 
                 let body_block = self.new_block("for_body");
+                let inc_block = self.new_block("for_inc");
+                let end_block = self.new_block("for_end");
+
+                self.loop_stack.push((inc_block, end_block));
                 self.current_block = body_block;
 
                 let elem_ptr = self.new_temp();
@@ -500,6 +507,7 @@ impl MirLower {
                 for stmt in body {
                     self.lower_statement(stmt);
                 }
+                self.loop_stack.pop();
 
                 let last_body = self.current_block;
                 let body_terminated = !matches!(
@@ -507,33 +515,34 @@ impl MirLower {
                     MirTerminator::Unreachable
                 );
                 if !body_terminated {
-                    let old_idx = self.new_temp();
-                    self.func.blocks[self.current_block].push(
-                        Some(old_idx),
-                        MirOp::Load(
-                            MirValue::temp(idx_ptr),
-                            MirType {
-                                data_type: DataType::I64,
-                            },
-                        ),
-                        loc,
-                    );
-                    let new_idx = self.new_temp();
-                    self.func.blocks[self.current_block].push(
-                        Some(new_idx),
-                        MirOp::Add(MirValue::temp(old_idx), MirValue::Const(MirConst::Int(1))),
-                        loc,
-                    );
-                    self.func.blocks[self.current_block].push(
-                        None,
-                        MirOp::Store(MirValue::temp(idx_ptr), MirValue::temp(new_idx)),
-                        loc,
-                    );
-
-                    self.func.blocks[last_body].terminator = MirTerminator::Br(cond_block);
+                    self.func.blocks[last_body].terminator = MirTerminator::Br(inc_block);
                 }
 
-                let end_block = self.new_block("for_end");
+                self.current_block = inc_block;
+                let old_idx = self.new_temp();
+                self.func.blocks[inc_block].push(
+                    Some(old_idx),
+                    MirOp::Load(
+                        MirValue::temp(idx_ptr),
+                        MirType {
+                            data_type: DataType::I64,
+                        },
+                    ),
+                    loc,
+                );
+                let new_idx = self.new_temp();
+                self.func.blocks[inc_block].push(
+                    Some(new_idx),
+                    MirOp::Add(MirValue::temp(old_idx), MirValue::Const(MirConst::Int(1))),
+                    loc,
+                );
+                self.func.blocks[inc_block].push(
+                    None,
+                    MirOp::Store(MirValue::temp(idx_ptr), MirValue::temp(new_idx)),
+                    loc,
+                );
+                self.func.blocks[inc_block].terminator = MirTerminator::Br(cond_block);
+
                 self.func.blocks[cond_block].terminator =
                     MirTerminator::BrCond(MirValue::temp(cond), body_block, end_block);
                 self.func.blocks[pre_for_block].terminator = MirTerminator::Br(cond_block);
@@ -696,6 +705,22 @@ impl MirLower {
                 }
 
                 self.current_block = end_idx;
+            }
+            Statement::Break => {
+                if let Some(&(_, break_target)) = self.loop_stack.last() {
+                    let last = self.current_block;
+                    self.func.blocks[last].terminator = MirTerminator::Br(break_target);
+                    // Route any following (unreachable) statements into a fresh
+                    // block so they don't get appended to a terminated block.
+                    self.current_block = self.new_block("after_break");
+                }
+            }
+            Statement::Continue => {
+                if let Some(&(continue_target, _)) = self.loop_stack.last() {
+                    let last = self.current_block;
+                    self.func.blocks[last].terminator = MirTerminator::Br(continue_target);
+                    self.current_block = self.new_block("after_continue");
+                }
             }
             _ => {}
         }

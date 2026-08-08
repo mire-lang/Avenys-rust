@@ -29,6 +29,9 @@ struct MirLower {
     bare_to_qualified: HashMap<String, String>,
     method_map: HashMap<String, HashMap<String, String>>,
     current_block: usize,
+    /// Stack of enclosing loop targets as `(continue_target, break_target)`
+    /// block indices, used by `Statement::Break`/`Statement::Continue` lowering.
+    loop_stack: Vec<(usize, usize)>,
     closure_functions: Vec<MirFunction>,
     closure_counter: usize,
     filename: String,
@@ -247,6 +250,19 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
     let mut extern_functions = Vec::new();
     let mut extern_libs = Vec::new();
     let mut seen_functions = HashSet::new();
+    eprintln!("[DBG-lower] program statements with fs_:");
+    for s in &program.statements {
+        if let Statement::Function { name, .. } = s {
+            if name.contains("fs_") || name.contains("fs.") {
+                eprintln!("  Function: {}", name);
+            }
+        }
+        if let Statement::ExternFunction { name, .. } = s {
+            if name.contains("fs") {
+                eprintln!("  ExternFunction: {}", name);
+            }
+        }
+    }
     let mut struct_types = extract_struct_types(program);
     let enum_types = extract_enum_types(program);
     let enum_payloads = extract_enum_payloads(program);
@@ -419,6 +435,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                     bare_to_qualified: bare_to_qualified.clone(),
                     method_map: method_map.clone(),
                     current_block: 0,
+                    loop_stack: Vec::new(),
                     closure_functions: Vec::new(),
                     closure_counter: 0,
                     filename: filename.to_string(),
@@ -487,6 +504,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                             bare_to_qualified: bare_to_qualified.clone(),
                             method_map: method_map.clone(),
                             current_block: 0,
+                            loop_stack: Vec::new(),
                             closure_functions: Vec::new(),
                             closure_counter: 0,
                             filename: filename.to_string(),
