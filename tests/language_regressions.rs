@@ -71,8 +71,7 @@ fn unknown_identifier_error_for_removed_keyword_add() {
 #[test]
 fn backend_limitation_errors_render_with_backend_kind() {
     let rendered = MireError::new(ErrorKind::Backend {
-        line: 0,
-        column: 0,
+        span: mire::error::Span::unknown(),
         message: "Avenys does not yet lower expression Tuple(...)".to_string(),
     })
     .to_string();
@@ -225,14 +224,26 @@ fn reject_dot_slash_load() {
 }
 
 #[test]
-fn parse_load_with_alias() {
+fn load_with_alias_is_rejected() {
+    // Phase 4: `load x as y` is intentionally prohibited — aliases hide where
+    // symbols originate. The parser now emits E0018 instead of accepting an
+    // `alias` field.
     let source = "load kioto as std\npub fn main: () {\n    use dasu(\"ok\")\n}\n";
-    let program = parse(source).expect("load with alias should parse");
-    let Statement::Load { path, alias, .. } = &program.statements[0] else {
-        panic!("expected load statement");
-    };
-    assert_eq!(path, &["kioto".to_string()]);
-    assert_eq!(alias.as_deref(), Some("std"));
+    let err = parse(source).expect_err("load with alias must be rejected");
+    match &err.kind {
+        ErrorKind::Type { code, message, .. } => {
+            assert_eq!(
+                code.as_ref().map(|c| c.as_str()),
+                Some("E0018"),
+                "expected E0018, got {code:?}"
+            );
+            assert!(
+                message.contains("alias"),
+                "expected an alias-related message, got: {message}"
+            );
+        }
+        other => panic!("expected Type error with E0018, got {other:?}"),
+    }
 }
 
 #[test]
@@ -1936,7 +1947,7 @@ fn kioto_lists_reference_api_reuses_the_same_binding() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3 2] :vec[i64]\n    set len1 = lists.len(nums)\n    set has_two = lists.contains(nums 2)\n    set first = lists.first(nums)\n    set last = lists.last(nums)\n    set idx = lists.index(nums 2)\n    set len2 = lists.len(nums)\n    use dasu(\"{len1}-{has_two}-{first}-{last}-{idx}-{len2}\")\n}\n",
+        "load kioto\n\npub fn main: () {\n    set nums = [1 2 3 2] :vec[i64]\n    set len1 = vec::len(nums)\n    set has_two = vec::contains::i64(nums, 2)\n    set first = vec::first::i64(nums)\n    set last = vec::last::i64(nums)\n    set idx = vec::index::i64(nums, 2)\n    set len2 = vec::len(nums)\n    use dasu(\"{len1}-{has_two}-{first}-{last}-{idx}-{len2}\")\n}\n",
     )
     .expect("write source");
 
@@ -2927,7 +2938,7 @@ fn list_hofs_infer_closure_params_and_execute() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set sum = lists.fold(0, (acc elem) => acc + elem, [1 2 3 4 5])\n    set doubled = lists.map((x) => x * 2, [1 2 3])\n    set filtered = lists.filter((x) => x > 2, [1 2 3 4])\n    use dasu(\"{sum} {lists.get(doubled 2)} {lists.get(filtered 1)}\")\n}\n",
+        "load kioto\n\npub fn main: () {\n    set sum = lists.fold(0, (acc elem) => acc + elem, [1 2 3 4 5])\n    set doubled = lists.map((x) => x * 2, [1 2 3])\n    set filtered = lists.filter((x) => x > 2, [1 2 3 4])\n    use dasu(\"{sum} {vec::get::i64(doubled, 2)} {vec::get::i64(filtered, 1)}\")\n}\n",
     )
     .expect("write source");
 
@@ -3565,7 +3576,7 @@ fn kioto_async_ready_value_compiles_and_runs() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set task = async.ready(\"done\")\n    use dasu(async.value(task \"fallback\"))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set task = async::task::ready(\"done\")\n    use dasu(async::task::value(task \"fallback\"))\n}\n",
     )
     .expect("write source");
 
@@ -3857,7 +3868,7 @@ fn runtime_lists_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(lists.len(xs))\n    use dasu(lists.get(xs, 1))\n    use dasu(lists.first(xs))\n    use dasu(lists.last(xs))\n    use dasu(lists.contains(xs, 20))\n    use dasu(lists.contains(xs, 99))\n    use dasu(lists.index(xs, 30))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set xs = [10 20 30]\n    use dasu(str(vec::len(xs)))\n    use dasu(str(vec::get::i64(xs, 1)))\n    use dasu(str(vec::first::i64(xs)))\n    use dasu(str(vec::last::i64(xs)))\n    use dasu(str(vec::contains::i64(xs, 20)))\n    use dasu(str(vec::contains::i64(xs, 99)))\n    use dasu(str(vec::index::i64(xs, 30)))\n}\n",
     )
     .expect("write source");
 
@@ -3919,7 +3930,7 @@ fn runtime_strings_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace(s, \"world\", \"mire\"))\n}\n",
+        "load kioto\n\npub fn main: () {\n    set s = \"hello world\"\n    use dasu(strings.len(s))\n    use dasu(strings.contains(s, \"world\"))\n    use dasu(strings.contains(s, \"xyz\"))\n    use dasu(strings.upper(s))\n    use dasu(strings.lower(s))\n    use dasu(strings.replace.all(s, \"world\", \"mire\"))\n}\n",
     )
     .expect("write source");
 
@@ -3983,7 +3994,7 @@ fn runtime_dicts_abi_smoke_test() {
     .expect("write project");
     fs::write(
         &source_path,
-        "load kioto\n\npub fn test_len: (d) :i64 { return dicts.len(d) }\npub fn test_has: (d, k :str) :bool { return dicts.has(d, k) }\npub fn test_is_empty: (d) :bool { return dicts.check::empty(d) }\npub fn main: () {\n    use dasu(test_len({a: 1, b: 2, c: 3} :map[str i64]))\n    use dasu(test_has({a: 1} :map[str i64], \"a\"))\n    use dasu(test_has({a: 1} :map[str i64], \"z\"))\n    use dasu(test_is_empty({} :map[str i64]))\n}\n",
+        "load kioto\nload mire::map\n\npub fn test_len: (d) :i64 { return map::len(d) }\npub fn test_has: (d, k :str) :bool { return map::has(d, k) }\npub fn test_is_empty: (d) :bool { return map::is::empty(d) }\npub fn main: () {\n    use dasu(str(test_len({a: 1, b: 2, c: 3} :map[str i64])))\n    use dasu(str(test_has({a: 1} :map[str i64], \"a\")))\n    use dasu(str(test_has({a: 1} :map[str i64], \"z\")))\n    use dasu(str(test_is_empty({} :map[str i64])))\n}\n",
     )
     .expect("write source");
 
@@ -4034,7 +4045,7 @@ fn pal_env_get_returns_home() {
         "[project]\nname = \"env-get\"\nversion = \"0.1.0\"\nentry = \"env_get.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env.get(\"HOME\")\n    use dasu(home)\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set home = env::var(\"HOME\")\n    use dasu(home)\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4054,12 +4065,12 @@ fn pal_env_get_returns_home() {
         ..Default::default()
         },
     )
-    .expect("env.get should compile");
+    .expect("env::var should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
-    assert!(output.status.success(), "env.get failed: {:?}", output);
+    assert!(output.status.success(), "env::var failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty(), "HOME should not be empty");
 }
@@ -4167,7 +4178,7 @@ fn pal_fs_path_ops_join_dir_name_ext() {
         "[project]\nname = \"fs-path\"\nversion = \"0.1.0\"\nentry = \"fs_path.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs.join(\"/a/b\" \"c.d\")\n    set d = fs.dir(joined)\n    set n = fs.name(joined)\n    set e = fs.ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set joined = fs::path::join(\"/a/b\" \"c.d\")\n    set d = fs::path::dir(joined)\n    set n = fs::path::name(joined)\n    set e = fs::path::ext(joined)\n    use dasu(\"{joined}|{d}|{n}|{e}\")\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4212,7 +4223,7 @@ fn pal_fs_mkdir_rmdir() {
     )
     .expect("write project");
     let src = format!(
-        "load kioto\n\npub fn main: () {{\n    fs.mkdir(\"{dir_path}\")\n    set ok = fs.exists(\"{dir_path}\")\n    fs.rmdir(\"{dir_path}\")\n    set gone = !fs.exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
+        "load kioto\n\npub fn main: () {{\n    fs::dir::create(\"{dir_path}\")\n    set ok = fs::exists(\"{dir_path}\")\n    fs::dir::remove(\"{dir_path}\")\n    set gone = !fs::exists(\"{dir_path}\")\n    use dasu(\"{{ok}}-{{gone}}\")\n}}\n",
         dir_path = dir_path,
     );
     fs::write(&source_path, &src).expect("write source");
@@ -4245,7 +4256,59 @@ fn pal_fs_mkdir_rmdir() {
 }
 
 #[test]
-fn pal_proc_shell_echo() {
+fn pal_fs_remove_symlink_safe() {
+    let root = make_temp_project_root("mire_pal_fs_rm");
+    let source_path = root.join("fs_rm.mire");
+    let tree = root.join("tree");
+    let target = root.join("target");
+    let tree_p = tree.to_str().unwrap();
+    let target_p = target.to_str().unwrap();
+    let nd_buf = root.join("nonempty");
+    let nd_p = nd_buf.to_str().unwrap();
+    fs::write(
+        root.join("owl.toml"),
+        "[project]\nname = \"fs-rm\"\nversion = \"0.1.0\"\nentry = \"fs_rm.mire\"\n",
+    )
+    .expect("write project");
+    let src = format!(
+        "load kioto\n\npub fn main: () {{\n    set tree = \"{tree}\"\n    set target = \"{target}\"\n    set nd = \"{nd}\"\n    fs::remove_all(tree)\n    fs::remove_all(target)\n    fs::mkdir(target)\n    fs::mkdir(tree)\n    fs::mkdir(\"{tree}/sub\")\n    fs::write(\"{target}/secret.txt\" \"secret\")\n    fs::write(\"{tree}/sub/inner.txt\" \"inner\")\n    proc::run::output(\"/bin/ln\" [\"-s\" \"{target}\" \"{tree}/sub/leak\"] :vec[str])\n    set removed = fs::remove_all(tree)\n    set tree_gone = !fs::exists(tree)\n    set secret = strings::trim(fs::read(\"{target}/secret.txt\"))\n    set secret_ok = secret == \"secret\"\n    fs::mkdir(nd)\n    fs::write(\"{nd}/f.txt\" \"x\")\n    set nf = !fs::remove(nd)\n    set err = fs::last_error()\n    set empty_err = err == 11\n    set cleaned = fs::remove_all(nd)\n    use dasu(\"{{removed}}-{{tree_gone}}-{{secret_ok}}-{{nf}}-{{empty_err}}-{{cleaned}}\")\n}}\n",
+        tree = tree_p,
+        target = target_p,
+        nd = nd_p,
+    );
+    fs::write(&source_path, &src).expect("write source");
+
+    let build = compile_file_with_avenys(
+        &source_path,
+        &BuildOptions {
+            mode: BuildMode::Debug,
+            opt_level: OptLevel::O0,
+            output: None,
+            emit_binary: true,
+            persist_ir: false,
+            import_mode: mire::ImportMode::Reachable,
+            cache: Default::default(),
+            warning_filter: mire::error::diagnostic::WarningFilter::default(),
+            deny_warnings: std::collections::HashSet::new(),
+            module_paths: vec![],
+            test_mode: false,
+            ..Default::default()
+        },
+    )
+    .expect("fs remove should compile");
+    let output = Command::new(&build.binary_path)
+        .output()
+        .expect("run binary");
+    assert!(output.status.success(), "fs remove failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("true-true-true-true-true-true"),
+        "remove/symlink safety: {stdout}"
+    );
+}
+
+#[test]
+fn pal_proc_argv_echo() {
     let root = make_temp_project_root("mire_pal_proc_sh");
     let source_path = root.join("proc_sh.mire");
     fs::write(
@@ -4253,7 +4316,7 @@ fn pal_proc_shell_echo() {
         "[project]\nname = \"proc-sh\"\nversion = \"0.1.0\"\nentry = \"proc_sh.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc.shell(\"echo hello_pal\")\n    use dasu(out)\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set out = proc::run::output(\"/bin/echo\" [\"hello_pal\"] :vec[str])\n    use dasu(out)\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4273,26 +4336,26 @@ fn pal_proc_shell_echo() {
         ..Default::default()
         },
     )
-    .expect("proc.shell should compile");
+    .expect("proc argv echo should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
-    assert!(output.status.success(), "proc.shell failed: {:?}", output);
+    assert!(output.status.success(), "proc argv echo failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("hello_pal"), "echo: {stdout}");
 }
 
 #[test]
-fn pal_proc_spawn_wait_exit_code() {
-    let root = make_temp_project_root("mire_pal_proc_sw");
-    let source_path = root.join("proc_sw.mire");
+fn pal_proc_spawn_exit_code() {
+    let root = make_temp_project_root("mire_pal_proc_run");
+    let source_path = root.join("proc_run.mire");
     fs::write(
         root.join("owl.toml"),
-        "[project]\nname = \"proc-sw\"\nversion = \"0.1.0\"\nentry = \"proc_sw.mire\"\n",
+        "[project]\nname = \"proc-run\"\nversion = \"0.1.0\"\nentry = \"proc_run.mire\"\n",
     )
     .expect("write project");
-    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set pid = proc.spawn(\"exit 42\" [])\n    set code = proc.wait(pid)\n    use dasu(str(code))\n}\n")
+    fs::write(&source_path, "load kioto\n\npub fn main: () {\n    set code = proc::run::spawn(\"/bin/true\", [])\n    use dasu(str(code))\n}\n")
         .expect("write source");
 
     let build = compile_file_with_avenys(
@@ -4312,71 +4375,53 @@ fn pal_proc_spawn_wait_exit_code() {
         ..Default::default()
         },
     )
-    .expect("proc spawn/wait should compile");
+    .expect("proc spawn should compile");
 
     let output = Command::new(&build.binary_path)
         .output()
         .expect("run binary");
     assert!(
         output.status.success(),
-        "proc spawn/wait failed: {:?}",
+        "proc spawn failed: {:?}",
         output
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "exit code: {stdout}");
+    assert!(stdout.contains("0"), "exit code: {stdout}");
 }
 
 // ── OWL integration tests ─────────────────────────────────────────────
 
 #[test]
 fn owl_build_run_info_cycle() {
-    if Command::new("owl").arg("--version").output().is_err() {
-        eprintln!("SKIP: owl not found in PATH");
+    if Command::new("mire").arg("--version").output().is_err() {
+        eprintln!("SKIP: mire not found in PATH");
         return;
     }
     let root = make_temp_project_root("mire_owl_cycle");
     let source_path = root.join("main.mire");
-    fs::write(
-        root.join("owl.toml"),
-        "[project]\nname = \"owl-cycle\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n\n[build]\ncompiler = \"mire\"\nprofile = \"debug\"\nopt-level = 0\n\n[paths]\nsources = \"code\"\ntests = \"tests\"\noutput = \"bin\"\ncache = \"bin/.cache\"\n",
-    )
-    .expect("write project");
     fs::write(
         &source_path,
         "pub fn main: () {\n    use dasu(\"owl_build_ok\")\n}\n",
     )
     .expect("write source");
 
-    // owl build --debug
-    let build_out = Command::new("owl")
-        .args(["build", "--debug"])
-        .current_dir(&root)
+    // mire build --debug
+    let build_out = Command::new("mire")
+        .args(["build", "--debug", &source_path.to_string_lossy()])
         .output()
-        .expect("owl build");
+        .expect("mire build");
     assert!(
         build_out.status.success(),
-        "owl build failed: {:?}",
+        "mire build failed: {:?}",
         build_out
     );
+    let binary_path = root.join("debug").join("main");
 
-    // owl info
-    let info_out = Command::new("owl")
-        .args(["info"])
-        .current_dir(&root)
+    // mire run
+    let run_out = Command::new(&binary_path)
         .output()
-        .expect("owl info");
-    assert!(info_out.status.success(), "owl info failed: {:?}", info_out);
-    let info_stdout = String::from_utf8_lossy(&info_out.stdout);
-    assert!(info_stdout.contains("owl-cycle"), "info: {info_stdout}");
-    assert!(info_stdout.contains("Mire"), "info: {info_stdout}");
-
-    // owl run
-    let run_out = Command::new("owl")
-        .args(["run"])
-        .current_dir(&root)
-        .output()
-        .expect("owl run");
-    assert!(run_out.status.success(), "owl run failed: {:?}", run_out);
+        .expect("run binary");
+    assert!(run_out.status.success(), "binary run failed: {:?}", run_out);
     let run_stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(
         run_stdout.contains("owl_build_ok"),

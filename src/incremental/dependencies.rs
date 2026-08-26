@@ -185,7 +185,7 @@ pub(crate) fn collect_statement_dependencies(statement: &Statement, deps: &mut V
         Statement::LoadLocal { rel_path, .. } => {
             deps.extend(rel_path.iter().cloned());
         }
-        Statement::ExternLib { name, path } => {
+        Statement::ExternLib { name, path, .. } => {
             deps.push(name.clone());
             deps.push(path.clone());
         }
@@ -323,7 +323,8 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
         }
         Expression::Try { expr, .. }
         | Expression::Ok { value: expr, .. }
-        | Expression::Err { value: expr, .. } => {
+        | Expression::Err { value: expr, .. }
+        | Expression::Some { value: expr, .. } => {
             collect_expression_bindings(expr, bindings);
         }
         Expression::EnumVariant { payloads, .. } => {
@@ -332,6 +333,9 @@ fn collect_expression_bindings(expression: &Expression, bindings: &mut Vec<Strin
             }
         }
         Expression::UseMacro { inner } => {
+            collect_expression_bindings(inner, bindings);
+        }
+        Expression::MacroCall { inner } => {
             collect_expression_bindings(inner, bindings);
         }
         Expression::EnumVariantPath { .. }
@@ -440,13 +444,16 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
         Expression::Try { expr, .. } => {
             collect_expression_dependencies(expr, deps);
         }
-        Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+        Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
             collect_expression_dependencies(value, deps);
         }
         Expression::UseMacro { inner } => {
             collect_expression_dependencies(inner, deps);
         }
-        Expression::Literal(_) => {}
+        Expression::MacroCall { inner } => {
+            collect_expression_dependencies(inner, deps);
+        }
+        Expression::Literal { .. } => {}
     }
 }
 
@@ -462,7 +469,8 @@ fn collect_type_dependencies(
         | crate::parser::ast::DataType::Slice { element_type }
         | crate::parser::ast::DataType::Result {
             ok: element_type, ..
-        } => {
+        }
+        | crate::parser::ast::DataType::Maybe { inner: element_type } => {
             collect_type_dependencies(element_type, deps);
         }
         crate::parser::ast::DataType::Map {

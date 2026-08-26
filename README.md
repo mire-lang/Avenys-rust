@@ -1,8 +1,8 @@
-# Mire
+# Avenys v3.24.25
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
-Mire is a statically typed programming language designed for clarity and control.
+Avenys is a statically typed programming language designed for clarity and control.
 It gives you structs, enums, generics, closures, pattern matching, and a borrow
 checker that tracks ownership at compile time — no garbage collector, no runtime
 overhead beyond what you ask for.
@@ -111,7 +111,7 @@ owl run
 ## Quick start
 
 ```bash
-# Build the compiler (dev)
+# Build the compiler
 cargo build --release
 
 # Run the test suite
@@ -163,13 +163,13 @@ changed. On partial changes, only the affected units are re-analyzed.
 ## The language at a glance
 
 ```mire
-# Functions with inferred or explicit return types
+// Functions with inferred or explicit return types
 fn fib: (n: i64) :i64 {
  if n <= 1 { return n }
  return fib(n - 1) + fib(n - 2)
 }
 
-# Structs and methods
+// Structs and methods
 struct Point { x: i64, y: i64 }
 
 impl Point {
@@ -178,13 +178,30 @@ impl Point {
  }
 }
 
-# Enums with pattern matching
+// Struct inheritance (extends)
+pub struct Animal { name: str }
+pub struct Dog extends Animal { breed: str }
+
+impl Dog {
+ fn greet: (self) :str {
+  return self.name + " the " + self.breed
+ }
+}
+
+// Skills (traits) with inheritance (super)
+pub skill Greeter { fn greet: (self) :str }
+pub skill Named super Greeter { fn get_name: (self) :str }
+
+// Enums with pattern matching
 enum Option[T] { None, Some(value: T) }
 
 pub fn main: () {
  set p = Point::new(3, 4)
  set d = p.dist()
  use dasu("Distance: {d}")
+
+ set dog = (Dog name: "Rex" breed: "Husky")
+ use dasu(dog.greet())
 }
 ```
 
@@ -197,13 +214,14 @@ pub fn main: () {
 ```
 avenys/
 ├── src/
-│ ├── parser/ # Lexer + recursive descent parser
+│ ├── lexer/ # UTF-8 source scanning and tokenization
+│ ├── parser/ # Recursive descent parser and AST
 │ ├── compiler/ # Type checker, borrow checker, semantic analysis
 │ │ └── mir/ # MIR lowering, optimization, and LLVM codegen
 │ ├── avens/ # Build pipeline, codegen, CLI integration
 │ ├── incremental/ # Incremental cache (LRU, WAL, fingerprinting)
-│ ├── loader.rs # Module resolution (packages, imports, exports)
-│ └── pal/ # Platform Abstraction Layer (Linux C backend)
+│ ├── loader/ # Module resolution and symbol renaming
+│ └── pal/ # PAL ABI, core dispatch, and Linux host adapter
 ├── install/ # Installation script
 ├── tests/ # Integration tests + compiler benchmarks
 ├── docs/ # CHANGELOG, error codes, architecture docs
@@ -214,21 +232,30 @@ avenys/
 
 ## Standard library (Kioto)
 
-Kioto lives at `~/.owl/modules/kioto/` and provides:
+Kioto lives at `~/.owl/libs/kioto/` and provides:
 
 | Module | What it does |
 |--------|-------------|
 | `strings` | upper/lower, split/join, replace, trim, pad, substr |
-| `lists` | push/pop/get, slice, concat, sort, reverse, unique |
-| `dicts` | get/set/keys/values, has, remove, merge |
 | `math` | trig, log, powers, statistics, random, complex numbers |
-| `fs` | read, write, exists, copy, move, mkdir, list |
-| `env` | get/set, args, cwd |
-| `proc` | run, shell, spawn, pipe, signal handling |
-| `task` | spawn, join, ready/failed checks |
-| `time` | now, sleep, format, elapsed |
+| `fs` | read, write, exists, mkdir, remove/remove_all, dir/file handles |
+| `env` | get, cwd, args |
+| `proc` | create, spawn (argv-safe, no shell), wait, kill, stdio channels |
+| `async` | channels, Task, ready/value, spawn/wait |
+| `time` | now_ms, now_ns, mark, elapsed |
 | `mem` / `cpu` | system resource queries |
-| `maybe` / `result` | Option and Result types |
+| `net` | TCP sockets and listeners |
+| `log` / `cli` | logging and CLI parsing |
+| `crypto` | SHA-256/512, hex/base64, CSPRNG, Ed25519 |
+
+`fs::remove` removes a single entry (file, symlink, or empty dir) without ever
+following symlinks; `fs::remove_all` recursively removes a tree (still
+symlink-safe — external targets are never entered). On failure,
+`fs::last_error()` returns the PAL error code (`11` = directory not empty).
+See `kioto/README.md` for examples.
+
+Dynamic collections (`vec`, `map`) are provided by the `mire` standard library,
+loaded with `load mire::vec` / `load mire::map`. See `mire/README.md`.
 
 ---
 
@@ -237,10 +264,18 @@ Kioto lives at `~/.owl/modules/kioto/` and provides:
 ```bash
 mire run [file] [--release] [-O<0-3|s|z>] [-- args...]
 mire build [file] [--release] [-O<0-3|s|z>]
-mire check [file] [--warn-all] [--deny <code>]
+mire check [file] [--show-warn] [-W <code>] [--deny <code>]
 mire debug [file] [--tokens] [--ast] [--ir]
-mire test [paths...] [--no-run] [--verbose] [-O<0-3|s|z>] [-r] [-d]
+mire test [paths...] [--no-run] [--verbose] [--show-warn] [-O<0-3|s|z>] [-r] [-d]
 ```
+
+Warnings are **off by default**. Enable with:
+- `--show-warn` — show all warnings (summary)
+- `--position` — show per-file warning locations
+- `-W <code>` — promote a specific warning to error (e.g. `-W W0001`)
+- `--deny <code>` — deny a specific warning code
+- `--warnings-as-errors` — deny all default warnings (W0001–W0005, W0034, W0039)
+- `--no-warn <category>` — suppress warnings by category (e.g. `--no-warn Unused`)
 
 ---
 
@@ -249,6 +284,8 @@ mire test [paths...] [--no-run] [--verbose] [-O<0-3|s|z>] [-r] [-d]
 | Document | Description |
 |----------|-------------|
 | [SYNTAX.md](./SYNTAX.md) | Complete language reference with examples |
+| [docs/FFI.md](./docs/FFI.md) | Foreign Function Interface reference |
+| [docs/LIBRARIES.md](./docs/LIBRARIES.md) | Module loading, owl.toml, and exports |
 | [docs/PAL-ABI.md](./docs/PAL-ABI.md) | Platform Abstraction Layer architecture |
 | [docs/ERROR_CODES.md](./docs/ERROR_CODES.md) | All compiler error and warning codes |
 | [docs/CHANGELOG.md](./docs/CHANGELOG.md) | Version history |

@@ -1,8 +1,14 @@
 pub mod ast;
+pub mod flatten;
 mod expressions;
+mod expression_precedence;
+mod expression_primary;
 pub(crate) mod helpers;
-mod imports;
+mod loads;
+mod metadata;
 mod statements;
+mod statement_declarations;
+mod statement_control;
 mod syntax;
 mod types;
 
@@ -16,7 +22,9 @@ pub use helpers::{apply_map_type_to_dict, apply_vector_type_to_list};
 
 pub fn parse(source: &str) -> Result<Program> {
     let tokens = tokenize(source)?;
-    Parser::new(tokens).parse()
+    let mut program = Parser::new(tokens).parse()?;
+    flatten::flatten_nested_functions(&mut program.statements);
+    Ok(program)
 }
 
 /// Parses source with error recovery: on parse error, skips to the next
@@ -24,7 +32,13 @@ pub fn parse(source: &str) -> Result<Program> {
 /// collected errors.
 pub fn parse_with_recovery(source: &str) -> (Program, Vec<MireError>) {
     match tokenize(source) {
-        Ok(tokens) => Parser::new(tokens).parse_with_recovery(),
+        Ok(tokens) => {
+            let (mut program, errors) = Parser::new(tokens).parse_with_recovery();
+            if errors.is_empty() {
+                flatten::flatten_nested_functions(&mut program.statements);
+            }
+            (program, errors)
+        }
         Err(e) => (
             Program {
                 file_attributes: vec![],
@@ -73,124 +87,6 @@ impl Parser {
             errors: Vec::new(),
             pending_attributes: Vec::new(),
         }
-    }
-
-    fn collect_top_level_metadata(
-        tokens: &[Token],
-    ) -> (HashSet<String>, HashMap<String, String>, HashSet<String>) {
-        let mut enum_names = HashSet::new();
-        let mut nominal_type_names = HashSet::new();
-        let mut variant_counts = HashMap::new();
-        let mut enum_variant_owners = HashMap::new();
-        let mut brace_depth = 0usize;
-        let mut index = 0usize;
-
-        while index < tokens.len() {
-            match tokens[index].ttype {
-                TokenType::Lbrace => brace_depth += 1,
-                TokenType::Rbrace => brace_depth = brace_depth.saturating_sub(1),
-                TokenType::Pub | TokenType::Priv
-                    if brace_depth == 0 && index + 2 < tokens.len() =>
-                {
-                    let keyword = tokens[index + 1].ttype;
-                    if matches!(
-                        keyword,
-                        TokenType::Enum | TokenType::Struct | TokenType::Type
-                    ) && tokens[index + 2].ttype == TokenType::Ident
-                        && let Some(name) = tokens[index + 2].value.as_ref()
-                    {
-                        match keyword {
-                            TokenType::Enum => {
-                                enum_names.insert(name.clone());
-                                if index + 3 < tokens.len()
-                                    && tokens[index + 3].ttype == TokenType::Lbrace
-                                {
-                                    index = Self::collect_enum_variants_into(
-                                        tokens,
-                                        index + 4,
-                                        name,
-                                        &mut variant_counts,
-                                        &mut enum_variant_owners,
-                                    );
-                                    continue;
-                                }
-                            }
-                            TokenType::Struct | TokenType::Type => {
-                                nominal_type_names.insert(name.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                ttype
-                    if brace_depth == 0
-                        && matches!(
-                            ttype,
-                            TokenType::Enum | TokenType::Struct | TokenType::Type
-                        ) =>
-                {
-                    if index + 1 < tokens.len()
-                        && tokens[index + 1].ttype == TokenType::Ident
-                        && let Some(name) = tokens[index + 1].value.as_ref()
-                    {
-                        match ttype {
-                            TokenType::Enum => {
-                                enum_names.insert(name.clone());
-                                if index + 2 < tokens.len()
-                                    && tokens[index + 2].ttype == TokenType::Lbrace
-                                {
-                                    index = Self::collect_enum_variants_into(
-                                        tokens,
-                                        index + 3,
-                                        name,
-                                        &mut variant_counts,
-                                        &mut enum_variant_owners,
-                                    );
-                                    continue;
-                                }
-                            }
-                            TokenType::Struct | TokenType::Type => {
-                                nominal_type_names.insert(name.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-            index += 1;
-        }
-
-        enum_variant_owners.retain(|variant, _| variant_counts.get(variant) == Some(&1));
-        (enum_names, enum_variant_owners, nominal_type_names)
-    }
-
-    fn collect_enum_variants_into(
-        tokens: &[Token],
-        mut index: usize,
-        enum_name: &str,
-        variant_counts: &mut HashMap<String, usize>,
-        variant_owners: &mut HashMap<String, String>,
-    ) -> usize {
-        let mut enum_brace_depth = 1usize;
-
-        while index < tokens.len() && enum_brace_depth > 0 {
-            match tokens[index].ttype {
-                TokenType::Lbrace => enum_brace_depth += 1,
-                TokenType::Rbrace => enum_brace_depth = enum_brace_depth.saturating_sub(1),
-                TokenType::Ident if enum_brace_depth == 1 => {
-                    if let Some(variant_name) = tokens[index].value.as_ref() {
-                        let variant_name = variant_name.clone();
-                        *variant_counts.entry(variant_name.clone()).or_insert(0) += 1;
-                        variant_owners.insert(variant_name, enum_name.to_string());
-                    }
-                }
-                _ => {}
-            }
-            index += 1;
-        }
-
-        index
     }
 
     pub fn parse(&mut self) -> Result<Program> {
@@ -360,7 +256,7 @@ mod tests {
 
     #[test]
     fn rejects_local_load_with_parent_segments() {
-        let source = "load ./../modules/fs_ops\n";
+        let source = "load ./../libs/fs_ops\n";
         let program = parse(source);
         assert!(program.is_err(), "local paths should be rejected");
     }
@@ -466,7 +362,7 @@ mod tests {
         assert_eq!(cases.len(), 1);
         assert!(matches!(
             default.as_ref(),
-            Expression::Literal(Literal::Int(0))
+            Expression::Literal { lit: Literal::Int(0), .. }
         ));
     }
 
@@ -764,15 +660,15 @@ mod tests {
             panic!("expected third int literal");
         };
         let b = match &**b_expr {
-            Expression::Literal(Literal::Int(v)) => *v,
+            Expression::Literal { lit: Literal::Int(v), .. } => *v,
             _ => panic!("expected first int literal"),
         };
         let o = match &**o_expr {
-            Expression::Literal(Literal::Int(v)) => *v,
+            Expression::Literal { lit: Literal::Int(v), .. } => *v,
             _ => panic!("expected second int literal"),
         };
         let h = match &**h_expr {
-            Expression::Literal(Literal::Int(v)) => *v,
+            Expression::Literal { lit: Literal::Int(v), .. } => *v,
             _ => panic!("expected third int literal"),
         };
         assert_eq!((b, o, h), (10, 10, 255));
@@ -786,21 +682,21 @@ mod tests {
             panic!("expected function");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Str(a))),
+            value: Some(Expression::Literal { lit: Literal::Str(a), .. }),
             ..
         } = &body[0]
         else {
             panic!("expected first raw string");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Str(b))),
+            value: Some(Expression::Literal { lit: Literal::Str(b), .. }),
             ..
         } = &body[1]
         else {
             panic!("expected second raw string");
         };
         let Statement::Let {
-            value: Some(Expression::Literal(Literal::Str(c))),
+            value: Some(Expression::Literal { lit: Literal::Str(c), .. }),
             ..
         } = &body[2]
         else {
@@ -853,15 +749,15 @@ mod tests {
             panic!("expected third char");
         };
         let a = match &**a_expr {
-            Expression::Literal(Literal::Char(c)) => *c,
+            Expression::Literal { lit: Literal::Char(c), .. } => *c,
             _ => panic!("expected first char literal"),
         };
         let n = match &**n_expr {
-            Expression::Literal(Literal::Char(c)) => *c,
+            Expression::Literal { lit: Literal::Char(c), .. } => *c,
             _ => panic!("expected second char literal"),
         };
         let u = match &**u_expr {
-            Expression::Literal(Literal::Char(c)) => *c,
+            Expression::Literal { lit: Literal::Char(c), .. } => *c,
             _ => panic!("expected third char literal"),
         };
         assert_eq!((a, n, u), ('a' as u32, '\n' as u32, 'ñ' as u32));
@@ -916,5 +812,52 @@ mod tests {
         let source = "pub fn main: () >\nuse dasu(\"no\")\n<\n";
         let program = parse(source);
         assert!(program.is_err(), "legacy angle blocks should be rejected");
+    }
+
+    #[test]
+    fn parses_cons_statement() {
+        let source = "cons MAX = 100 :i64\n";
+        let program = parse(source).expect("parse should accept cons");
+        let Statement::Let {
+            name,
+            data_type,
+            value,
+            is_constant,
+            is_mutable,
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("expected let");
+        };
+        assert_eq!(name, "MAX");
+        assert_eq!(*data_type, DataType::I64);
+        assert!(*is_constant);
+        assert!(!*is_mutable);
+        assert!(value.is_some());
+    }
+
+    #[test]
+    fn parses_cons_statement_without_type() {
+        let source = "cons X = 42\n";
+        let program = parse(source).expect("parse should accept cons without type");
+        let Statement::Let {
+            name,
+            data_type,
+            is_constant,
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("expected let");
+        };
+        assert_eq!(name, "X");
+        assert_eq!(*data_type, DataType::Unknown);
+        assert!(*is_constant);
+    }
+
+    #[test]
+    fn rejects_cons_with_mut() {
+        let source = "cons X = 5 :i64 mut\n";
+        let result = parse(source);
+        assert!(result.is_err(), "cons with mut should be rejected");
     }
 }

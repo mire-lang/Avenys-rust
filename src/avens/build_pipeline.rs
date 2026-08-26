@@ -3,560 +3,42 @@ use crate::compiler::check_warnings_with_origins;
 use crate::compiler::mir::{codegen::mir_to_llvm_with_filename, lower::lower_program_with_filename, optimize::optimize};
 use crate::error::diagnostic::Diagnostic;
 use crate::loader::load_program_with_cache;
-use crate::parser::ast::{DataType, Statement};
+use crate::parser::ast::Statement;
+use super::build_support::{
+    apply_cfg_filter, dedup_llvm_declarations, generate_runtime_declarations,
+    generate_enum_constructors, generate_struct_constructors, inject_test_harness, precompile_c_object,
+    inject_macros, progress_phase,
+    runtime_base,
+};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-fn runtime_base() -> PathBuf {
-    if let Ok(dir) = std::env::var("MIRE_RUNTIME_DIR") {
-        let p = PathBuf::from(&dir);
-        if p.join("runtime").exists() {
-            return p;
-        }
-    }
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    if manifest_dir.join("src/runtime").exists() {
-        return manifest_dir.join("src");
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        if parent.join("runtime").exists() {
-            return parent.to_path_buf();
-        }
-        if parent.join("../lib/mire/runtime").exists() {
-            return parent.join("../lib/mire");
-        }
-    }
-    manifest_dir.join("src")
-}
-
-fn struct_field_llvm_type(dt: &DataType) -> &'static str {
-    match dt {
-        DataType::I64 | DataType::Char | DataType::U64 => "i64",
-        DataType::I128 | DataType::U128 => "i128",
-        DataType::I32 | DataType::U32 => "i32",
-        DataType::I16 | DataType::U16 => "i16",
-        DataType::I8 | DataType::U8 => "i8",
-        DataType::F32 => "float",
-        DataType::F64 => "double",
-        DataType::Bool => "i1",
-        DataType::None => "i64",
-        DataType::Generic(_) => "i64",
-        _ => "ptr",
-    }
-}
-
-fn struct_field_llvm_body_type(dt: &DataType) -> String {
-    match dt {
-        DataType::Array { element_type, size } => {
-            format!("[{} x {}]", size, struct_field_llvm_body_type(element_type))
-        }
-        _ => struct_field_llvm_type(dt).to_string(),
-    }
-}
-
-fn struct_field_size(dt: &DataType) -> usize {
-    match dt {
-        DataType::I64 | DataType::Char | DataType::U64 => 8,
-        DataType::I128 | DataType::U128 => 16,
-        DataType::I32 | DataType::U32 => 4,
-        DataType::I16 | DataType::U16 => 2,
-        DataType::I8 | DataType::U8 => 1,
-        DataType::F32 => 4,
-        DataType::F64 => 8,
-        DataType::Bool => 1,
-        DataType::None => 8,
-        DataType::Array { element_type, size } => *size * struct_field_size(element_type),
-        _ => 8,
-    }
-}
-
-fn generate_runtime_declarations(ir: &str) -> String {
-    let mut out = String::new();
-    let needed: &[(&str, &str)] = &[
-        ("declare ptr @dasu(", "declare ptr @dasu(i64)"),
-        ("declare i64 @rt_list_len(", "declare i64 @rt_list_len(ptr)"),
-        (
-            "declare i64 @rt_strings_len(",
-            "declare i64 @rt_strings_len(ptr)",
-        ),
-        (
-            "declare i64 @rt_dicts_len(",
-            "declare i64 @rt_dicts_len(ptr)",
-        ),
-        (
-            "declare ptr @rt_list_create(",
-            "declare ptr @rt_list_create(i64, i64)",
-        ),
-        (
-            "declare ptr @rt_list_push_i64(",
-            "declare ptr @rt_list_push_i64(ptr, i64)",
-        ),
-        (
-            "declare ptr @rt_list_push_ptr(",
-            "declare ptr @rt_list_push_ptr(ptr, ptr)",
-        ),
-        (
-            "declare ptr @rt_dicts_set_i64(",
-            "declare ptr @rt_dicts_set_i64(ptr, ptr, i64)",
-        ),
-        (
-            "declare ptr @rt_dicts_set(",
-            "declare ptr @rt_dicts_set(ptr, ptr, ptr)",
-        ),
-        (
-            "declare ptr @rt_dicts_set_with_kind(",
-            "declare ptr @rt_dicts_set_with_kind(ptr, ptr, ptr, i64)",
-        ),
-        (
-            "declare ptr @rt_dicts_keys(",
-            "declare ptr @rt_dicts_keys(ptr)",
-        ),
-        (
-            "declare ptr @rt_dicts_values(",
-            "declare ptr @rt_dicts_values(ptr)",
-        ),
-        (
-            "declare ptr @rt_dict_to_string(",
-            "declare ptr @rt_dict_to_string(ptr)",
-        ),
-        (
-            "declare i64 @rt_div_i64(",
-            "declare i64 @rt_div_i64(i64, i64, i64, i64, ptr)",
-        ),
-        (
-            "declare i64 @rt_rem_i64(",
-            "declare i64 @rt_rem_i64(i64, i64, i64, i64, ptr)",
-        ),
-        (
-            "declare void @rt_check_bounds_i64(",
-            "declare void @rt_check_bounds_i64(i64, i64, i64, i64, ptr)",
-        ),
-        (
-            "declare ptr @rt_closure_env_alloc(",
-            "declare ptr @rt_closure_env_alloc(i64)",
-        ),
-        (
-            "declare ptr @rt_math_range_i64(",
-            "declare ptr @rt_math_range_i64(i64)",
-        ),
-        (
-            "@.fmt_str =",
-            "@.fmt_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"",
-        ),
-        (
-            "@.fmt_i64 =",
-            "@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"",
-        ),
-        (
-            "@.fmt_f64 =",
-            "@.fmt_f64 = private unnamed_addr constant [6 x i8] c\"%.6g\\0A\\00\"",
-        ),
-        (
-            "@.fmt_float =",
-            "@.fmt_float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\"",
-        ),
-        (
-            "@.fmt_bool_true =",
-            "@.fmt_bool_true = private unnamed_addr constant [5 x i8] c\"true\\00\"",
-        ),
-        (
-            "@.fmt_bool_false =",
-            "@.fmt_bool_false = private unnamed_addr constant [6 x i8] c\"false\\00\"",
-        ),
-        (
-            "@.fmt_i32 =",
-            "@.fmt_i32 = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"",
-        ),
-        (
-            "declare ptr @rt_i64_to_string(",
-            "declare ptr @rt_i64_to_string(i64)",
-        ),
-        (
-            "declare ptr @rt_f64_to_string(",
-            "declare ptr @rt_f64_to_string(double)",
-        ),
-        (
-            "declare ptr @rt_bool_to_string(",
-            "declare ptr @rt_bool_to_string(i64)",
-        ),
-        (
-            "declare ptr @rt_get_args(",
-            "declare ptr @rt_get_args(i32, ptr)",
-        ),
-        ("declare i32 @printf(", "declare i32 @printf(ptr, ...)"),
-        ("declare i32 @fflush(", "declare i32 @fflush(ptr)"),
-        ("declare i32 @strcmp(", "declare i32 @strcmp(ptr, ptr)"),
-        (
-            "declare void @rt_managed_free(",
-            "declare void @rt_managed_free(ptr)",
-        ),
-        (
-            "declare ptr @rt_string_concat(",
-            "declare ptr @rt_string_concat(ptr, ptr)",
-        ),
-        (
-            "declare void @pal_proc_on(",
-            "declare void @pal_proc_on(ptr)",
-        ),
-        ("@.argc =", "@.argc = global i32 0"),
-        ("@.argv =", "@.argv = global ptr null"),
-    ];
-    for (search, decl) in needed {
-        if !ir.contains(search) {
-            out.push_str(decl);
-            out.push('\n');
-        }
-    }
-    out
-}
-
-fn generate_struct_constructors(program: &crate::parser::ast::Program) -> String {
-    let mut out = String::new();
-    for stmt in &program.statements {
-        if let Statement::Type { name, fields, .. } = stmt {
-            let field_count = fields.len();
-            if field_count == 0 {
-                continue;
-            }
-
-            let param_types: Vec<&str> = fields
-                .iter()
-                .filter_map(|f| {
-                    if let Statement::Let { data_type, .. } = f {
-                        Some(struct_field_llvm_type(data_type))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let body_types: Vec<String> = fields
-                .iter()
-                .filter_map(|f| {
-                    if let Statement::Let { data_type, .. } = f {
-                        Some(struct_field_llvm_body_type(data_type))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            let mut total_size = 0usize;
-            for field in fields {
-                if let Statement::Let { data_type, .. } = field {
-                    total_size += struct_field_size(data_type);
-                }
-            }
-
-            if param_types.is_empty() {
-                continue;
-            }
-
-            let struct_ty = body_types.join(", ");
-            let params: Vec<String> = param_types
-                .iter()
-                .enumerate()
-                .map(|(i, ft)| format!("{} %{}", ft, i))
-                .collect();
-
-            let mut body = String::new();
-            body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
-            for (i, field) in fields.iter().enumerate() {
-                if let Statement::Let { data_type, .. } = field {
-                    let bty = &body_types[i];
-                    body.push_str(&format!(
-                        "  %f{i}_ptr = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 {i}\n"
-                    ));
-                    match data_type {
-                        DataType::Array { .. } => {
-                            body.push_str(&format!("  %f{i}_loaded = load {bty}, ptr %{i}\n"));
-                            body.push_str(&format!("  store {bty} %f{i}_loaded, ptr %f{i}_ptr\n"));
-                        }
-                        _ => {
-                            body.push_str(&format!(
-                                "  store {} %{i}, ptr %f{i}_ptr\n",
-                                struct_field_llvm_type(data_type),
-                            ));
-                        }
-                    }
-                }
-            }
-            body.push_str("  ret ptr %ptr\n");
-
-            out.push_str(&format!(
-                "define ptr @{}({}) {{\nentry:\n{}}}\n\n",
-                name,
-                params.join(", "),
-                body,
-            ));
-        }
-    }
-    if out.is_empty() {
-        return String::new();
-    }
-    format!("declare ptr @malloc(i64)\n\n{}", out)
-}
-
-fn dedup_llvm_declarations(ir: &str) -> String {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-
-    for line in ir.lines() {
-        // Force the correct signature for specific runtime functions whose
-        // kioto extern declarations may not match what the codegen emits.
-        let line = if line == "declare ptr @rt_get_args()" {
-            "declare ptr @rt_get_args(i32, ptr)"
-        } else {
-            line
-        };
-
-        let should_skip = if let Some(rest) = line.strip_prefix("declare ") {
-            if let Some(at_pos) = rest.find('@') {
-                if let Some(paren_pos) = rest[at_pos..].find('(') {
-                    let name = &rest[at_pos + 1..at_pos + paren_pos];
-                    !seen.insert(name.to_string())
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        if !should_skip {
-            out.push(line);
-        }
-    }
-
-    out.join("\n")
-}
-
-fn c_object_hash(content: &str) -> u64 {
-    let mut hasher = crate::incremental::FxHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
-}
-
-fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> Result<String> {
-    let content = fs::read_to_string(c_path).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
-            message: format!("Could not read C source '{}': {}", c_path, err),
-        })
-    })?;
-    let hash = c_object_hash(&content);
-    fs::create_dir_all(cache_dir).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
-            message: format!("Could not create cobjects dir: {}", err),
-        })
-    })?;
-    let obj_path = cache_dir.join(format!("{:x}.o", hash));
-    if !obj_path.exists() {
-        let status = std::process::Command::new("clang")
-            .args(["-c", "-O0", "-o"])
-            .arg(&obj_path)
-            .arg(c_path)
-            .arg("-I")
-            .arg(runtime_base.join("runtime"))
-            .arg("-I")
-            .arg(runtime_base.join("pal"))
-            .status()
-            .map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
-                    message: format!("Failed to run clang for '{}': {}", c_path, err),
-                })
-            })?;
-        if !status.success() {
-            return Err(MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
-                message: format!("clang -c failed for '{}'", c_path),
-            }));
-        }
-    }
-    Ok(obj_path.to_string_lossy().to_string())
-}
-
-fn progress_phase(phase: &str, _file: &str, elapsed_ms: u64, total_ms: u64) {
-    if std::env::var("OWL_PROGRESS").is_ok() {
-        eprintln!(
-            "{{\"phase\":\"{}\",\"elapsed_ms\":{},\"total_ms\":{}}}",
-            phase, elapsed_ms, total_ms
-        );
-    }
-}
-
-fn apply_cfg_filter(program: &mut crate::parser::ast::Program) {
-    let is_linux = cfg!(target_os = "linux");
-    program.statements.retain(|stmt| {
-        let attributes = match stmt {
-            crate::parser::ast::Statement::Function { attributes, .. } => attributes,
-            _ => return true,
-        };
-        let cfg_attr = attributes.iter().find(|a| a.name == "cfg");
-        let Some(cfg_attr) = cfg_attr else {
-            return true;
-        };
-        let target = cfg_attr.args.first().map(|a| a.value.as_str());
-        match target {
-            Some("linux") => is_linux,
-            _ => false,
-        }
-    });
-}
-
-fn inject_test_harness(program: &mut crate::parser::ast::Program) {
-    use crate::parser::ast::{DataType, Expression, Identifier, Literal, Statement, Visibility};
-
-    struct TestFn {
-        name: String,
-        section: String,
-        ignored: bool,
-    }
-
-    let mut tests: Vec<TestFn> = Vec::new();
-    for stmt in &program.statements {
-        if let Statement::Function {
-            name, attributes, ..
-        } = stmt
-            && attributes.iter().any(|a| a.name == "test")
-        {
-            let section = attributes
-                .iter()
-                .find(|a| a.name == "section")
-                .and_then(|a| a.args.first())
-                .map(|arg| arg.value.clone())
-                .unwrap_or_default();
-            let ignored = attributes.iter().any(|a| a.name == "ignore");
-            tests.push(TestFn {
-                name: name.clone(),
-                section,
-                ignored,
-            });
-        }
-    }
-    if tests.is_empty() {
-        return;
-    }
-
-    let mut body: Vec<Statement> = Vec::new();
-    let mut current_section = String::new();
-    for test in &tests {
-        if test.section != current_section {
-            current_section = test.section.clone();
-            if !current_section.is_empty() {
-                body.push(Statement::Expression(Expression::Call {
-                    name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
-                        "\n  [{}]",
-                        current_section
-                    )))],
-                    type_args: Vec::new(),
-                    name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
-                }));
-            }
-        }
-        if test.ignored {
-            body.push(Statement::Expression(Expression::Call {
-                name: "dasu".to_string(),
-                args: vec![Expression::Literal(Literal::Str(format!(
-                    "  [SKIP] {}",
-                    test.name
-                )))],
-                type_args: Vec::new(),
-                name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
-            }));
-        } else {
-            body.push(Statement::Let {
-                name: format!("_result_{}", test.name),
-                data_type: DataType::Bool,
-                value: Some(Expression::Call {
-                    name: test.name.clone(),
-                    args: Vec::new(),
-                    type_args: Vec::new(),
-                    name_line: 0,
-            name_column: 0,
-            data_type: DataType::Bool,
-                }),
-                is_constant: false,
-                is_mutable: false,
-                is_static: false,
-                visibility: Visibility::Private,
-                name_line: 0,
-                name_column: 0,
-            });
-            let result_name = format!("_result_{}", test.name);
-            body.push(Statement::If {
-                condition: Expression::Identifier(Identifier {
-                    name: result_name,
-                    data_type: DataType::Bool,
-                    line: 0,
-                    column: 0,
-                }),
-                then_branch: vec![Statement::Expression(Expression::Call {
-                    name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
-                        "  [PASS] {}",
-                        test.name
-                    )))],
-                    type_args: Vec::new(),
-                    name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
-                })],
-                else_branch: Some(vec![Statement::Expression(Expression::Call {
-                    name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str(format!(
-                        "  [FAIL] {}",
-                        test.name
-                    )))],
-                    type_args: Vec::new(),
-                    name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
-                })]),
-            });
-        }
-    }
-
-    let harness = Statement::Function {
-        name: "main".to_string(),
-        attributes: Vec::new(),
-        type_params: Vec::new(),
-        type_param_bounds: Vec::new(),
-        params: Vec::new(),
-        body,
-        return_type: DataType::None,
-        visibility: Visibility::Public,
-        is_method: false,
-    };
-    program
-        .statements
-        .retain(|s| !matches!(s, Statement::Function { name, .. } if name == "main"));
-    program.statements.push(harness);
-}
-
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
-    let build_start = std::time::Instant::now();
-    let source = fs::read_to_string(source_path)?;
+    let source = fs::read_to_string(source_path).map_err(|err| {
+        crate::error::MireError::runtime(format!(
+            "Could not read '{}': {}",
+            source_path.display(),
+            err
+        ))
+    })?;
     let source_filename = source_path.display().to_string();
+    match compile_file_inner(source_path, options, &source, &source_filename) {
+        Ok(result) => Ok(result),
+        Err(err) => Err(err.ensure_context(&source_filename, &source)),
+    }
+}
+
+fn compile_file_inner(
+    source_path: &Path,
+    options: &BuildOptions,
+    source: &str,
+    source_filename: &str,
+) -> Result<BuildResult> {
+    let build_start = std::time::Instant::now();
     let output_dir = default_output_dir(source_path, options.mode);
     fs::create_dir_all(&output_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!(
                 "Could not create build directory '{}': {}",
                 output_dir.display(),
@@ -580,48 +62,16 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         .persist_ir
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let runtime_base = runtime_base();
-    let pal_backend = std::env::var("MIRE_PAL").unwrap_or_else(|_| "linux".to_string());
     let (c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files = Vec::new();
-        for entry in std::fs::read_dir(runtime_base.join("runtime")).map_err(|err| {
-            MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
-                message: format!("Could not read runtime/: {}", err),
-            })
-        })? {
-            let entry = entry.map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
-                    message: format!("Could not read entry: {}", err),
-                })
-            })?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "c") {
-                files.push(path.to_string_lossy().to_string());
-            }
-        }
-        for entry in
-            std::fs::read_dir(runtime_base.join(format!("pal/{pal_backend}"))).map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
-                    message: format!("Could not read pal/{pal_backend}: {}", err),
-                })
-            })?
-        {
-            let entry = entry.map_err(|err| {
-                MireError::new(ErrorKind::Runtime {
-                    line: 0,
-                    column: 0,
-                    message: format!("Could not read entry: {}", err),
-                })
-            })?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "c") {
-                files.push(path.to_string_lossy().to_string());
-            }
+        for directory in ["runtime", "pal/core", "pal/linux"] {
+            super::toolchain::collect_c_files(&runtime_base.join(directory), &mut files)
+                .map_err(|err| {
+                    MireError::new(ErrorKind::Runtime {
+                        span: crate::error::Span::unknown(),
+                        message: format!("Could not collect C sources from {directory}: {err}"),
+                    })
+                })?;
         }
         files.sort();
         files.dedup();
@@ -645,8 +95,8 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     let mut cache = IncrementalCache::load_with_settings(source_path, cache_settings)?;
     let loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
     let phase_load = build_start.elapsed().as_millis() as u64;
-    progress_phase("load", &source_filename, phase_load, phase_load);
-    let source_file_hash = source_hash(&source);
+    progress_phase("load", source_filename, phase_load, phase_load);
+    let source_file_hash = source_hash(source);
     let dep_fingerprint = dependency_fingerprint(&loaded.files);
     if options.debug_dump
         && let Some(report) =
@@ -676,6 +126,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         options.import_mode,
         options.emit_binary,
         options.persist_ir,
+        options.test_mode,
     ) && entry.fingerprint == fingerprint
         && (!options.emit_binary || entry.binary_path.exists())
         && entry.binary_path == binary_path
@@ -718,9 +169,6 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         match cached {
             CachedAnalysis::Success(mut program) => {
                 apply_cfg_filter(&mut program);
-                if options.test_mode {
-                    inject_test_harness(&mut program);
-                }
                 program
             }
             CachedAnalysis::Error(error) => return Err(error),
@@ -728,9 +176,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     } else {
         let mut program = loaded.program;
         apply_cfg_filter(&mut program);
-        if options.test_mode {
-            inject_test_harness(&mut program);
-        }
+        inject_macros(&mut program, source_path);
         let analysis_result = if let Some(cached) =
             cache.latest_successful_analysis(source_path, source_file_hash)
         {
@@ -744,7 +190,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             } else {
                 analyze_program_with_origins_partial(
                     &mut program,
-                    &source,
+                    source,
                     &loaded.statement_origins,
                     &loaded.sources,
                     &selection,
@@ -754,7 +200,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         } else {
             analyze_program_with_origins(
                 &mut program,
-                &source,
+                source,
                 &loaded.statement_origins,
                 &loaded.sources,
             )
@@ -763,12 +209,12 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
 
         if let Err(err) = analysis_result {
             let err = if err.source().is_none() {
-                err.with_source(source.clone())
+                err.with_source(source.to_string())
             } else {
                 err
             };
             let err = if err.filename().is_none() {
-                err.with_filename(source_filename.clone())
+                err.with_filename(source_filename.to_string())
             } else {
                 err
             };
@@ -780,17 +226,27 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         phase_analyse_time = build_start.elapsed().as_millis() as u64;
         progress_phase(
             "analyse",
-            &source_filename,
+            source_filename,
             phase_analyse_time - phase_load,
             phase_analyse_time,
         );
         program
     };
 
+    // The test harness replaces the user's `main` with a runner. It is applied
+    // only to the codegen copy AFTER analysis so the persisted analysis cache
+    // entry always holds the clean program: a test-mode build stores clean
+    // analysis, and a later `mire run`/`owl run` (same analysis key) must load
+    // the user's real `main`, never a baked-in test runner.
+    let mut program = program;
+    if options.test_mode {
+        inject_test_harness(&mut program);
+    }
+
     let warnings = check_warnings_with_origins(
         &program,
-        &source,
-        Some(&source_filename),
+        source,
+        Some(source_filename),
         options.warning_filter.clone(),
         options.deny_warnings.clone(),
         &loaded.statement_origins,
@@ -801,17 +257,31 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     for diagnostic in &warnings {
         warning_strs.push(format_diagnostic(diagnostic, true));
     }
-    if warnings
-        .iter()
-        .any(|diag| matches!(diag.severity, Severity::Error))
-    {
-        return Err(MireError::runtime(
-            "Compilation aborted due to denied warnings".to_string(),
-        ));
+    if let Some(err_diag) = warnings.iter().find(|d| matches!(d.severity, Severity::Error)) {
+        return Err(MireError::from_diagnostic(err_diag));
     }
 
     let (mut ir, extern_libs) = {
-        let mut mir = lower_program_with_filename(&program, &source_filename);
+        let mut mir = lower_program_with_filename(&program, source_filename);
+
+        // Pre-codegen validation: surface calls to symbols the backend cannot
+        // resolve (stale bare builtins, removed PAL functions, or unloaded
+        // externs) at their source location instead of letting LLVM-opt fail
+        // later with an opaque `use of undefined value '@x'` and
+        // `<no source location available>`.
+        if let Some((bad_name, (line, col))) =
+            crate::compiler::mir::codegen::find_first_undefined_call(&mir)
+        {
+            return Err(MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::new(line, col),
+                message: format!(
+                    "undefined function '{}': cannot resolve a codegen target for this \
+                     call (the symbol is not loaded, was removed, or uses a bare name the \
+                     compiler no longer emits). Use the namespaced form, e.g. `fs::exists`.",
+                    bad_name
+                ),
+            }));
+        }
 
         // Compute combined hash of all MIR function bodies for caching
         let mir_hash: u64 = {
@@ -851,11 +321,11 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                     }
                 }
             }
-            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, &source_filename);
+            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, source_filename);
             phase_mir_time = build_start.elapsed().as_millis() as u64;
             progress_phase(
                 "mir",
-                &source_filename,
+                source_filename,
                 phase_mir_time - phase_analyse_time,
                 phase_mir_time,
             );
@@ -893,6 +363,22 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
                 ir.push_str(&struct_ctors);
             }
         }
+        let needs_enum_ctors = program.statements.iter().any(|stmt| {
+            if let Statement::Enum { name, variants, .. } = stmt {
+                variants
+                    .iter()
+                    .any(|v| !ir.contains(&format!("define ptr @{}.{}(", name, v.name)))
+            } else {
+                false
+            }
+        });
+        if needs_enum_ctors {
+            let enum_ctors = generate_enum_constructors(&program);
+            if !enum_ctors.is_empty() {
+                ir.push('\n');
+                ir.push_str(&enum_ctors);
+            }
+        }
         // Add @main entry point wrapper if the program defines @fn_main
         if ir.contains("define") && ir.contains("@fn_main") && !ir.contains("define i32 @main(") {
             ir.push_str("\n\ndefine i32 @main(i32 %argc, ptr %argv) {\n");
@@ -907,8 +393,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     if let Some(path) = &ir_path {
         fs::write(path, &ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Could not write '{}': {}", path.display(), err),
             })
         })?;
@@ -916,12 +401,13 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     let final_ir = if matches!(options.opt_level, OptLevel::O0) {
         ir
     } else {
-        optimize_ir(&ir, options.opt_level, &source_filename)?
+        let _ = fs::write("/tmp/opencode/preopt.ll", &ir);
+        optimize_ir(&ir, options.opt_level, source_filename)?
     };
     let phase_llvm = build_start.elapsed().as_millis() as u64;
     progress_phase(
         "llvm",
-        &source_filename,
+        source_filename,
         phase_llvm - phase_mir_time,
         phase_llvm,
     );
@@ -929,8 +415,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
     if let Some(path) = &optimized_ir_path {
         fs::write(path, &final_ir).map_err(|err| {
             MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!("Could not write '{}': {}", path.display(), err),
             })
         })?;
@@ -991,20 +476,19 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             &c_objects,
             &binary_path,
             &extern_libs,
-            &pal_backend,
             options.opt_level,
-            &source_filename,
+            source_filename,
         )?;
         let phase_link = build_start.elapsed().as_millis() as u64;
         progress_phase(
             "link",
-            &source_filename,
+            source_filename,
             phase_link - phase_llvm,
             phase_link,
         );
     }
     let phase_done = build_start.elapsed().as_millis() as u64;
-    progress_phase("done", &source_filename, 0, phase_done);
+    progress_phase("done", source_filename, 0, phase_done);
 
     cache.store_build(
         source_path,
@@ -1019,6 +503,7 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
             ir_path: ir_path.clone(),
             optimized_ir_path: optimized_ir_path.clone(),
         },
+        options.test_mode,
     );
     if options.debug_dump {
         let metrics = cache.metrics();

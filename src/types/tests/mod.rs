@@ -1,7 +1,7 @@
-//! Tests unitarios de la teoría de tipos reales.
+//! Unit tests for the real type theory.
 //!
-//! Estos tests garantizan que los tipos declarados SON reales: anchos correctos,
-//! asignabilidad sin pérdida, y promoción sin widening silencioso.
+//! These tests guarantee that the declared types ARE real: correct widths,
+//! assignable without loss, and promotion without silent widening.
 
 use crate::parser::ast::DataType;
 
@@ -50,19 +50,19 @@ fn struct_layout_respects_real_widths() {
         ("b".to_string(), DataType::I8),
         ("c".to_string(), DataType::I64),
     ];
-    // u8/i8 ocupan 8 bits cada uno; el tercer campo i64.
+    // u8/i8 each occupy 8 bits; the third field is i64.
     assert_eq!(render_struct_llvm_type(&fields), "{ i8, i8, i64 }");
 }
 
 #[test]
 fn assignable_without_loss() {
     use crate::types::unify::is_assignable;
-    // widening: i8 -> i64 es válido (sin pérdida)
+    // widening: i8 -> i64 is valid (no loss)
     assert!(is_assignable(&DataType::I64, &DataType::I8));
     assert!(is_assignable(&DataType::I128, &DataType::I64));
     assert!(is_assignable(&DataType::F64, &DataType::F32));
     assert!(is_assignable(&DataType::F64, &DataType::I64));
-    // mismo ancho signed<->unsigned es válido (misma representación)
+    // same-width signed<->unsigned is valid (same representation)
     assert!(is_assignable(&DataType::U8, &DataType::I8));
     assert!(is_assignable(&DataType::I8, &DataType::U8));
 }
@@ -70,14 +70,14 @@ fn assignable_without_loss() {
 #[test]
 fn not_assignable_with_loss() {
     use crate::types::unify::is_assignable;
-    // narrowing silencioso PROHIBIDO
+    // silent narrowing PROHIBITED
     assert!(!is_assignable(&DataType::I8, &DataType::I64));
     assert!(!is_assignable(&DataType::U8, &DataType::I64));
     assert!(!is_assignable(&DataType::I32, &DataType::I64));
-    // float -> int requiere cast explícito
+    // float -> int requires explicit cast
     assert!(!is_assignable(&DataType::I64, &DataType::F64));
     assert!(!is_assignable(&DataType::I32, &DataType::F32));
-    // int -> float estrecho requiere cast (no cabe sin pérdida de precisión amplia)
+    // int -> float narrow requires cast (does not fit without wide precision loss)
     assert!(!is_assignable(&DataType::F32, &DataType::I64));
 }
 
@@ -95,7 +95,7 @@ fn promote_numeric_keeps_widest() {
 #[test]
 fn unify_distinct_numerics_promotes_without_error() {
     use crate::types::unify::unify_types;
-    // Unificar en contexto aritmético promueve al más ancho (sin pérdida).
+    // Unifying in arithmetic context promotes to the wider type (no loss).
     assert_eq!(
         unify_types(&DataType::I8, &DataType::I64).unwrap(),
         DataType::I64

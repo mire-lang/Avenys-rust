@@ -93,6 +93,12 @@ pub struct MireManifest {
     pub exports: Option<ExportsSection>,
     #[serde(default)]
     pub bootstrap: Option<BootstrapConfig>,
+    #[serde(default)]
+    pub builtins: Option<MireBuiltins>,
+    #[serde(default)]
+    pub macros: Option<MireMacros>,
+    #[serde(default)]
+    pub security: Option<SecurityConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -101,11 +107,65 @@ pub struct ExportsSection {
     pub entries: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MireMacros {
+    #[serde(flatten)]
+    pub entries: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrustTier {
+    Code,
+    Macros,
+    Ffi,
+}
+
+impl Default for TrustTier {
+    fn default() -> Self {
+        Self::Code
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub mode: SecurityMode,
+    #[serde(default)]
+    pub unsafe_allowed: bool,
+    #[serde(default)]
+    pub asm_allowed: bool,
+    #[serde(default)]
+    pub externs: Vec<String>,
+    #[serde(default)]
+    pub extern_libs: Vec<String>,
+    #[serde(default)]
+    pub macros: Vec<String>,
+    #[serde(default)]
+    pub deps: HashMap<String, TrustTier>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SecurityMode {
+    #[default]
+    Open,
+    Strict,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BootstrapConfig {
     #[serde(default = "default_std_package")]
     pub std_package: String,
     pub std_entry: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MireBuiltins {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 fn default_std_package() -> String {
@@ -164,6 +224,7 @@ pub struct MireCacheConfig {
     pub max_units: Option<usize>,
     pub analysis_cache: Option<bool>,
     pub compression: Option<bool>,
+    pub blob_checksum: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

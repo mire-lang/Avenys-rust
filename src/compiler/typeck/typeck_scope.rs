@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn push_scope(&mut self) {
@@ -7,14 +8,25 @@ impl TypeChecker {
         self.ref_scopes.push(HashMap::new());
         self.function_alias_scopes.push(HashMap::new());
         self.function_value_sig_scopes.push(HashMap::new());
+        self.constant_scopes.push(HashSet::new());
     }
 
     pub(super) fn pop_scope(&mut self) {
+        let child_constants = if self.constant_scopes.len() > 1 {
+            self.constant_scopes.pop().unwrap()
+        } else {
+            HashSet::new()
+        };
         if self.scopes.len() > 1 {
             let vars = self.scopes.pop().unwrap();
             if let Some(parent) = self.scopes.last_mut() {
                 for (name, entry) in vars {
-                    parent.insert(name, entry);
+                    parent.insert(name.clone(), entry);
+                    if !child_constants.contains(&name)
+                        && let Some(constants) = self.constant_scopes.last_mut()
+                    {
+                        constants.remove(&name);
+                    }
                 }
             }
         }
@@ -50,12 +62,30 @@ impl TypeChecker {
                 }
             }
         }
+        if let Some(parent) = self.constant_scopes.last_mut() {
+            parent.extend(child_constants);
+        }
     }
 
     pub(super) fn insert_var(&mut self, name: String, data_type: DataType, is_mutable: bool) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, (data_type, is_mutable));
         }
+    }
+
+    pub(super) fn insert_constant(&mut self, name: String) {
+        if let Some(scope) = self.constant_scopes.last_mut() {
+            scope.insert(name);
+        }
+    }
+
+    pub(super) fn is_constant(&self, name: &str) -> bool {
+        for (variables, constants) in self.scopes.iter().zip(&self.constant_scopes).rev() {
+            if variables.contains_key(name) {
+                return constants.contains(name);
+            }
+        }
+        false
     }
 
     pub(super) fn refresh_binding_metadata(
@@ -223,9 +253,8 @@ impl TypeChecker {
                 };
 
                 let (mut current_type, is_mutable) = self.lookup_var(owner).ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Assignment to undefined variable '{}'", owner),
                     )
                 })?;
@@ -235,8 +264,8 @@ impl TypeChecker {
                         DataType::StructNamed(name) => name.clone(),
                         other => {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Cannot assign field '{}' on non-struct target '{}': {:?}",
                                     field_name, owner, other
@@ -247,8 +276,8 @@ impl TypeChecker {
 
                     let class_sig = self.classes.get(&struct_name).ok_or_else(|| {
                         type_error(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!(
                                 "Struct '{}' has no field metadata for assignment '{}'",
                                 struct_name, path
@@ -261,8 +290,8 @@ impl TypeChecker {
                         .find(|field| field.name == field_name)
                         .ok_or_else(|| {
                             type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!("Struct '{}' has no field '{}'", struct_name, field_name),
                             )
                         })?;
@@ -276,16 +305,14 @@ impl TypeChecker {
                 index,
             } => {
                 let owner_name = target.binding_name().ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         "Indexed assignment requires an identifier-backed target".to_string(),
                     )
                 })?;
                 let (_, is_mutable) = self.lookup_var(owner_name).ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Assignment to undefined variable '{}'", owner_name),
                     )
                 })?;
@@ -300,8 +327,8 @@ impl TypeChecker {
                     | DataType::Vector { element_type, .. } => {
                         if !Self::is_numeric(&index_type) && index_type != DataType::Unknown {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Index must be numeric for indexed assignment, got {:?}",
                                     index_type
@@ -318,8 +345,8 @@ impl TypeChecker {
                             && !self.is_assignable(&key_type, &index_type)
                         {
                             return Err(type_error(
-                                self.current_line,
-                                self.current_column,
+                                self.current_span.line,
+                                self.current_span.column,
                                 format!(
                                     "Index type {:?} is not assignable to map key type {:?}",
                                     index_type, key_type
@@ -332,8 +359,8 @@ impl TypeChecker {
                     DataType::Unknown => DataType::Unknown,
                     other => {
                         return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!("Type {:?} does not support indexed assignment", other),
                         ));
                     }
@@ -359,7 +386,7 @@ impl TypeChecker {
     }
 
     pub(super) fn lookup_struct_name(&self, name: &str) -> Option<String> {
-        if name == "self" {
+        if name == "self" && self.impl_self_type.is_some() {
             return self.impl_self_name.clone();
         }
         for scope in self.struct_scopes.iter().rev() {
@@ -367,8 +394,15 @@ impl TypeChecker {
                 return Some(struct_name.clone());
             }
         }
-        self.lookup_var(name)
-            .and_then(|(data_type, _)| data_type.struct_name().map(ToOwned::to_owned))
+        if let Some((data_type, _)) = self.lookup_var(name) {
+            if let Some(struct_name) = data_type.struct_name() {
+                return Some(struct_name.to_owned());
+            }
+            if let Some(enum_name) = data_type.enum_name() {
+                return Some(enum_name.to_owned());
+            }
+        }
+        None
     }
 
     pub(super) fn lookup_ref_type(&self, name: &str) -> Option<DataType> {
@@ -465,18 +499,20 @@ impl TypeChecker {
             | Expression::Try { data_type, .. }
             | Expression::Ok { data_type, .. }
             | Expression::Err { data_type, .. }
+            | Expression::Some { data_type, .. }
             | Expression::EnumVariantPath { data_type, .. }
             | Expression::EnumVariant { data_type, .. } => data_type.clone(),
             Expression::UseMacro { inner } => self.expression_type_hint(inner),
-            Expression::Literal(Literal::Int(_)) => DataType::I64,
-            Expression::Literal(Literal::Float(_)) => DataType::F64,
-            Expression::Literal(Literal::Char(_)) => DataType::Char,
-            Expression::Literal(Literal::Str(_)) => DataType::Str,
-            Expression::Literal(Literal::Bool(_)) => DataType::Bool,
-            Expression::Literal(Literal::None) => DataType::None,
-            Expression::Literal(Literal::List(_)) => DataType::List,
-            Expression::Literal(Literal::Dict(_)) => DataType::Dict,
-            Expression::Literal(Literal::Tuple(_)) => DataType::Tuple,
+            Expression::MacroCall { inner } => self.expression_type_hint(inner),
+            Expression::Literal { lit: Literal::Int(_), .. } => DataType::I64,
+            Expression::Literal { lit: Literal::Float(_), .. } => DataType::F64,
+            Expression::Literal { lit: Literal::Char(_), .. } => DataType::Char,
+            Expression::Literal { lit: Literal::Str(_), .. } => DataType::Str,
+            Expression::Literal { lit: Literal::Bool(_), .. } => DataType::Bool,
+            Expression::Literal { lit: Literal::None, .. } => DataType::None,
+            Expression::Literal { lit: Literal::List(_), .. } => DataType::List,
+            Expression::Literal { lit: Literal::Dict(_), .. } => DataType::Dict,
+            Expression::Literal { lit: Literal::Tuple(_), .. } => DataType::Tuple,
             Expression::Closure { return_type, .. } => return_type.clone(),
         }
     }
@@ -745,7 +781,8 @@ fn collect_used_identifiers_in_expr(
         | Expression::Box { value: expr, .. }
         | Expression::Try { expr, .. }
         | Expression::Ok { value: expr, .. }
-        | Expression::Err { value: expr, .. } => {
+        | Expression::Err { value: expr, .. }
+        | Expression::Some { value: expr, .. } => {
             collect_used_identifiers_in_expr(expr, declared, used);
         }
         Expression::Pipeline { input, stage, .. } => {
@@ -778,13 +815,13 @@ fn collect_used_identifiers_in_expr(
                 collect_used_identifiers_in_expr(p, declared, used);
             }
         }
-        Expression::Literal(Literal::List(elements))
-        | Expression::Literal(Literal::Tuple(elements)) => {
+        Expression::Literal { lit: Literal::List(elements), .. }
+        | Expression::Literal { lit: Literal::Tuple(elements), .. } => {
             for e in elements {
                 collect_used_identifiers_in_expr(e, declared, used);
             }
         }
-        Expression::Literal(Literal::Dict(entries)) => {
+        Expression::Literal { lit: Literal::Dict(entries), .. } => {
             for ((k, v), _) in entries {
                 collect_used_identifiers_in_expr(k, declared, used);
                 collect_used_identifiers_in_expr(v, declared, used);

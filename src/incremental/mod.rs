@@ -27,6 +27,7 @@ pub(crate) use dependencies::collect_statement_dependencies;
 pub use hasher::FxHasher;
 
 mod cache;
+mod cache_types;
 mod lru;
 mod utils;
 pub(crate) use utils::{
@@ -54,6 +55,7 @@ pub struct CacheSettings {
     pub max_units: Option<usize>,
     pub analysis_cache: bool,
     pub compression: bool,
+    pub blob_checksum: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -61,6 +63,7 @@ pub struct CacheOverrides {
     pub max_units: Option<usize>,
     pub analysis_cache: Option<bool>,
     pub compression: Option<bool>,
+    pub blob_checksum: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +231,9 @@ pub(crate) enum StoredErrorKind {
         column: usize,
         kind: StoredMssError,
     },
+    Cli {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,7 +243,6 @@ pub(crate) enum StoredMssError {
     MoveWhileBorrowed,
     UseAfterMove,
     DropWhileBorrowed,
-    DoubleDrop,
     BorrowOutOfScope,
     InvalidMove,
     UnsafeViolation,
@@ -254,8 +259,8 @@ impl From<&MireError> for StoredMireError {
             kind: (&value.kind).into(),
             source: value.source().cloned(),
             filename: value.filename().cloned(),
-            line: value.line,
-            column: value.column,
+            line: value.span.line,
+            column: value.span.column,
             explanation: value.explanation().cloned(),
         }
     }
@@ -266,8 +271,7 @@ impl From<StoredMireError> for MireError {
         let mut error = MireError::new(value.kind.into());
         error.set_source(value.source);
         error.set_filename(value.filename);
-        error.line = value.line;
-        error.column = value.column;
+        error.span = crate::error::Span::new(value.line, value.column);
         error.set_explanation(value.explanation);
         error
     }
@@ -277,60 +281,58 @@ impl From<&ErrorKind> for StoredErrorKind {
     fn from(value: &ErrorKind) -> Self {
         match value {
             ErrorKind::Lexer {
-                line,
-                column,
+                span,
                 message,
             } => Self::Lexer {
-                line: *line,
-                column: *column,
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
             ErrorKind::DeprecatedSyntax {
-                line,
-                column,
+                span,
                 message,
             } => Self::DeprecatedSyntax {
-                line: *line,
-                column: *column,
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
             ErrorKind::Parser {
-                line,
-                column,
+                span,
                 message,
             } => Self::Parser {
-                line: *line,
-                column: *column,
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
             ErrorKind::Backend {
-                line,
-                column,
+                span,
                 message,
             } => Self::Backend {
-                line: *line,
-                column: *column,
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::Runtime { line, column, message } => Self::Runtime {
-                line: *line,
-                column: *column,
+            ErrorKind::Runtime { span, message } => Self::Runtime {
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
             ErrorKind::Type {
-                line,
-                column,
+                span,
                 message,
                 ..
             } => Self::Type {
-                line: *line,
-                column: *column,
+                line: span.line,
+                column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::Ownership { line, column, kind } => Self::Ownership {
-                line: *line,
-                column: *column,
+            ErrorKind::Ownership { span, kind } => Self::Ownership {
+                line: span.line,
+                column: span.column,
                 kind: kind.into(),
+            },
+            ErrorKind::Cli { message } => Self::Cli {
+                message: message.clone(),
             },
         }
     }
@@ -344,8 +346,7 @@ impl From<StoredErrorKind> for ErrorKind {
                 column,
                 message,
             } => Self::Lexer {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 message,
             },
             StoredErrorKind::DeprecatedSyntax {
@@ -353,8 +354,7 @@ impl From<StoredErrorKind> for ErrorKind {
                 column,
                 message,
             } => Self::DeprecatedSyntax {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 message,
             },
             StoredErrorKind::Parser {
@@ -362,8 +362,7 @@ impl From<StoredErrorKind> for ErrorKind {
                 column,
                 message,
             } => Self::Parser {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 message,
             },
             StoredErrorKind::Backend {
@@ -371,26 +370,27 @@ impl From<StoredErrorKind> for ErrorKind {
                 column,
                 message,
             } => Self::Backend {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 message,
             },
-            StoredErrorKind::Runtime { line, column, message } => Self::Runtime { line, column, message },
+            StoredErrorKind::Runtime { line, column, message } => Self::Runtime {
+                span: crate::error::Span::new(line, column),
+                message,
+            },
             StoredErrorKind::Type {
                 line,
                 column,
                 message,
             } => Self::Type {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 message,
                 code: None,
             },
             StoredErrorKind::Ownership { line, column, kind } => Self::Ownership {
-                line,
-                column,
+                span: crate::error::Span::new(line, column),
                 kind: kind.into(),
             },
+            StoredErrorKind::Cli { message } => Self::Cli { message },
         }
     }
 }
@@ -403,7 +403,6 @@ impl From<&MssError> for StoredMssError {
             MssError::MoveWhileBorrowed => Self::MoveWhileBorrowed,
             MssError::UseAfterMove => Self::UseAfterMove,
             MssError::DropWhileBorrowed => Self::DropWhileBorrowed,
-            MssError::DoubleDrop => Self::DoubleDrop,
             MssError::BorrowOutOfScope => Self::BorrowOutOfScope,
             MssError::InvalidMove => Self::InvalidMove,
             MssError::UnsafeViolation => Self::UnsafeViolation,
@@ -419,7 +418,6 @@ impl From<StoredMssError> for MssError {
             StoredMssError::MoveWhileBorrowed => Self::MoveWhileBorrowed,
             StoredMssError::UseAfterMove => Self::UseAfterMove,
             StoredMssError::DropWhileBorrowed => Self::DropWhileBorrowed,
-            StoredMssError::DoubleDrop => Self::DoubleDrop,
             StoredMssError::BorrowOutOfScope => Self::BorrowOutOfScope,
             StoredMssError::InvalidMove => Self::InvalidMove,
             StoredMssError::UnsafeViolation => Self::UnsafeViolation,
@@ -434,6 +432,7 @@ impl CacheSettings {
             max_units: Some(DEFAULT_MAX_UNITS),
             analysis_cache: true,
             compression: false,
+            blob_checksum: false,
         }
     }
 
@@ -447,6 +446,9 @@ impl CacheSettings {
         }
         if let Some(enabled) = overrides.compression {
             resolved.compression = enabled;
+        }
+        if let Some(enabled) = overrides.blob_checksum {
+            resolved.blob_checksum = enabled;
         }
         Ok(resolved)
     }

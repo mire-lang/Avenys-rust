@@ -10,7 +10,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     let mut run = true;
     let mut verbose = false;
     let mut jobs: usize = 0;
-    let mut owl_home = None;
     let mut paths: Vec<String> = Vec::new();
     let mut opt_level = OptLevel::O0;
     let mut categorize = true;
@@ -31,7 +30,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 println!("  --verbose, -v       Show per-test results");
                 println!("  --no-categorize     Disable directory-based category grouping");
                 println!("  --jobs, -j <n>      Parallel compilation jobs (0 = logical CPUs)");
-                println!("  --owl-home <path>   Override the Owl module cache root");
                 println!("  -O, --opt-level <n> Optimization level for test binaries (0,1,2,3,s,z)");
                 println!("  -r, --release       Shorthand for --opt-level 3");
                 println!("  -d, --debug         Shorthand for --opt-level 0 (default)");
@@ -48,33 +46,26 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             "--position" | "--pos" => position = true,
             "--no-warn" => {
                 i += 1;
-                let cat = args.get(i).ok_or_else(|| runtime_msg("Missing warning category after --no-warn"))?;
+                let cat = args.get(i).ok_or_else(|| cli_msg("Missing warning category after --no-warn"))?;
                 no_warn_cats.push(cat.clone());
             }
             "--jobs" | "-j" => {
                 i += 1;
                 let value = args.get(i).ok_or_else(|| {
-                    runtime_msg("Missing value for --jobs")
+                    cli_msg("Missing value for --jobs")
                 })?;
                 jobs = value.parse().map_err(|_| {
-                    runtime_msg("--jobs must be a positive integer")
+                    cli_msg("--jobs must be a positive integer")
                 })?;
-            }
-            "--owl-home" => {
-                i += 1;
-                let value = args
-                    .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --owl-home"))?;
-                owl_home = Some(PathBuf::from(value));
             }
             "-O" | "--opt-level" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --opt-level"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --opt-level"))?;
                 match OptLevel::parse(value) {
                     Some(level) => opt_level = level,
-                    None => return Err(runtime_msg("Invalid opt-level")),
+                    None => return Err(cli_msg("Invalid opt-level")),
                 }
             }
             "-r" | "--release" => opt_level = OptLevel::O3,
@@ -82,7 +73,7 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             _ => {
                 if let Some(val) = args[i].strip_prefix("--jobs=") {
                     jobs = val.parse().map_err(|_| {
-                        runtime_msg("--jobs must be a positive integer")
+                        cli_msg("--jobs must be a positive integer")
                     })?;
                 } else {
                     paths.push(args[i].clone());
@@ -91,8 +82,6 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         }
         i += 1;
     }
-
-    set_owl_home_env(owl_home.as_ref());
 
     // --- helpers ---------------------------------------------------
     fn read_owl_test_paths(cwd: &Path) -> Vec<(String, PathBuf)> {
@@ -128,10 +117,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 } else if let Some((key, val)) = parse_generic_kv(line) {
                     found.push((key, val));
                 }
-            } else if in_section == "paths" {
-                if let Some(v) = kv_string(line, "tests") {
-                    found.push(("paths".to_string(), v));
-                }
+            } else if in_section == "paths"
+                && let Some(v) = kv_string(line, "tests")
+            {
+                found.push(("paths".to_string(), v));
             }
         }
         if found.is_empty() {
@@ -144,9 +133,9 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         let prefix = format!("{}=", key);
         let rest = line.strip_prefix(&prefix)?;
         let rest = rest.trim();
-        if rest.starts_with('"') {
-            let end = rest[1..].find('"')?;
-            return Some(rest[1..1 + end].to_string());
+        if let Some(stripped) = rest.strip_prefix('"') {
+            let end = stripped.find('"')?;
+            return Some(stripped[..end].to_string());
         }
         if rest.starts_with('[') {
             let inner = rest.trim_start_matches('[').trim_end_matches(']');
@@ -240,10 +229,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 ));
             }
         }
-        if let Some(exp) = expect.exit {
-            if code != exp {
-                mismatches.push(format!("exit code mismatch: expected {} got {}", exp, code));
-            }
+        if let Some(exp) = expect.exit
+            && code != exp
+        {
+            mismatches.push(format!("exit code mismatch: expected {} got {}", exp, code));
         }
         if mismatches.is_empty() {
             UnitStatus::Pass
@@ -272,7 +261,10 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
         golden: Option<GoldenExpect>,
     }
 
-    let test_dir = cwd.join("bin/.cache/test");
+    // Generated harness sources are build inputs, not cache entries. Keeping
+    // them outside `.cache` prevents incremental-cache cleanup from removing
+    // a source while the test worker is compiling it.
+    let test_dir = cwd.join("bin/debug/test/generated");
     let _ = fs::create_dir_all(&test_dir);
     let test_bin_dir = cwd.join("bin/debug/test");
     if test_bin_dir.exists() && !test_bin_dir.is_dir() {
@@ -325,6 +317,7 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             golden_programs.insert(gd.join("program.mire"));
         }
         let mut files = walkdir(root, "*.mire")?;
+        files.retain(|path| !is_build_artifact(path));
         files.sort();
         for file in files {
             if golden_programs.contains(&file) {
@@ -623,6 +616,16 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     Ok(exit_code)
 }
 
+fn is_build_artifact(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(name)
+                if matches!(name.to_str(), Some(".git" | ".cache" | "target" | "bin"))
+        )
+    })
+}
+
 /// Returns true if `path` is underneath any of `test_roots`.
 pub(crate) fn is_under_test_path(path: &Path, test_roots: &[PathBuf]) -> bool {
     test_roots.iter().any(|root| path.starts_with(root))
@@ -697,9 +700,9 @@ pub(crate) fn kv_string(line: &str, key: &str) -> Option<String> {
     let prefix = format!("{}=", key);
     let rest = line.strip_prefix(&prefix)?;
     let rest = rest.trim();
-    if rest.starts_with('"') {
-        let end = rest[1..].find('"')?;
-        return Some(rest[1..1 + end].to_string());
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
     }
     if rest.starts_with('[') {
         let inner = rest.trim_start_matches('[').trim_end_matches(']');

@@ -1,12 +1,13 @@
-//! Módulo dedicado de tipos de Mire.
+//! Mire's dedicated types module.
 //!
-//! Centraliza la teoría de tipos reales del lenguaje: mapeo a LLVM IR con anchos
-//! reales (sin "maquillaje" sobre `i64`), utilidades de codegen, y construcción
-//! de errores de tipado ultra-específicos.
+//! Centralizes the language's real type theory: mapping to LLVM IR with actual
+//! widths (no `i64` masking), codegen utilities, and construction of
+//! highly-specific typing errors.
 //!
-//! El enum `DataType` vive en `parser::ast` (usado por todo el parser); aquí se
-//! re-exporta para que el resto del compilador pueda importar tipos desde un único
-//! lugar sin romper los ~30 archivos que ya dependen de `parser::ast::DataType`.
+//! The `DataType` enum lives in `parser::ast` (used by the entire parser); it is
+//! re-exported here so the rest of the compiler can import types from a single
+//! location without breaking the ~30 files that already depend on
+//! `parser::ast::DataType`.
 
 pub use crate::parser::ast::DataType;
 
@@ -16,7 +17,7 @@ pub mod errors;
 pub mod tests;
 pub mod unify;
 
-pub use codegen::{llvm_elem_type_str, llvm_type_str, render_struct_llvm_type};
+pub use codegen::{llvm_elem_type_str, llvm_type_byte_size, llvm_type_str, render_struct_llvm_type};
 pub use unify::{
     is_assignable, is_bool_like, is_integer_type, is_numeric, literal_type, promote_numeric,
     resolve_binary_type, unify_types, validate_int_literal_range,

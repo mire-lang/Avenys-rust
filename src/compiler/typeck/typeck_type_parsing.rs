@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn split_nominal_type_args(name: &str) -> (&str, Vec<DataType>) {
@@ -71,9 +72,8 @@ impl TypeChecker {
             return Ok(HashMap::new());
         }
         if type_params.len() != type_args.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Generic arity mismatch: expected {}, got {}",
                     type_params.len(),
@@ -108,6 +108,7 @@ pub(super) fn data_type_name_for_diag(data_type: &DataType) -> String {
         DataType::StructNamed(name) => {
             TypeChecker::strip_root_namespace(name).unwrap_or_else(|| name.clone())
         }
+        DataType::Generic(name) => name.clone(),
         _ => format!("{:?}", data_type),
     }
 }

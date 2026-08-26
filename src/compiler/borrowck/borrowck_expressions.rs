@@ -5,14 +5,13 @@ use crate::parser::ast::Expression;
 use super::{BindingState, BorrowChecker};
 impl BorrowChecker<'_> {
     pub(super) fn check_expression(&mut self, expression: &Expression) -> Result<()> {
-        let (line, column) = Self::expression_location(expression);
-        self.current_line = line;
-        self.current_column = column;
+        let loc = Self::expression_location(expression);
+        self.current_span = loc;
         match expression {
             Expression::Ascription { expr, .. } => {
                 self.check_expression(expr)?;
             }
-            Expression::Literal(_) => {}
+            Expression::Literal { .. } => {}
             Expression::Identifier(ident) => {
                 self.ensure_binding_available(&ident.name)?;
             }
@@ -114,7 +113,7 @@ impl BorrowChecker<'_> {
                     self.mark_moved_if_non_copy(&name);
                 }
             }
-            Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+            Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
                 self.check_expression(value)?;
                 if let Some(name) = Self::identifier_name(value) {
                     self.mark_moved_if_non_copy(&name);
@@ -157,11 +156,14 @@ impl BorrowChecker<'_> {
             Expression::UseMacro { inner } => {
                 self.check_expression(inner)?;
             }
+            Expression::MacroCall { inner } => {
+                self.check_expression(inner)?;
+            }
         }
         Ok(())
     }
 
-    pub(super) fn expression_location(expression: &Expression) -> (usize, usize) {
+    pub(super) fn expression_location(expression: &Expression) -> crate::error::Span {
         location::expression_location(expression)
     }
 }

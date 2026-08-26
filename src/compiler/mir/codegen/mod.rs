@@ -1,4 +1,5 @@
 use super::*;
+use crate::canonical_fn_name;
 use std::collections::{HashMap, HashSet};
 
 use self::builtins::pal_extern_decls;
@@ -11,6 +12,9 @@ pub(crate) mod builtins;
 pub(crate) mod expr;
 pub(crate) mod resolve;
 pub(crate) mod types;
+pub(crate) mod validate;
+
+pub(crate) use self::validate::find_first_undefined_call;
 pub(crate) mod wrapper;
 
 pub(crate) struct LlvmCtx<'a> {
@@ -122,6 +126,7 @@ pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) ->
 }
 
 fn sanitize_fn_name(name: &str) -> String {
+    let name = canonical_fn_name(name);
     name.split_once('[')
         .map(|(base, rest)| {
             // base = "Box", rest = "T].get" → "Box.get"

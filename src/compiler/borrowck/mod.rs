@@ -10,6 +10,7 @@ use crate::incremental::analysis_unit_key;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Program, QueryOp, Statement};
 mod borrowck_expressions;
 mod helpers;
+mod state;
 use self::helpers::{
     assignment_binding_target, implicit_return_expression, statements_contain_explicit_return,
 };
@@ -77,8 +78,7 @@ struct BorrowChecker<'a> {
     statement_origins: Vec<String>,
     sources_by_filename: HashMap<String, String>,
     current_filename: Option<String>,
-    current_line: usize,
-    current_column: usize,
+    current_span: crate::error::Span,
     current_top_level_index: Option<usize>,
     current_top_level_key: Option<String>,
     nested_statement_masks: HashMap<String, Vec<bool>>,
@@ -101,8 +101,7 @@ impl<'a> BorrowChecker<'a> {
             statement_origins: Vec::new(),
             sources_by_filename: HashMap::new(),
             current_filename: None,
-            current_line: 1,
-            current_column: 1,
+            current_span: crate::error::Span::new(1, 1),
             current_top_level_index: None,
             current_top_level_key: None,
             nested_statement_masks: HashMap::new(),
@@ -130,8 +129,7 @@ impl<'a> BorrowChecker<'a> {
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
             return Err(MireError::new(ErrorKind::Runtime {
-                line: 0,
-                column: 0,
+                span: crate::error::Span::unknown(),
                 message: format!(
                     "Borrow check mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -195,9 +193,8 @@ impl<'a> BorrowChecker<'a> {
     }
 
     fn check_statement(&mut self, statement: &Statement) -> Result<()> {
-        let (line, column) = Self::statement_location(statement);
-        self.current_line = line;
-        self.current_column = column;
+        let loc = Self::statement_location(statement);
+        self.current_span = loc;
         let result = self.check_statement_inner(statement);
 
         let temps = std::mem::take(&mut self.temporary_borrows);
@@ -643,197 +640,6 @@ impl<'a> BorrowChecker<'a> {
         }
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    fn pop_scope(&mut self) {
-        if self.scopes.len() <= 1 {
-            return;
-        }
-
-        if let Some(scope) = self.scopes.pop() {
-            for (_, binding) in scope {
-                for reference in binding.ref_targets {
-                    self.release_borrow(&reference.target, reference.is_mutable);
-                }
-            }
-        }
-    }
-
-    fn insert_binding(&mut self, name: String, state: BindingState) {
-        let previous = self
-            .scopes
-            .last_mut()
-            .and_then(|scope| scope.insert(name, state));
-        if let Some(previous) = previous {
-            for reference in previous.ref_targets {
-                self.release_borrow(&reference.target, reference.is_mutable);
-            }
-        }
-    }
-
-    fn insert_match_pattern_bindings(&mut self, pattern: &Expression) {
-        match pattern {
-            Expression::EnumVariant { payloads, .. } => {
-                for payload in payloads {
-                    if let Expression::Identifier(ident) = payload {
-                        self.insert_binding(ident.name.clone(), BindingState::default());
-                    }
-                }
-            }
-            Expression::Call { name, args, .. } if name == "__match_guard" => {
-                if let Some(inner) = args.first() {
-                    self.insert_match_pattern_bindings(inner);
-                }
-            }
-            Expression::Call { name, args, .. } if name == "__match_or" => {
-                if let Some(inner) = args.first() {
-                    self.insert_match_pattern_bindings(inner);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn rebind_reference_targets(
-        &mut self,
-        name: &str,
-        new_references: Vec<ReferenceBinding>,
-    ) -> Result<()> {
-        let old_references = self
-            .lookup_binding(name)
-            .map(|state| state.ref_targets.clone())
-            .unwrap_or_default();
-        for old in old_references {
-            self.release_borrow(&old.target, old.is_mutable);
-        }
-
-        for new_ref in &new_references {
-            self.register_borrow(&new_ref.target, new_ref.is_mutable)?;
-        }
-
-        if let Some(state) = self.lookup_binding_mut(name) {
-            state.ref_targets = new_references;
-        }
-
-        Ok(())
-    }
-
-    fn collect_ref_targets(&self, expression: &Expression) -> Vec<ReferenceBinding> {
-        let mut targets = Vec::new();
-        Self::collect_ref_targets_rec(expression, &mut targets);
-        targets
-    }
-
-    fn collect_ref_targets_rec(expression: &Expression, targets: &mut Vec<ReferenceBinding>) {
-        match expression {
-            Expression::Reference {
-                expr, is_mutable, ..
-            } => {
-                if let Some(name) = Self::identifier_name(expr) {
-                    targets.push(ReferenceBinding {
-                        target: name,
-                        is_mutable: *is_mutable,
-                    });
-                }
-            }
-            Expression::Closure { capture, .. } => {
-                for (name, _) in capture {
-                    targets.push(ReferenceBinding {
-                        target: name.clone(),
-                        is_mutable: false,
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn promote_temporary_borrows(&mut self, targets: &[ReferenceBinding]) {
-        for target in targets {
-            if let Some(pos) = self
-                .temporary_borrows
-                .iter()
-                .position(|r| r.target == target.target && r.is_mutable == target.is_mutable)
-            {
-                self.temporary_borrows.remove(pos);
-            }
-        }
-    }
-
-    fn merge_scopes(
-        _before: &[HashMap<String, BindingState>],
-        branch_a: &[HashMap<String, BindingState>],
-        branch_b: &[HashMap<String, BindingState>],
-    ) -> Vec<HashMap<String, BindingState>> {
-        let mut merged = branch_a.to_vec();
-        for i in 0..merged.len() {
-            for (name, state) in merged[i].iter_mut() {
-                if let Some(state_b) = branch_b[i].get(name) {
-                    state.is_moved = state.is_moved || state_b.is_moved;
-                }
-            }
-        }
-        merged
-    }
-
-    fn merge_multiple_scopes(
-        _before: &[HashMap<String, BindingState>],
-        branches: &[Vec<HashMap<String, BindingState>>],
-    ) -> Vec<HashMap<String, BindingState>> {
-        if branches.is_empty() {
-            return _before.to_vec();
-        }
-        let mut merged = branches[0].clone();
-        for i in 0..merged.len() {
-            for (name, state) in merged[i].iter_mut() {
-                for branch in &branches[1..] {
-                    if let Some(state_b) = branch[i].get(name) {
-                        state.is_moved = state.is_moved || state_b.is_moved;
-                    }
-                }
-            }
-        }
-        merged
-    }
-
-    fn lookup_binding(&self, name: &str) -> Option<&BindingState> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(binding) = scope.get(name) {
-                return Some(binding);
-            }
-        }
-        None
-    }
-
-    fn lookup_binding_mut(&mut self, name: &str) -> Option<&mut BindingState> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(binding) = scope.get_mut(name) {
-                return Some(binding);
-            }
-        }
-        None
-    }
-
-    fn current_scope_depth(&self) -> usize {
-        self.scopes.len().saturating_sub(1)
-    }
-
-    fn current_function_scope_id(&self, name: &str) -> Option<usize> {
-        self.semantic_model
-            .functions
-            .get(name)
-            .or_else(|| {
-                self.impl_owner_stack.last().and_then(|owner| {
-                    self.semantic_model
-                        .functions
-                        .get(&format!("{owner}.{name}"))
-                })
-            })
-            .map(|info| info.scope_id)
-    }
-
     fn ensure_return_is_safe(&self, expression: &Expression) -> Result<()> {
         let Some(function_context) = self.function_stack.last() else {
             return Ok(());
@@ -891,8 +697,8 @@ impl<'a> BorrowChecker<'a> {
                 if let Some((target, is_mutable)) = Self::reference_target(Some(arg)) {
                     if !is_mutable {
                         return Err(MireError::type_error_at(
-                            self.current_line,
-                            self.current_column,
+                            self.current_span.line,
+                            self.current_span.column,
                             format!(
                                 "Function '{}' argument {} requires a mutable reference",
                                 callee,
@@ -957,14 +763,15 @@ impl<'a> BorrowChecker<'a> {
                 | DataType::None
                 | DataType::Ref { .. }
                 | DataType::RefMut { .. }
+                | DataType::Array { .. }
         )
     }
 
     fn ownership_error(&self, kind: MssError) -> MireError {
-        MireError::ownership_error(self.current_line, self.current_column, kind)
+        MireError::ownership_error(self.current_span.line, self.current_span.column, kind)
     }
 
-    fn statement_location(statement: &Statement) -> (usize, usize) {
+    fn statement_location(statement: &Statement) -> crate::error::Span {
         location::statement_location(statement)
     }
 
@@ -1066,7 +873,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 let_stmt(
                     "r",
                     Some(Expression::Reference {
@@ -1078,8 +885,10 @@ mod tests {
                 ),
                 Statement::Assignment {
                     target: AssignmentTarget::Variable("x".to_string()),
-                    value: Expression::Literal(Literal::Int(2)),
+                    value: Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                     is_mutable: true,
+                    line: 0,
+                    column: 0,
                 },
             ],
         };
@@ -1095,7 +904,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 let_stmt(
                     "r",
                     Some(Expression::Reference {
@@ -1128,7 +937,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 Statement::Move {
                     target: "y".to_string(),
                     value: ident_at("x", 10, 4),
@@ -1140,8 +949,8 @@ mod tests {
         let semantic_model = semantic::analyze_program(&program);
         let err = check_program(&program, &semantic_model).unwrap_err();
         assert!(format!("{}", err).contains("Use after move"));
-        assert_eq!(err.line, 12);
-        assert_eq!(err.column, 8);
+        assert_eq!(err.line(), 12);
+        assert_eq!(err.column(), 8);
     }
 
     #[test]
@@ -1150,9 +959,9 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 Statement::If {
-                    condition: Expression::Literal(Literal::Bool(true)),
+                    condition: Expression::Literal { lit: Literal::Bool(true), line: 0, column: 0 },
                     then_branch: vec![let_stmt(
                         "r",
                         Some(Expression::Reference {
@@ -1166,8 +975,10 @@ mod tests {
                 },
                 Statement::Assignment {
                     target: AssignmentTarget::Variable("x".to_string()),
-                    value: Expression::Literal(Literal::Int(2)),
+                    value: Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                     is_mutable: true,
+                    line: 0,
+                    column: 0,
                 },
             ],
         };
@@ -1183,7 +994,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 let_stmt(
                     "r",
                     Some(Expression::Reference {
@@ -1198,8 +1009,10 @@ mod tests {
                     column: 1,
                     body: vec![Statement::Assignment {
                         target: AssignmentTarget::Variable("x".to_string()),
-                        value: Expression::Literal(Literal::Int(2)),
+                        value: Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                         is_mutable: true,
+                        line: 0,
+                        column: 0,
                     }],
                 },
             ],
@@ -1221,7 +1034,7 @@ mod tests {
                 type_param_bounds: Vec::new(),
                 params: vec![],
                 body: vec![
-                    let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                    let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                     Statement::Return(Some(Expression::Reference {
                         expr: Box::new(ident("x")),
                         is_mutable: false,
@@ -1233,6 +1046,8 @@ mod tests {
                 visibility: Visibility::Public,
                 is_method: false,
                 attributes: Vec::new(),
+                name_line: 0,
+                name_column: 0,
             }],
         };
 
@@ -1269,7 +1084,7 @@ mod tests {
                             DataType::StructNamed("Point".to_string()),
                         )],
                         body: vec![
-                            let_stmt("tmp", Some(Expression::Literal(Literal::Int(1)))),
+                            let_stmt("tmp", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                             Statement::Return(Some(Expression::Reference {
                                 expr: Box::new(ident("tmp")),
                                 is_mutable: false,
@@ -1281,6 +1096,8 @@ mod tests {
                         visibility: Visibility::Public,
                         is_method: true,
                         attributes: Vec::new(),
+                        name_line: 0,
+                        name_column: 0,
                     }],
                 },
             ],
@@ -1310,8 +1127,10 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 Statement::Expression(Expression::Call {
                     name: "mutate".to_string(),
                     name_line: 0,
@@ -1342,7 +1161,7 @@ mod tests {
                 Statement::Let {
                     name: "item".to_string(),
                     data_type: DataType::StructNamed("Item".to_string()),
-                    value: Some(Expression::Literal(Literal::None)),
+                    value: Some(Expression::Literal { lit: Literal::None, line: 0, column: 0 }),
                     is_constant: false,
                     is_mutable: false,
                     is_static: false,
@@ -1383,8 +1202,10 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 Statement::Expression(Expression::Call {
                     name: "show".to_string(),
                     args: vec![ident("x")],
@@ -1407,7 +1228,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 let_stmt(
                     "r",
                     Some(Expression::Reference {
@@ -1419,8 +1240,10 @@ mod tests {
                 ),
                 Statement::Assignment {
                     target: AssignmentTarget::Variable("x".to_string()),
-                    value: Expression::Literal(Literal::Int(2)),
+                    value: Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                     is_mutable: true,
+                    line: 0,
+                    column: 0,
                 },
             ],
         };
@@ -1449,7 +1272,7 @@ mod tests {
             file_attributes: vec![],
             annotations: vec![],
             statements: vec![
-                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                 Statement::Impl {
                     trait_name: None,
                     type_name: "Point".to_string(),
@@ -1461,11 +1284,13 @@ mod tests {
                             type_params: Vec::new(),
                             type_param_bounds: Vec::new(),
                             params: vec![],
-                            body: vec![Statement::Expression(Expression::Literal(Literal::Int(1)))],
+                            body: vec![Statement::Expression(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })],
                             return_type: DataType::None,
                             visibility: Visibility::Public,
                             is_method: true,
                             attributes: Vec::new(),
+                            name_line: 0,
+                            name_column: 0,
                         },
                         Statement::Function {
                             name: "bad".to_string(),
@@ -1484,14 +1309,18 @@ mod tests {
                                 ),
                                 Statement::Assignment {
                                     target: AssignmentTarget::Variable("x".to_string()),
-                                    value: Expression::Literal(Literal::Int(2)),
+                                    value: Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 },
                                     is_mutable: true,
+                                    line: 0,
+                                    column: 0,
                                 },
                             ],
                             return_type: DataType::None,
                             visibility: Visibility::Public,
                             is_method: true,
                             attributes: Vec::new(),
+                            name_line: 0,
+                            name_column: 0,
                         },
                     ],
                 },
@@ -1527,7 +1356,7 @@ mod tests {
                     type_param_bounds: Vec::new(),
                     params: vec![],
                     body: vec![
-                        let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                        let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                         Statement::Return(Some(Expression::Reference {
                             expr: Box::new(ident("x")),
                             is_mutable: false,
@@ -1539,8 +1368,10 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: false,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 },
-                let_stmt("x", Some(Expression::Literal(Literal::Int(2)))),
+                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 })),
             ],
         };
 
@@ -1568,7 +1399,7 @@ mod tests {
                                 DataType::StructNamed("Point".to_string()),
                             )],
                             body: vec![
-                                let_stmt("x", Some(Expression::Literal(Literal::Int(1)))),
+                                let_stmt("x", Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 })),
                                 Statement::Return(Some(Expression::Reference {
                                     expr: Box::new(ident("x")),
                                     is_mutable: false,
@@ -1580,6 +1411,8 @@ mod tests {
                             visibility: Visibility::Public,
                             is_method: true,
                             attributes: Vec::new(),
+                            name_line: 0,
+                            name_column: 0,
                 }],
             }],
         };

@@ -22,16 +22,14 @@ fn load_manifest_file(manifest_path: &Path) -> Result<Option<MireManifest>> {
 
     let raw = fs::read_to_string(manifest_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not read '{}': {}", manifest_path.display(), err),
         })
     })?;
 
     let manifest: MireManifest = toml::from_str(&raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Invalid Mire.toml: {}", err),
         })
     })?;
@@ -61,16 +59,14 @@ pub fn write_lock_file(cwd: &Path, manifest: &MireManifest, mode: BuildMode) -> 
 
     let raw = toml::to_string_pretty(&lock).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not serialize Mire.lock: {}", err),
         })
     })?;
 
     fs::write(project_lock_path(cwd), raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not write project.lock: {}", err),
         })
     })?;
@@ -112,15 +108,13 @@ pub fn project_lock_path(cwd: &Path) -> PathBuf {
 pub fn write_manifest(manifest: &MireManifest, path: &Path) -> Result<()> {
     let raw = toml::to_string_pretty(manifest).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not serialize manifest: {}", err),
         })
     })?;
     fs::write(path, raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Could not write manifest '{}': {}", path.display(), err),
         })
     })?;
@@ -148,12 +142,113 @@ pub fn resolve_export_path(
     package_root: &Path,
     name: &str,
 ) -> Option<PathBuf> {
-    exports.get(name).map(|relative| {
+    exports.get(name).and_then(|relative| {
         let candidate = package_root.join(relative);
-        if candidate.extension().is_some() {
-            candidate
+        let canonical = candidate.canonicalize().ok()?;
+        let canonical_root = package_root.canonicalize().ok()?;
+        if canonical.starts_with(canonical_root.as_path()) {
+            if canonical.extension().is_some() {
+                Some(canonical)
+            } else {
+                Some(canonical.join("mod.mire"))
+            }
         } else {
-            candidate.join("mod.mire")
+            None
         }
     })
+}
+
+/// Result of validating a manifest `entry` path against the package root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryContainment {
+    /// The entry exists and canonicalizes to a path inside the package root.
+    Contained,
+    /// The entry does not exist (a later load will surface the error).
+    DoesNotExist,
+    /// The entry is absolute or uses `..` to escape the package root.
+    EscapesRoot,
+}
+
+/// Check that a manifest `entry` path stays inside the package root.
+///
+/// Rejects absolute paths outside the root and relative paths containing `..`
+/// that resolve outside it (path traversal; see docs/SECURITY.md item 5).
+/// Non-existent entries are not rejected here — the load path reports them.
+pub fn check_entry_containment(package_root: &Path, entry: &str) -> EntryContainment {
+    let joined = package_root.join(entry);
+    let canonical_root = package_root.canonicalize().ok();
+    match joined.canonicalize() {
+        Ok(canonical) => match canonical_root {
+            Some(root) if canonical.starts_with(root.as_path()) => EntryContainment::Contained,
+            _ => EntryContainment::EscapesRoot,
+        },
+        Err(_) => {
+            if joined.is_absolute()
+                && !canonical_root
+                    .as_ref()
+                    .is_some_and(|root| joined.starts_with(root.as_path()))
+            {
+                EntryContainment::EscapesRoot
+            } else {
+                EntryContainment::DoesNotExist
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_dir(label: &str) -> PathBuf {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mire_{label}_{ts}"))
+    }
+
+    #[test]
+    fn entry_containment_accepts_entry_inside_root() {
+        let root = unique_dir("entry_ok");
+        fs::create_dir_all(root.join("src")).expect("dirs");
+        fs::write(root.join("src/main.mire"), "").expect("file");
+        assert_eq!(
+            check_entry_containment(&root, "src/main.mire"),
+            EntryContainment::Contained
+        );
+        // Missing entry is not an escape — the load path reports it.
+        assert_eq!(
+            check_entry_containment(&root, "mod.mire"),
+            EntryContainment::DoesNotExist
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn entry_containment_rejects_absolute_escape() {
+        let root = unique_dir("entry_abs");
+        fs::create_dir_all(&root).expect("dirs");
+        assert_eq!(
+            check_entry_containment(&root, "/etc/passwd"),
+            EntryContainment::EscapesRoot
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn entry_containment_rejects_dotdot_escape() {
+        let root = unique_dir("entry_dotdot");
+        let parent = root.parent().expect("parent");
+        fs::create_dir_all(&root).expect("dirs");
+        let escape_file = parent.join("escape_target.mire");
+        fs::write(&escape_file, "").expect("escape target");
+        assert_eq!(
+            check_entry_containment(&root, "../escape_target.mire"),
+            EntryContainment::EscapesRoot
+        );
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_file(&escape_file);
+    }
 }

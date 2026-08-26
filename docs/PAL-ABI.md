@@ -1,338 +1,246 @@
-# PAL & ABI — How Platform Functions Work in Mire
+# PAL ABI v4
 
-This document explains the Platform Abstraction Layer (PAL), the ABI between
-Mire code and native C code, and the step-by-step process for adding a new
-platform function.
+This is the current Avenys PAL contract. The canonical declarations are in
+[`src/pal/pal.h`](../src/pal/pal.h); this document explains their ownership,
+lifecycle, and boundary rules. `docs/abi_map.toml` is the symbol catalogue
+used by the ABI tests.
 
----
+## Layers
 
-## Architecture Overview
-
-```
-Mire Source (.mire)
- │
- │ extern fn pal_foo: (host :str, port :i64) :i64 lib "c"
- │
- ▼
-┌──────────────────────────────────────┐
-│ Avenys Compiler (Rust → LLVM IR) │
-│ │
-│ 1. Parser sees `extern fn ... lib "c"` │
-│ 2. Generates `declare i64 @pal_foo(ptr, i64)` in LLVM IR │
-│ 3. clang links against pal_foo.o at link time │
-└──────────────────────────────────────┘
- │
- │ call i64 @pal_foo(ptr %host, i64 %port)
- ▼
-┌──────────────────────────────────────┐
-│ PAL Backend (C) │
-│ │
-│ pal/ │
-│ pal.h ← all declarations │
-│ linux/ ← POSIX implementation│
-│ pal_fs.c │
-│ pal_net.c │
-│ pal_tls.c │
-│ pal_ws.c │
-│ wasm/ ← WASM/WASI stubs │
-│ pal_fs.c │
-│ pal_net.c │
-└──────────────────────────────────────┘
- │
- ▼
- Operating System (Linux, WASM/WASI, ...)
+```text
+Kioto
+  ↓ extern fn calls
+PAL ABI (`src/pal/pal.h`)
+  ↓ validated dispatch
+PAL Core (`src/pal/core/`)
+  ↓ host operations
+Linux host adapter (`src/pal/linux/`)
 ```
 
----
+The PAL contains host primitives. Composition such as copying a file, walking
+a tree, decoding UTF-8, or launching a shell command belongs in Kioto.
 
-## Type Mapping (ABI)
+## Handles and ownership
 
-Mire's types map to C/LLVM types as follows:
-
-| Mire Type | C Type | LLVM IR | Notes |
-|------------|-------------|------------|-------|
-| `i64` | `int64_t` | `i64` | 64-bit signed integer |
-| `i32` | `int32_t` | `i32` | 32-bit signed integer |
-| `bool` | `int` | `i1` | 0 or 1, widened to i64 for C |
-| `f64` | `double` | `double` | 64-bit float |
-| `str` | `const char *` | `ptr` | Pointer to C string (null-terminated) |
-| `void` | `void` | `void` | No return value |
-| `[T]` | `void *` | `ptr` | Opaque pointer (lists, dicts) |
-
-### Important Rules
-
-1. **`str` → `const char *`**: Mire strings passed to C are null-terminated.
- The PAL receives ownership. Do not free the string in C — Mire's runtime
- manages the memory.
-
-2. **`str` return → `char *`**: The PAL must return a `malloc`'d
- null-terminated string. The compiler automatically wraps it with
- `rt_managed_from_cstr()` and `free()`s the original — so the caller
- always receives a managed (ref-counted) string. Do NOT return
- managed strings or static buffers; always return freshly `malloc`'d
- (or `rt_strdup_raw`'d) memory.
-
-3. **`fn -> void`**: PAL functions with no return value are declared as
- returning `void` in C. In LLVM IR they are declared as `void`.
-
-4. **Pointers as `i64`**: Sockets, file descriptors, and other opaque handles
- are passed as `int64_t`. C casts them internally. Never expose raw C
- pointers to Mire code.
-
----
-
-## Step-by-Step: Adding a New PAL Function
-
-This example adds a hypothetical `pal_dns_lookup(host)` that resolves a
-hostname to an IP address.
-
-### Step 1: Declare in `pal.h`
+Every stateful handle is the same ABI-sized value:
 
 ```c
-// src/pal/pal.h
-
-// ── Networking ──────────────────────────────────────────────────
-// ...existing declarations...
-char *pal_dns_lookup(const char *host);
+typedef struct pal_handle {
+    uint32_t index;
+    uint32_t generation;
+} pal_handle_t;
 ```
 
-Rules:
-- Use `const char *` for input strings.
-- Return `char *` for strings (caller takes ownership).
-- Return `int64_t` for handles and counts.
-- Return `int` or `void` for side-effect-only operations.
+The public aliases are `pal_root_t`, `pal_file_t`, `pal_dir_t`,
+`pal_process_t`, `pal_socket_t`, `pal_listener_t`, `pal_channel_t`,
+`pal_secret_t`, and `pal_pubkey_t`. A zero `{index, generation}` value is the
+corresponding `PAL_*_NULL` invalid handle.
 
-### Step 2: Implement in `pal/linux/pal_net.c`
+PAL Core validates the index, generation, resource type, and owner thread.
+The host adapter's file descriptors, pointers, and OS-specific structures are
+never part of the public ABI.
+
+Stateful resources follow `acquire → use → release`. `clone` creates an
+independent resource where the operation exists; `transfer` changes ownership
+explicitly. Kioto must close every acquired handle exactly once.
+
+## Pointer ownership conventions
+
+Every PAL function that returns or receives a pointer documents its ownership:
+
+- **`[PAL-OWNED]`** — the caller owns the returned memory and MUST release it
+  with the documented function (usually `pal_free`). On failure these
+  functions return `NULL`, never a string literal. Marked as such:
+  `pal_fs_read_file`, `pal_proc_capture_output`, `pal_channel_recv`'s
+  `pal_bytes_t.data`.
+- **`[BORROWED]`** — the pointer is static or borrowed from the host; the
+  caller MUST NOT free it, and it may be invalidated by a later PAL call.
+  Marked as such: `pal_env_cwd`, `pal_env_get`.
+- **`[WRITE-INTO]`** — the caller supplies the buffer; the PAL writes into it
+  and returns a length/count. E.g. `pal_file_read`, `pal_dir_next_name`,
+  `pal_proc_capture`.
+
+New PAL functions should encode ownership in the symbol name where the ABI
+can change (`*_owned`, `*_borrowed`); stable v4 symbols document it in the
+header.
+
+## Sandbox boundaries
+
+The PAL is a capability model: files are reached **only** through a
+`pal_root_t` handle with a relative path (`pal_file_open`, `pal_dir_open`).
+Two legacy groups opt out of that model and are **compile-time gated** in
+`pal.h` so they are never part of a hardened build:
+
+- `PAL_ALLOW_UNSANDBOXED` — `pal_fs_*` absolute-path operations
+  (`pal_fs_exists/mkdir/rmdir/unlink/read_file/remove`). They bypass root
+  capabilities entirely and exist only for the runtime's own internal use.
+- `PAL_ALLOW_LEGACY_SHELL` — `pal_proc_system`, `pal_proc_capture`,
+  `pal_proc_capture_output`. They invoke `/bin/sh -c` and are a
+  command-injection surface. Use `pal_proc_create` (argv-safe, no shell)
+  instead.
+
+Both toggles default to `1` in `pal.h` for runtime compatibility; flip to `0`
+to strip them. Neither group is ever exposed to untrusted Mire code, and the
+ABI map does not catalogue them.
+
+## Struct-return (sret) ABI rule
+
+The codegen has **no struct-return (sret) support**: PAL functions that return
+a struct by value cannot be called from Mire. They stay in the C header for
+host-side use but must be bridged by the runtime for Mire:
+
+- `pal_dir_entry_t pal_dir_next(pal_dir_t)` (259 B, sret) → use
+  `pal_dir_next_into` / `pal_dir_next_name`.
+- `pal_bytes_t pal_channel_recv(pal_channel_t)` (16 B, returned in RAX:RDX) →
+  use `rt_channel_recv_into`.
+
+8-byte handles (`{u32,u32}`) are classified by the codegen as a single `i64`
+and are safe to return by value.
+
+## Errors
+
+Operations return their documented result (`-1`, `false`, a null handle, or a
+null/empty result) and set the thread-local PAL error where applicable:
 
 ```c
-// src/pal/linux/pal_net.c
+typedef enum {
+    PAL_ERR_OK,
+    PAL_ERR_NOT_FOUND,
+    PAL_ERR_PERMISSION,
+    PAL_ERR_IO,
+    PAL_ERR_INVALID,
+    PAL_ERR_NO_MEM,
+    PAL_ERR_BUSY,
+    PAL_ERR_UNSUPPORTED,
+    PAL_ERR_ALREADY_EXISTS,
+    PAL_ERR_INVALID_HANDLE,
+    PAL_ERR_OWNERSHIP,
+    PAL_ERR_NOT_EMPTY,
+} pal_error_code_t;
 
-#include "../pal.h"
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <stdlib.h>
-#include <string.h>
-
-char *pal_dns_lookup(const char *host) {
- struct hostent *he = gethostbyname(host);
- if (!he || !he->h_addr_list[0]) return NULL;
-
- struct in_addr addr;
- memcpy(&addr, he->h_addr_list[0], sizeof(addr));
-
- // Must return a malloc'd copy. Mire's runtime manages the memory.
- char *result = (char *)malloc(64);
- if (!result) return NULL;
- strcpy(result, inet_ntoa(addr));
- return result;
-}
+pal_error_code_t pal_last_error(void);
+const char *pal_strerror(pal_error_code_t code);
+void pal_clear_error(void);
 ```
 
-### Step 3: Add stub in `pal/wasm/pal_net.c`
+Errors must be checked before a caller discards a failure result. The PAL does
+not retry, normalize paths, invoke a shell, convert encodings, or silently
+replace unsupported host capabilities.
+
+### errno mapping
+
+Backend operations set `errno` on failure; the dispatch layer maps it to the
+PAL error via `pal_core_errno_map(errno)` (in `src/pal/core/pal_core.c`):
+
+| errno | PAL error |
+|-------|-----------|
+| `ENOENT`, `ENOTDIR` | `PAL_ERR_NOT_FOUND` |
+| `EACCES`, `EPERM`, `ELOOP`, `EXDEV` | `PAL_ERR_PERMISSION` |
+| `ENOTEMPTY`, `EEXIST` | `PAL_ERR_NOT_EMPTY` |
+| `EISDIR`, `EINVAL`, `ENAMETOOLONG` | `PAL_ERR_INVALID` |
+| `EBUSY` | `PAL_ERR_BUSY` |
+| `ENOMEM` | `PAL_ERR_NO_MEM` |
+| anything else | `PAL_ERR_IO` |
+
+The open/create-family dispatch functions (`pal_root_open`, `pal_file_open`,
+`pal_dir_open`, `pal_proc_create`, `pal_socket_connect`, `pal_listener_bind`,
+`pal_listener_accept`, `pal_channel_create`, `pal_secret_create`) all use this
+map, so a failed `pal_root_open` on a missing path reports `NOT_FOUND`, a
+failed `pal_root_remove` on a non-empty directory reports `NOT_EMPTY`, etc.
+Never report a hard-coded `PAL_ERR_IO` for a syscall failure — it hides the
+real cause.
+
+### Worked example: capability removal
 
 ```c
-// src/pal/wasm/pal_net.c
+// Remove the empty directory "logs" under the root handle, then a file.
+pal_root_t root = pal_root_open("/srv/app");      // cap = /srv/app
+if (root.index == 0) { /* pal_last_error() == PAL_ERR_NOT_FOUND */ }
 
-#include "../pal.h"
+// unlinkat-based, relative to the root's fd; no path string is ever built.
+bool ok1 = pal_root_remove(root, "logs");          // true
+bool ok2 = pal_root_remove(root, "state/pid");     // true (nested parent ok)
 
-char *pal_dns_lookup(const char *host) {
- (void)host;
- return NULL; // Not supported in WASM
-}
+bool ok3 = pal_root_remove(root, "data");          // false if "data" is
+                                                   // non-empty:
+// pal_last_error() == PAL_ERR_NOT_EMPTY; "data" was NOT touched.
+
+// A symlink is unlinked, never followed:
+bool ok4 = pal_root_remove(root, "link_to_etc");   // removes the link only;
+                                                   // its target is untouched.
+
+pal_root_close(root);
 ```
 
-### Step 4: Register the LLVM declaration
+`..` is impossible: basenames of `.`, `..`, or empty are rejected with
+`PAL_ERR_INVALID`, and the parent is resolved with `RESOLVE_NO_SYMLINKS`
+(beneath-style mount crossings are allowed — `RESOLVE_BENEATH` would reject
+ordinary paths that cross into tmpfs, e.g. relative-to-`/` access to `/tmp`).
 
-```rust
-// src/compiler/mir/codegen/builtins.rs
+## Primitive groups
 
-// Add near the other NET declarations inside `pal_extern_decls()`:
-"declare ptr @pal_dns_lookup(ptr)".to_string(),
-```
+The public header currently exposes:
 
-The LLVM declaration follows this pattern:
-- `declare` keyword
-- Return type: `ptr` for `char *`, `i64` for `int64_t`, `i32` for `int`, `void` for void
-- `@pal_<name>`
-- Parameters: `ptr` for `const char *`, `i64` for `int64_t`, `i32` for `int`
+- PAL-owned allocation: `pal_alloc`, `pal_free`, `pal_realloc`,
+  `pal_secure_alloc`, `pal_secure_free`.
+- Root-scoped filesystem: root/file/directory handles, byte read/write/seek,
+  stat, size, clone, and directory entry iteration.
+- Single-entry removal: `pal_root_remove(root, rel_path)` unlinks exactly one
+  entry (regular file, symlink, or empty directory) relative to a root handle.
+  A trailing symlink is unlinked, **never followed**; intermediate symlinks in
+  the path are rejected. Non-empty directories fail with `PAL_ERR_NOT_EMPTY`.
+  Recursive removal is a Kioto-side composition over `pal_dir_open` +
+  `pal_root_remove` — it is not a PAL primitive (composition belongs in Kioto).
+- Host process resources: create, wait, kill, standard-channel access,
+  transfer, and close.
+- Sockets, listeners, and byte channels.
+- Cryptographic secret/public-key handles using the typed
+  `pal_crypto_algorithm_t` constants.
+- Threads and stateless host queries for time, CPU, memory, and randomness.
+- Environment access (`pal_env_cwd`, `pal_env_get`): `[BORROWED]` static
+  buffers — read-only, never freed.
+- Absolute-path primitives (`pal_fs_*`, including `pal_fs_remove`) and shell
+  helpers (`pal_proc_system`/`capture*`): compile-time gated behind
+  `PAL_ALLOW_UNSANDBOXED` / `PAL_ALLOW_LEGACY_SHELL`; they do not implement
+  filesystem composition and are never exposed to untrusted Mire code.
 
-### Step 5: Declare in Mire module (kioto)
+Use the declarations in `src/pal/pal.h` and the current `docs/abi_map.toml`
+when adding a symbol. Do not copy signatures from historical documents.
 
-```mire
-# kioto/core/net/mod.mire
+## Typed values
 
-# Private implementation detail — not exported to other modules.
-# Use `pub extern fn` if the symbol must be visible externally.
-extern fn pal_dns_lookup: (host :str) :str lib "c"
-```
-
-Then wrap it in a public function:
-
-```mire
-pub fn dns_lookup: (host :&str) :str {
- return pal_dns_lookup(*host)
-}
-```
-
-**Visibility:** `extern fn` without `pub` is private to the module (default).
-Use `pub extern fn` to export the symbol. It is recommended to keep `extern fn`
-private and wrap them in `pub fn` for safety and encapsulation.
-
-### Step 6: Compile and test
-
-```bash
-cd mire
-cargo build --release
-cargo run -- build test.mire
-./bin/debug/test
-```
-
----
-
-## PAL Module Reference
-
-### Directory structure
-
-```
-src/pal/
- pal.h ← All function declarations (umbrella header)
- linux/
- pal_fs.c ← Filesystem (fopen/stat/mkdir)
- pal_env.c ← Environment (getenv/setenv/chdir)
- pal_proc.c ← Process (popen/fork/kill)
- pal_time.c ← Time (clock_gettime)
- pal_cpu.c ← CPU info (/proc/cpuinfo)
- pal_mem.c ← Memory info (/proc/meminfo)
- pal_gpu.c ← GPU info
- pal_term.c ← Terminal styling (ANSI escapes)
- pal_net.c ← TCP sockets + poll + DNS
- pal_tls.c ← OpenSSL TLS client
- pal_ws.c ← WebSocket (+ WSS TLS variant)
-
- pal_io.c ← stdin/stdout/stderr
- wasm/
- pal_fs.c ← WASI filesystem (fopen/stat via wasi-libc)
- pal_env.c ← WASI environment
- pal_proc.c ← Stubs
- pal_time.c ← WASI clock
- pal_cpu.c ← Stubs
- pal_mem.c ← Stubs
- pal_gpu.c ← Stubs
- pal_term.c ← Stubs
- pal_net.c ← Stubs
- pal_tls.c ← Stubs
- pal_ws.c ← Stubs
-
- pal_io.c ← WASI I/O
-```
-
-### How the compiler selects a PAL backend
-
-Avenys reads the `MIRE_PAL` environment variable at compile time:
-
-```bash
-# Linux (default)
-MIRE_PAL=linux mire build main.mire
-
-# WASM/WASI
-MIRE_PAL=wasm mire build main.mire --target wasm32-wasi
-```
-
-The C files for the selected backend are compiled and linked into the final
-binary. The `MIRE_PAL=wasm` target also sets clang's triple to
-`wasm32-wasi`.
-
----
-
-## Linkage
-
-Non-standard C libraries (like OpenSSL) must declare extra link flags:
-
-### In `src/avens/toolchain.rs`:
-
-```rust
-if !matches!(target, "...") {
- link_args.push("-lssl".to_string());
- link_args.push("-lcrypto".to_string());
-}
-```
-
-### In `pal/linux/pal_tls.c`:
+Flags and origins are named ABI types, not strings:
 
 ```c
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-// Use SSL functions...
+typedef uint32_t pal_open_flags;
+typedef uint32_t pal_socket_flags;
+typedef uint32_t pal_spawn_flags;
+typedef enum {
+    PAL_SEEK_BEGIN,
+    PAL_SEEK_CURRENT,
+    PAL_SEEK_END,
+} pal_seek_from_t;
 ```
 
-The `pal.h` header keeps the public API clean (no OpenSSL types). The
-implementation file includes the library headers internally.
+Variable byte results use `pal_bytes_t { void *data; int64_t len; }`. Ownership
+of returned buffers is defined by each operation; callers must use the
+matching PAL release operation rather than guessing an allocator.
 
----
+## Adding or changing a symbol
 
-## Runtime Core (`src/runtime/`)
+1. Decide whether the operation is a Host primitive; if Kioto can compose it,
+   do not add it to PAL.
+2. Add the typed declaration to `src/pal/pal.h`.
+3. Add the backend operation and dispatch implementation, preserving handle
+   validation and error information.
+4. If the codegen emits the symbol (a `declare` in
+   `src/compiler/mir/codegen/builtins.rs`), register it in `docs/abi_map.toml`
+   and update ABI conformance tests. Symbols Kioto declares directly as
+   `extern fn ... lib "c"` (e.g. `pal_root_remove`, `pal_fs_remove`,
+   `pal_last_error`) are NOT catalogued — adding them to the map creates a
+   stale entry and fails `tests/abi_consistency.rs`.
+5. Add a Kioto wrapper only when it contributes composition or Mire-facing
+   semantics.
 
-The runtime core is platform-independent C code that provides:
-
-| File | Purpose |
-|------|---------|
-| `managed.c` | Ref-counted strings (`rt_managed_*`) |
-| `strings.c` | String ops (concat, split, substr, format, ...) |
-| `lists.c` | List ops (create, push, pop, concat, slice) |
-| `dicts.c` | Dict ops (get, set, keys, values) |
-
-These are always linked regardless of platform. They use only standard C
-(malloc, memcpy, sprintf) and no OS-specific APIs.
-
----
-
-## Common Conventions
-
-1. **Error returns**: Use -1 for `i64` failures, NULL for `str` failures,
- 0 for `bool` failures. This matches POSIX conventions.
-
-2. **Memory ownership**: The PAL returns owned memory (malloc'd). Mire's
- runtime calls `rt_managed_free()` or `free()` when done. The PAL must
- NOT free returned strings.
-
-3. **Thread safety**: PAL functions may be called from any Mire goroutine
- (async task). Use locks if state is shared.
-
-4. **Non-blocking I/O**: For networking, the PAL implements non-blocking
- connect with `poll()`. Mire's async runtime uses this to avoid blocking
- the event loop.
-
-5. **WASM stubs**: Every PAL function must exist in `pal/wasm/`. Stubs
- either return error codes or trivially succeed. This ensures the code
- compiles for WASM targets even if the functionality isn't available.
-
----
-
-## Troubleshooting
-
-| Symptom | Likely Cause |
-|---------|-------------|
-| `undefined reference to pal_foo` at link | Missing `declare` in `src/compiler/mir/codegen/builtins.rs` (`pal_extern_decls()`) OR missing C implementation |
-| Segfault in PAL function | String ownership issue (PAL freed a Mire string) OR null pointer not checked |
-| `str` argument is garbage | Parameter type mismatch — use `const char *` not `char *` |
-| `str` return causes leak | Not returning `malloc`'d memory — use `strdup()` or `malloc()+strcpy()` |
-| Compile fails on WASM target | Missing stub in `pal/wasm/` |
-
-## Status & Roadmap
-
-### Completed
-- Phase 0: Clippy warnings fixed
-- Phase A: runtime_support.c split into Runtime Core + PAL
-- Phase B: All runtime symbols renamed to rt_/pal_ prefix
-- kioto modules call rt_*/pal_* directly
-
-### WASM Backend
-`src/pal/wasm/` has stubs for WASM targets. Select with:
-```bash
-MIRE_PAL=wasm mire run hello.mire
-```
-
-### Planned
-- Phase C: expand WASI-backed PAL beyond safe stubs
-- Phase D: move more C logic into Mire (kioto core)
-- Phase E: promote kioto as the sole library surface
+The ABI map and PAL conformance tests are authoritative for the compiler-
+emitted host surface; `src/pal/pal.h` is authoritative for the full ABI.

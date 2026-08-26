@@ -1,0 +1,3 @@
+pub fn main: () {
+    use dasu("Hello, World!")
+}

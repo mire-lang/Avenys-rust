@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::canonical_fn_name;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Program, QueryOp, Statement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +153,8 @@ mod tests {
                     visibility: Visibility::Public,
                     is_method: true,
                     attributes: Vec::new(),
+                    name_line: 0,
+                    name_column: 0,
                 }],
             }],
         };
@@ -172,7 +175,7 @@ mod tests {
                     Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal(Literal::Int(1))),
+                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -559,11 +562,14 @@ impl SemanticModelBuilder {
             Expression::Try { expr, .. } => {
                 self.visit_expression(expr);
             }
-            Expression::Ok { value, .. } | Expression::Err { value, .. } => {
+            Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
                 self.visit_expression(value);
             }
-            Expression::Literal(_) | Expression::Identifier(_) => {}
+            Expression::Literal { .. } | Expression::Identifier(_) => {}
             Expression::UseMacro { inner, .. } => {
+                self.visit_expression(inner);
+            }
+            Expression::MacroCall { inner, .. } => {
                 self.visit_expression(inner);
             }
         }
@@ -639,10 +645,13 @@ impl SemanticModelBuilder {
     }
 
     fn current_function_name(&self, name: &str) -> String {
-        self.impl_owner_stack
-            .last()
-            .map(|owner| format!("{owner}.{name}"))
-            .unwrap_or_else(|| name.to_string())
+        canonical_fn_name(
+            &self
+                .impl_owner_stack
+                .last()
+                .map(|owner| format!("{owner}.{name}"))
+                .unwrap_or_else(|| name.to_string()),
+        )
     }
 
     fn binding_kind(

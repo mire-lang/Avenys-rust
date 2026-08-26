@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn generic_bindings_from_args(
@@ -53,6 +54,9 @@ impl TypeChecker {
                 ok: Box::new(self.substitute_generics(ok, bindings)),
                 err: Box::new(self.substitute_generics(err, bindings)),
             },
+            DataType::Maybe { inner } => DataType::Maybe {
+                inner: Box::new(self.substitute_generics(inner, bindings)),
+            },
             other => other.clone(),
         }
     }
@@ -69,9 +73,8 @@ impl TypeChecker {
                     if !self.is_assignable(existing, actual)
                         || !self.is_assignable(actual, existing)
                     {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!(
                                 "Conflicting inference for generic '{}': {:?} vs {:?}",
                                 name, existing, actual
@@ -133,9 +136,8 @@ impl TypeChecker {
             let mut resolved = Vec::with_capacity(sig.type_params.len());
             for param in &sig.type_params {
                 let inferred_type = inferred.get(param).cloned().ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!(
                             "Could not infer generic type '{}'; specify it explicitly",
                             param
@@ -148,9 +150,8 @@ impl TypeChecker {
         }
 
         if explicit_type_args.len() != sig.type_params.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Function generic arity mismatch: expected {}, got {}",
                     sig.type_params.len(),
@@ -175,9 +176,8 @@ impl TypeChecker {
             let actual = bindings.get(param).cloned().unwrap_or(DataType::Unknown);
             for bound in bounds {
                 if !self.traits.contains_key(bound) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Function '{}' generic bound refers to unknown trait '{}'",
                             fn_name, bound
@@ -189,9 +189,8 @@ impl TypeChecker {
                         Self::split_nominal_type_args(name).0.to_string()
                     }
                     _ => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!(
                                 "Function '{}' requires '{}' to implement trait '{}'",
                                 fn_name, param, bound
@@ -204,9 +203,8 @@ impl TypeChecker {
                     .get(&type_name)
                     .is_some_and(|set| set.contains(bound));
                 if !ok {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Function '{}' requires '{}' to implement trait '{}'",
                             fn_name, param, bound
@@ -228,9 +226,8 @@ impl TypeChecker {
             let actual = bindings.get(param).cloned().unwrap_or(DataType::Unknown);
             for bound in trait_bounds {
                 if !self.traits.contains_key(bound) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Type '{}' generic bound refers to unknown trait '{}'",
                             nominal_name, bound
@@ -242,9 +239,8 @@ impl TypeChecker {
                         Self::split_nominal_type_args(name).0.to_string()
                     }
                     _ => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!(
                                 "Type '{}' requires '{}' to implement trait '{}'",
                                 nominal_name, param, bound
@@ -257,9 +253,8 @@ impl TypeChecker {
                     .get(&type_name)
                     .is_some_and(|set| set.contains(bound));
                 if !ok {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Type '{}' requires '{}' to implement trait '{}'",
                             nominal_name, param, bound

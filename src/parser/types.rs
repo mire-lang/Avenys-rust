@@ -119,11 +119,7 @@ impl Parser {
                 "str" => Ok(DataType::Str),
                 "bool" => Ok(DataType::Bool),
                 "char" => Ok(DataType::Char),
-                "none" => {
-                    return Err(self.error(
-                        "'none' has been renamed to 'mu' — use 'mu' as the unit literal/type",
-                    ));
-                }
+                "mu" => Ok(DataType::None),
                 "arr" => {
                     self.expect(TokenType::Lbracket)?;
                     let element_type = Box::new(self.parse_type()?);
@@ -176,6 +172,14 @@ impl Parser {
                     Ok(DataType::Result {
                         ok: ok_type,
                         err: err_type,
+                    })
+                }
+                "maybe" => {
+                    self.expect(TokenType::Lbracket)?;
+                    let inner_type = Box::new(self.parse_type()?);
+                    self.expect(TokenType::Rbracket)?;
+                    Ok(DataType::Maybe {
+                        inner: inner_type,
                     })
                 }
                 other => {

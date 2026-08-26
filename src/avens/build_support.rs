@@ -1,0 +1,801 @@
+use super::*;
+use crate::parser::ast::DataType;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static C_PRECOMPILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn runtime_base() -> PathBuf {
+    if let Ok(dir) = std::env::var("MIRE_RUNTIME_DIR") {
+        let p = PathBuf::from(&dir);
+        if p.join("runtime").exists() {
+            return p;
+        }
+    }
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if manifest_dir.join("src/runtime").exists() {
+        return manifest_dir.join("src");
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        if parent.join("runtime").exists() {
+            return parent.to_path_buf();
+        }
+        if parent.join("../lib/mire/runtime").exists() {
+            return parent.join("../lib/mire");
+        }
+    }
+    manifest_dir.join("src")
+}
+
+pub(super) fn struct_field_llvm_type(dt: &DataType) -> &'static str {
+    match dt {
+        DataType::I64 | DataType::Char | DataType::U64 => "i64",
+        DataType::I128 | DataType::U128 => "i128",
+        DataType::I32 | DataType::U32 => "i32",
+        DataType::I16 | DataType::U16 => "i16",
+        DataType::I8 | DataType::U8 => "i8",
+        DataType::F32 => "float",
+        DataType::F64 => "double",
+        DataType::Bool => "i1",
+        DataType::None => "i64",
+        DataType::Generic(_) => "i64",
+        _ => "ptr",
+    }
+}
+
+pub(super) fn struct_field_llvm_body_type(dt: &DataType) -> String {
+    match dt {
+        DataType::Array { element_type, size } => {
+            format!("[{} x {}]", size, struct_field_llvm_body_type(element_type))
+        }
+        _ => struct_field_llvm_type(dt).to_string(),
+    }
+}
+
+pub(super) fn struct_field_size(dt: &DataType) -> usize {
+    match dt {
+        DataType::I64 | DataType::Char | DataType::U64 => 8,
+        DataType::I128 | DataType::U128 => 16,
+        DataType::I32 | DataType::U32 => 4,
+        DataType::I16 | DataType::U16 => 2,
+        DataType::I8 | DataType::U8 => 1,
+        DataType::F32 => 4,
+        DataType::F64 => 8,
+        DataType::Bool => 1,
+        DataType::None => 8,
+        DataType::Array { element_type, size } => *size * struct_field_size(element_type),
+        _ => 8,
+    }
+}
+
+pub(super) fn generate_runtime_declarations(ir: &str) -> String {
+    let mut out = String::new();
+    let needed: &[(&str, &str)] = &[
+        ("declare ptr @dasu(", "declare ptr @dasu(i64)"),
+        ("declare i64 @rt_list_len(", "declare i64 @rt_list_len(ptr)"),
+        (
+            "declare i64 @rt_strings_len(",
+            "declare i64 @rt_strings_len(ptr)",
+        ),
+        (
+            "declare i64 @rt_dicts_len(",
+            "declare i64 @rt_dicts_len(ptr)",
+        ),
+        (
+            "declare ptr @rt_list_create(",
+            "declare ptr @rt_list_create(i64, i64)",
+        ),
+        (
+            "declare ptr @rt_list_push_i64(",
+            "declare ptr @rt_list_push_i64(ptr, i64)",
+        ),
+        (
+            "declare ptr @rt_list_push_ptr(",
+            "declare ptr @rt_list_push_ptr(ptr, ptr)",
+        ),
+        (
+            "declare ptr @rt_dicts_set_i64(",
+            "declare ptr @rt_dicts_set_i64(ptr, ptr, i64)",
+        ),
+        (
+            "declare ptr @rt_dicts_set(",
+            "declare ptr @rt_dicts_set(ptr, ptr, ptr)",
+        ),
+        (
+            "declare ptr @rt_dicts_set_with_kind(",
+            "declare ptr @rt_dicts_set_with_kind(ptr, ptr, ptr, i64)",
+        ),
+        (
+            "declare ptr @rt_dicts_keys(",
+            "declare ptr @rt_dicts_keys(ptr)",
+        ),
+        (
+            "declare ptr @rt_dicts_values(",
+            "declare ptr @rt_dicts_values(ptr)",
+        ),
+        (
+            "declare ptr @rt_dict_to_string(",
+            "declare ptr @rt_dict_to_string(ptr)",
+        ),
+        (
+            "declare i64 @rt_div_i64(",
+            "declare i64 @rt_div_i64(i64, i64, i64, i64, ptr)",
+        ),
+        (
+            "declare i64 @rt_rem_i64(",
+            "declare i64 @rt_rem_i64(i64, i64, i64, i64, ptr)",
+        ),
+        (
+            "declare void @rt_check_bounds_i64(",
+            "declare void @rt_check_bounds_i64(i64, i64, i64, i64, ptr)",
+        ),
+        (
+            "declare ptr @rt_closure_env_alloc(",
+            "declare ptr @rt_closure_env_alloc(i64)",
+        ),
+        (
+            "declare ptr @rt_math_range_i64(",
+            "declare ptr @rt_math_range_i64(i64)",
+        ),
+        (
+            "@.fmt_str =",
+            "@.fmt_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"",
+        ),
+        (
+            "@.fmt_i64 =",
+            "@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"",
+        ),
+        (
+            "@.fmt_f64 =",
+            "@.fmt_f64 = private unnamed_addr constant [6 x i8] c\"%.6g\\0A\\00\"",
+        ),
+        (
+            "@.fmt_float =",
+            "@.fmt_float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\"",
+        ),
+        (
+            "@.fmt_bool_true =",
+            "@.fmt_bool_true = private unnamed_addr constant [5 x i8] c\"true\\00\"",
+        ),
+        (
+            "@.fmt_bool_false =",
+            "@.fmt_bool_false = private unnamed_addr constant [6 x i8] c\"false\\00\"",
+        ),
+        (
+            "@.fmt_i32 =",
+            "@.fmt_i32 = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"",
+        ),
+        (
+            "declare ptr @rt_i64_to_string(",
+            "declare ptr @rt_i64_to_string(i64)",
+        ),
+        (
+            "declare ptr @rt_f64_to_string(",
+            "declare ptr @rt_f64_to_string(double)",
+        ),
+        (
+            "declare ptr @rt_bool_to_string(",
+            "declare ptr @rt_bool_to_string(i64)",
+        ),
+        (
+            "declare ptr @rt_get_args(",
+            "declare ptr @rt_get_args(i32, ptr)",
+        ),
+        ("declare i32 @printf(", "declare i32 @printf(ptr, ...)"),
+        ("declare i32 @fflush(", "declare i32 @fflush(ptr)"),
+        ("declare i32 @strcmp(", "declare i32 @strcmp(ptr, ptr)"),
+        (
+            "declare void @rt_managed_free(",
+            "declare void @rt_managed_free(ptr)",
+        ),
+        (
+            "declare ptr @rt_string_concat(",
+            "declare ptr @rt_string_concat(ptr, ptr)",
+        ),
+        (
+            "declare void @pal_proc_on(",
+            "declare void @pal_proc_on(ptr)",
+        ),
+        ("@.argc =", "@.argc = global i32 0"),
+        ("@.argv =", "@.argv = global ptr null"),
+    ];
+    for (search, decl) in needed {
+        if !ir.contains(search) {
+            out.push_str(decl);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program) -> String {
+    let mut out = String::new();
+    for stmt in &program.statements {
+        if let Statement::Type { name, fields, .. } = stmt {
+            let field_count = fields.len();
+            if field_count == 0 {
+                continue;
+            }
+
+            let param_types: Vec<String> = fields
+                .iter()
+                .filter_map(|f| {
+                    if let Statement::Let { data_type, .. } = f {
+                        Some(match data_type {
+                            // Arrays are passed by value ([N x T]) to match the
+                            // caller-side materialization in lower_call_args.
+                            DataType::Array { .. } => struct_field_llvm_body_type(data_type),
+                            _ => struct_field_llvm_type(data_type).to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let body_types: Vec<String> = fields
+                .iter()
+                .filter_map(|f| {
+                    if let Statement::Let { data_type, .. } = f {
+                        Some(struct_field_llvm_body_type(data_type))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let mut total_size = 0usize;
+            for field in fields {
+                if let Statement::Let { data_type, .. } = field {
+                    total_size += struct_field_size(data_type);
+                }
+            }
+
+            if param_types.is_empty() {
+                continue;
+            }
+
+            let struct_ty = body_types.join(", ");
+            let params: Vec<String> = param_types
+                .iter()
+                .enumerate()
+                .map(|(i, ft)| format!("{} %{}", ft, i))
+                .collect();
+
+            let mut body = String::new();
+            body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
+            for (i, field) in fields.iter().enumerate() {
+                if let Statement::Let { data_type, .. } = field {
+                    let bty = &body_types[i];
+                    body.push_str(&format!(
+                        "  %f{i}_ptr = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 {i}\n"
+                    ));
+                    match data_type {
+                        DataType::Array { .. } => {
+                            body.push_str(&format!("  store {bty} %{i}, ptr %f{i}_ptr\n"));
+                        }
+                        _ => {
+                            body.push_str(&format!(
+                                "  store {} %{i}, ptr %f{i}_ptr\n",
+                                struct_field_llvm_type(data_type),
+                            ));
+                        }
+                    }
+                }
+            }
+            body.push_str("  ret ptr %ptr\n");
+
+            out.push_str(&format!(
+                "define ptr @{}({}) {{\nentry:\n{}}}\n\n",
+                name,
+                params.join(", "),
+                body,
+            ));
+        }
+    }
+    if out.is_empty() {
+        return String::new();
+    }
+    format!("declare ptr @malloc(i64)\n\n{}", out)
+}
+
+/// Generates heap constructor functions for every enum variant. Each variant is a
+/// tagged struct: an `i64` discriminant followed by the variant's payload fields.
+/// The layout must match `render_struct_llvm_type` for the same variant in the MIR
+/// `struct_types` map (discriminant is always field 0).
+pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) -> String {
+    let mut out = String::new();
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for (discriminant, variant) in variants.iter().enumerate() {
+                let full_name = format!("{}.{}", name, variant.name);
+                let mut all_types = vec!["i64".to_string()];
+                let mut total_size = 8usize;
+                for dt in &variant.data_types {
+                    all_types.push(struct_field_llvm_body_type(dt));
+                    total_size += struct_field_size(dt);
+                }
+                let struct_ty = all_types.join(", ");
+                let param_types: Vec<String> = variant
+                    .data_types
+                    .iter()
+                    .map(|dt| match dt {
+                        DataType::Array { .. } => struct_field_llvm_body_type(dt),
+                        _ => struct_field_llvm_type(dt).to_string(),
+                    })
+                    .collect();
+                let params: Vec<String> = param_types
+                    .iter()
+                    .enumerate()
+                    .map(|(i, ft)| format!("{} %{}", ft, i))
+                    .collect();
+
+                let mut body = String::new();
+                body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
+                body.push_str(&format!(
+                    "  %d0 = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 0\n"
+                ));
+                body.push_str(&format!("  store i64 {discriminant}, ptr %d0\n"));
+                for (i, dt) in variant.data_types.iter().enumerate() {
+                    let bty = &param_types[i];
+                    body.push_str(&format!(
+                        "  %f{i}_ptr = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 {}\n",
+                        i + 1
+                    ));
+                    match dt {
+                        DataType::Array { .. } => {
+                            body.push_str(&format!("  store {bty} %{i}, ptr %f{i}_ptr\n"));
+                        }
+                        _ => {
+                            body.push_str(&format!(
+                                "  store {} %{i}, ptr %f{i}_ptr\n",
+                                struct_field_llvm_type(dt),
+                            ));
+                        }
+                    }
+                }
+                body.push_str("  ret ptr %ptr\n");
+
+                out.push_str(&format!(
+                    "define ptr @{}({}) {{\nentry:\n{}}}\n\n",
+                    full_name,
+                    params.join(", "),
+                    body,
+                ));
+            }
+        }
+    }
+    if out.is_empty() {
+        return String::new();
+    }
+    format!("declare ptr @malloc(i64)\n\n{}", out)
+}
+
+pub(super) fn dedup_llvm_declarations(ir: &str) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+
+    for line in ir.lines() {
+        // Force the correct signature for specific runtime functions whose
+        // kioto extern declarations may not match what the codegen emits.
+        let line = if line == "declare ptr @rt_get_args()" {
+            "declare ptr @rt_get_args(i32, ptr)"
+        } else {
+            line
+        };
+
+        let should_skip = if let Some(rest) = line.strip_prefix("declare ") {
+            if let Some(at_pos) = rest.find('@') {
+                if let Some(paren_pos) = rest[at_pos..].find('(') {
+                    let name = &rest[at_pos + 1..at_pos + paren_pos];
+                    !seen.insert(name.to_string())
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !should_skip {
+            out.push(line);
+        }
+    }
+
+    out.join("\n")
+}
+
+pub(super) fn c_object_hash(content: &str) -> u64 {
+    let mut hasher = crate::incremental::FxHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub(super) fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> Result<String> {
+    let content = fs::read_to_string(c_path).map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::new(1, 1),
+            message: format!("Could not read C source '{}': {}", c_path, err),
+        })
+    })?;
+    let hash = c_object_hash(&content);
+    fs::create_dir_all(cache_dir).map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!("Could not create cobjects dir: {}", err),
+        })
+    })?;
+    let obj_path = cache_dir.join(format!("{:x}.o", hash));
+    // Fast path: a concurrent compiler or an earlier build already published a
+    // complete (byte-identical, content-keyed) object. Readers only ever see
+    // a fully-renamed file, so this is always a valid read.
+    if obj_path.exists() {
+        return Ok(obj_path.to_string_lossy().to_string());
+    }
+    // Compile into a UNIQUE temp object so that concurrent compilers for the
+    // SAME cache key (identical source hash -> identical object) never
+    // truncate one another's in-progress output. We then publish ours
+    // atomically via rename; on Linux `rename` overwrites an existing file
+    // with the new (identical) bytes in one atomic step.
+    let unique = (std::process::id() as u64)
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        .wrapping_add(C_PRECOMPILE_SEQ.fetch_add(1, Ordering::Relaxed));
+    let tmp_path = cache_dir.join(format!("{:x}.{:016x}.o", hash, unique));
+    let status = std::process::Command::new("clang")
+        .args(["-c", "-O0", "-o"])
+        .arg(&tmp_path)
+        .arg(c_path)
+        .arg("-I")
+        .arg(runtime_base.join("runtime"))
+        .arg("-I")
+        .arg(runtime_base.join("pal"))
+        .status()
+        .map_err(|err| {
+            MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: format!("Failed to run clang for '{}': {}", c_path, err),
+            })
+        })?;
+    if !status.success() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!("clang -c failed for '{}'", c_path),
+        }));
+    }
+    // Atomic publish. A sibling compiler may have landed an identical .o in
+    // the meantime; rename still atomically replaces it. If rename loses a
+    // race (no EEXIST on Linux rename-overwrite), we simply drop our temp —
+    // the winner's bytes are identical.
+    if let Err(err) = fs::rename(&tmp_path, &obj_path) {
+        // rename only fails on real errors (cross-device, ENOENT of temp,
+        // permissions); a pre-existing obj_path does NOT cause failure on
+        // Linux. Treat a missing temp as "sibling won" only if obj exists.
+        if obj_path.exists() {
+            let _ = fs::remove_file(&tmp_path);
+        } else {
+            return Err(MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: format!("Could not publish C object '{}': {}", c_path, err),
+            }));
+        }
+    }
+    Ok(obj_path.to_string_lossy().to_string())
+}
+
+pub(super) fn progress_phase(phase: &str, _file: &str, elapsed_ms: u64, total_ms: u64) {
+    if std::env::var("OWL_PROGRESS").is_ok() {
+        eprintln!(
+            "{{\"phase\":\"{}\",\"elapsed_ms\":{},\"total_ms\":{}}}",
+            phase, elapsed_ms, total_ms
+        );
+    }
+}
+
+pub(super) fn apply_cfg_filter(program: &mut crate::parser::ast::Program) {
+    let is_linux = cfg!(target_os = "linux");
+    program.statements.retain(|stmt| {
+        let attributes = match stmt {
+            crate::parser::ast::Statement::Function { attributes, .. } => attributes,
+            _ => return true,
+        };
+        let cfg_attr = attributes.iter().find(|a| a.name == "cfg");
+        let Some(cfg_attr) = cfg_attr else {
+            return true;
+        };
+        let target = cfg_attr.args.first().map(|a| a.value.as_str());
+        match target {
+            Some("linux") => is_linux,
+            _ => false,
+        }
+    });
+}
+
+pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
+    use crate::parser::ast::{DataType, Expression, Identifier, Literal, Statement, Visibility};
+
+    struct TestFn {
+        name: String,
+        section: String,
+        ignored: bool,
+    }
+
+    let mut tests: Vec<TestFn> = Vec::new();
+    for stmt in &program.statements {
+        if let Statement::Function {
+            name, attributes, ..
+        } = stmt
+            && attributes.iter().any(|a| a.name == "test")
+        {
+            let section = attributes
+                .iter()
+                .find(|a| a.name == "section")
+                .and_then(|a| a.args.first())
+                .map(|arg| arg.value.clone())
+                .unwrap_or_default();
+            let ignored = attributes.iter().any(|a| a.name == "ignore");
+            tests.push(TestFn {
+                name: name.clone(),
+                section,
+                ignored,
+            });
+        }
+    }
+    if tests.is_empty() {
+        return;
+    }
+
+    let mut body: Vec<Statement> = Vec::new();
+    let mut current_section = String::new();
+    for test in &tests {
+        if test.section != current_section {
+            current_section = test.section.clone();
+            if !current_section.is_empty() {
+                body.push(Statement::Expression(Expression::Call {
+                    name: "dasu".to_string(),
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
+                        "\n  [{}]",
+                        current_section
+                    )), line: 0, column: 0 }],
+                    type_args: Vec::new(),
+                    name_line: 0,
+            name_column: 0,
+            data_type: DataType::None,
+                }));
+            }
+        }
+        if test.ignored {
+            body.push(Statement::Expression(Expression::Call {
+                name: "dasu".to_string(),
+                args: vec![Expression::Literal { lit: Literal::Str(format!(
+                    "  [SKIP] {}",
+                    test.name
+                )), line: 0, column: 0 }],
+                type_args: Vec::new(),
+                name_line: 0,
+            name_column: 0,
+            data_type: DataType::None,
+            }));
+        } else {
+            body.push(Statement::Let {
+                name: format!("_result_{}", test.name),
+                data_type: DataType::Bool,
+                value: Some(Expression::Call {
+                    name: test.name.clone(),
+                    args: Vec::new(),
+                    type_args: Vec::new(),
+                    name_line: 0,
+            name_column: 0,
+            data_type: DataType::Bool,
+                }),
+                is_constant: false,
+                is_mutable: false,
+                is_static: false,
+                visibility: Visibility::Private,
+                name_line: 0,
+                name_column: 0,
+            });
+            let result_name = format!("_result_{}", test.name);
+            body.push(Statement::If {
+                condition: Expression::Identifier(Identifier {
+                    name: result_name,
+                    data_type: DataType::Bool,
+                    line: 0,
+                    column: 0,
+                }),
+                then_branch: vec![Statement::Expression(Expression::Call {
+                    name: "dasu".to_string(),
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
+                        "  [PASS] {}",
+                        test.name
+                    )), line: 0, column: 0 }],
+                    type_args: Vec::new(),
+                    name_line: 0,
+            name_column: 0,
+            data_type: DataType::None,
+                })],
+                else_branch: Some(vec![Statement::Expression(Expression::Call {
+                    name: "dasu".to_string(),
+                    args: vec![Expression::Literal { lit: Literal::Str(format!(
+                        "  [FAIL] {}",
+                        test.name
+                    )), line: 0, column: 0 }],
+                    type_args: Vec::new(),
+                    name_line: 0,
+            name_column: 0,
+            data_type: DataType::None,
+                })]),
+            });
+        }
+    }
+
+    let harness = Statement::Function {
+        name: "main".to_string(),
+        attributes: Vec::new(),
+        type_params: Vec::new(),
+        type_param_bounds: Vec::new(),
+        params: Vec::new(),
+        body,
+        return_type: DataType::None,
+        visibility: Visibility::Public,
+        is_method: false,
+        name_line: 0,
+        name_column: 0,
+    };
+    program
+        .statements
+        .retain(|s| !matches!(s, Statement::Function { name, .. } if name == "main"));
+    program.statements.push(harness);
+}
+
+/// Auto-scope project + dependency `[macros]` declarations so that macro
+/// functions declared with `@[macro!]` in a library are usable as `name!(...)`
+/// in any project that depends on it — without a `load` at the call site.
+///
+/// Only the *project's own* `[macros]` and the `[macros]` of its direct
+/// dependencies are scanned (macro libraries don't chain further). Injected
+/// statements are de-duplicated by kind/name so re-running on the cached path
+/// is safe (this is only called on the uncached build path).
+///
+/// In strict security mode, macros from dependencies are only injected when
+/// the dependency's trust tier is `macros` or `ffi`.
+pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_path: &std::path::Path) {
+    use crate::loader::resolve_dependency_root;
+    use crate::parser::parse_with_recovery;
+    use crate::parser::ast::Statement;
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    let project_root = match find_project_root(source_path) {
+        Some(root) => root,
+        None => return,
+    };
+
+    let security_config = load_security_config();
+
+    // Names already present in the program (macros may be declared locally).
+    let mut existing_fns: HashSet<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut existing_externs: HashSet<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::ExternFunction { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let existing_loads: HashSet<Vec<String>> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Statement::Load { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut inject_from = |macros: &MireMacros, root: &Path, _source_label: &str| {
+        for (_name, rel_path) in macros.entries.iter() {
+            let Some(file) = resolve_macro_file(root, rel_path) else {
+                continue;
+            };
+            let src = match std::fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let (parsed, _) = parse_with_recovery(&src);
+            for stmt in parsed.statements {
+                match &stmt {
+                    Statement::ExternFunction { name: ename, .. } => {
+                        if existing_externs.insert(ename.clone()) {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    Statement::Load { path, .. } => {
+                        if !existing_loads.contains(path) {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    Statement::Function {
+                        name: fname, attributes, ..
+                    } => {
+                        if attributes.iter().any(|a| a.name == "macro!")
+                            && existing_fns.insert(fname.clone())
+                        {
+                            program.statements.push(stmt);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
+    if let Ok(Some(manifest)) = load_project_manifest(&project_root)
+        && let Some(macros) = &manifest.macros
+    {
+        inject_from(macros, &project_root, "this project's owl.toml");
+    }
+
+    if let Ok(Some(manifest)) = load_project_manifest(&project_root) {
+        let strict = security_config
+            .as_ref()
+            .map(|c| c.mode == SecurityMode::Strict)
+            .unwrap_or(false);
+        for (dep_name, dep) in manifest.dependencies.entries.iter() {
+            if strict {
+                let tier = security_config
+                    .as_ref()
+                    .and_then(|c| c.deps.get(dep_name).copied())
+                    .unwrap_or(TrustTier::Code);
+                if tier < TrustTier::Macros {
+                    continue;
+                }
+            }
+            let Some(root) = resolve_dependency_root(&project_root, dep_name, dep) else {
+                continue;
+            };
+            if let Ok(Some(dep_manifest)) = load_project_manifest(&root)
+                && let Some(dep_macros) = &dep_manifest.macros
+            {
+                inject_from(dep_macros, &root, dep_name);
+            }
+        }
+    }
+}
+
+fn load_security_config() -> Option<SecurityConfig> {
+    let cwd = std::env::current_dir().ok()?;
+    let manifest = crate::load_project_manifest(&cwd).ok()??;
+    manifest.security
+}
+
+fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::path::PathBuf> {
+    let canonical_root = root.canonicalize().ok()?;
+    let check = |p: &std::path::Path| -> Option<std::path::PathBuf> {
+        let c = p.canonicalize().ok()?;
+        if c.starts_with(&canonical_root) && c.is_file() {
+            Some(c)
+        } else {
+            None
+        }
+    };
+    let candidate = root.join(rel_path);
+    if let Some(file) = check(&candidate) {
+        return Some(file);
+    }
+    let with_ext = candidate.with_extension("mire");
+    if let Some(file) = check(&with_ext) {
+        return Some(file);
+    }
+    let mod_file = candidate.join("mod.mire");
+    check(&mod_file)
+}

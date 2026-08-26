@@ -2,6 +2,904 @@
 
 All notable changes to Mire are documented in this file.
 
+## [3.24.27] - 2026-08-06 (PAL FS removal API: pal_root_remove / pal_fs_remove)
+
+### Added
+
+- **`pal_root_remove(pal_root_t root, const char *rel_path)`** — the PAL
+  capability primitive for single-entry removal. Unlinks exactly one entry
+  (regular file, symlink, or empty directory) relative to a root handle and
+  never follows symlinks: a trailing symlink is unlinked, and intermediate
+  symlinks in the path are rejected (`PAL_ERR_PERMISSION`). `..`/`.`/empty
+  basenames are rejected (`PAL_ERR_INVALID`). A non-empty directory fails with
+  the new `PAL_ERR_NOT_EMPTY`; the entry is untouched.
+- **`pal_fs_remove(const char *path)`** — host-only absolute-path removal
+  (same errno mapping), gated behind `PAL_ALLOW_UNSANDBOXED` alongside the
+  other `pal_fs_*` primitives.
+- **`PAL_ERR_NOT_EMPTY`** appended to `pal_error_code_t` (append-only enum
+  addition; `pal_strerror`/`pal_core_errno_map` extended: `ENOTEMPTY`/`EEXIST`
+  → `NOT_EMPTY`, `ENOENT`/`ENOTDIR` → `NOT_FOUND`,
+  `EACCES`/`EPERM`/`ELOOP`/`EXDEV` → `PERMISSION`,
+  `EISDIR`/`EINVAL`/`ENAMETOOLONG` → `INVALID`, `EBUSY` → `BUSY`).
+- **kioto `fs::remove(path)` / `fs::remove_all(path)` / `fs::last_error()`**:
+  `fs::remove` is the 1:1 capability wrapper; `fs::remove_all` composes
+  recursion in Mire over `pal_dir_open` + `pal_root_remove` (never in PAL).
+  `fs::last_error()` returns the PAL error code after a failure (used for
+  `PAL_ERR_NOT_EMPTY` on non-empty-directory removal).
+- **Error-code fidelity in dispatch**: the open/create-family dispatch
+  functions (`pal_root_open`, `pal_file_open`, `pal_dir_open`,
+  `pal_proc_create`, `pal_socket_connect`, `pal_listener_bind`,
+  `pal_listener_accept`, `pal_channel_create`, `pal_secret_create`) now map
+  the backend errno through `pal_core_errno_map` instead of reporting a
+  hard-coded `PAL_ERR_IO`. A failed `pal_root_open` on a missing path now
+  reports `PAL_ERR_NOT_FOUND`.
+
+### Changed
+
+- **Linux backend (`src/pal/linux/pal_linux.c`)**: new parameterized
+  `linux_openat2_resolve(dirfd, path, flags, how)` helper; the sandboxed
+  `linux_openat2_sandbox` delegates to it with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. `linux_root_remove` resolves the
+  parent with `RESOLVE_NO_SYMLINKS` only — `RESOLVE_BENEATH` returns `EXDEV`
+  when a relative path crosses a mount point (e.g. relative-to-`/` access to
+  tmpfs `/tmp`), which would make ordinary capability removal fail; `..`
+  is blocked by basename validation instead. Removal then `fstatat` with
+  `AT_SYMLINK_NOFOLLOW` and `unlinkat` (with `AT_REMOVEDIR` for directories).
+
+### Removed
+
+- Nothing removed.
+
+### Tests
+
+- kioto `tests/fs_remove.mire` — 10 tests: single file/empty-dir removal,
+  missing → `NOT_FOUND`, non-empty dir → `NOT_EMPTY` (dir survives), nested
+  `remove_all`, `remove_all` on a file, and four symlink-escape cases
+  (top-level link to outside file/dir, `remove_all` on a top-level link, and a
+  link inside a subdirectory — external targets always left intact).
+- `language_regressions.rs` `pal_fs_remove_symlink_safe` — end-to-end Mire
+  program exercising `fs::remove_all` over a tree containing a symlink, plus
+  `fs::remove` + `fs::last_error() == 11` on a non-empty dir.
+- Standalone C conformance harness (host-side, `/tmp/opencode/rmtest`) — all
+  checks green including traversal rejection and outside-target preservation.
+
+## [3.24.26] - 2026-08-05 (shell migration: proc::run::shell removed)
+
+### Removed
+
+- **`proc::run::shell` removed**: the last Mire surface that invoked a shell
+  (`/bin/sh -c`) via `popen`/`system()` is gone. All process launching is now
+  argv-safe (`fork`+`execvp`, no shell interpolation). The old escape hatch
+  `proc::run::shell(cmd)` is replaced by:
+  - `proc::run::output_cwd(cmd, args, cwd, merge_err)` — argv capture with
+    optional working directory and stderr merge.
+  - `proc::run::last_exit()` — exit code of the last capture (0 = success,
+    126 = bad cwd, 127 = spawn failure).
+  - `proc::run::read_line()` — reads the controlling terminal directly (no
+    subprocess; returns `"y"` in non-interactive contexts).
+- **`PAL_ALLOW_LEGACY_SHELL` default flipped to `0`**: `pal_proc_system`,
+  `pal_proc_capture`, `pal_proc_capture_output`, and `rt_proc_capture_output`
+  are compiled out by default. Re-enable with `-DPAL_ALLOW_LEGACY_SHELL=1`
+  only for explicitly-trusted host-side code.
+- **`language_regressions.rs` test `pal_proc_shell_echo`** renamed to
+  `pal_proc_argv_echo` and rewritten to use `proc::run::output` (argv) instead
+  of `proc::run::shell`.
+
+### Changed
+
+- **`PAL_ALLOW_LEGACY_SHELL` default changed from `1` to `0`** in
+  `src/pal/pal.h`. All runtime shell functions are now gated behind this flag.
+- **kioto `core/proc/mod.mire`**: removed `proc::run::shell` and its
+  `rt_proc_capture_output` extern; added `rt_proc_capture_argv2`,
+  `rt_proc_last_exit`, `rt_read_tty` externs and the `output_cwd`,
+  `last_exit`, `read_line` APIs.
+- **owl tool**: `code/upgrade/mod.mire`, `code/install/mod.mire`, and
+  `code/registry/mod.mire` migrated from shell commands to argv-safe
+  `proc::run::output_cwd` / `proc::run::read_line` calls.
+- **owl test suite**: all 5 `test_owl_*.mire` files rewritten to use argv
+  APIs exclusively (no `cd &&`, no `2>&1`, no `mkdir -p`, no `rm -rf` via
+  shell — all via `proc::run::output` / `proc::run::output_cwd`).
+
+## [3.24.25] - 2026-08-05 (WAL cache concurrency hardening)
+
+### Fixed
+
+- **WAL cache corruption under parallel builds** (`incremental/cache.rs`): `mire test -j N` runs
+  N threads in one process, each with its own `IncrementalCache` but all sharing one `bin/.cache`.
+  The old WAL filename was just `{timestamp_ms}.wal`, so two writers starting in the same
+  millisecond opened the same path with `File::create` — one truncating the other's file to
+  invalid/partial UTF-8 JSON. The next load then failed hard with
+  `Cannot decode WAL file '<path>/wal/<ts>.wal' at line 1: EOF while parsing an object ...`,
+  which only self-healed when a concurrent `clear_wal` happened to delete the corrupt file
+  (the "must `rm -rf bin/.cache`" failure).
+- **Hard load failure on any corrupt WAL line**: a truncated/interleaved WAL line now drops
+  just that file (with a warning) and replays the records that decoded, instead of failing the
+  whole cache load.
+- **WAL files removed only by their owner**: `save()` previously ran `clear_wal`, deleting WAL
+  files that a concurrent writer may still have been writing. It now tracks the paths this
+  instance created and removes only those; abandoned writers' files are bounded by age.
+- **Fresh-cache wipe race** (`incremental/cache.rs` `load_with_settings`): on a brand-new
+  `bin/.cache` every parallel `mire test` thread read "no version file" and each ran
+  `remove_dir_all` on the shared directory while its siblings were mid-write — deleting their
+  blobs/WAL files. Cache initialization (version check + wipe + version write + WAL prune) is
+  now serialized with an exclusive `create_dir` init lock; non-holders wait (stale-lock timeout
+  for crashed holders).
+- **Test harness leaked into the analysis cache** (`avens/build_pipeline.rs`): the uncached
+  build path ran `inject_test_harness` (which replaces the user's `main` with the test runner)
+  *before* `store_analysis`, so `mire test` persisted the harness-injected program under the
+  normal analysis key. A later `mire run`/`owl run` (same source/hash/fingerprint) loaded that
+  polluted entry and executed tests instead of the real `main`. The harness is now injected only
+  into the codegen copy, after analysis and after the clean program is stored.
+- **Build cache could not tell test and normal builds apart** (`incremental/utils.rs`
+  `build_cache_key`): `test_mode` was not part of the key, so a test-mode build and a run-mode
+  build with the same profile collided and served each other's binaries. `test_mode` is now a
+  key component (passed through `build_entry`/`store_build`).
+
+### Changed
+
+- WAL filenames are now `{timestamp_ms}-{pid}-{seq}.wal`, created with `O_CREAT|O_EXCL`
+  (`create_new`), so concurrent writers can never collide. Records are flushed with `sync_all`.
+- All meta writes (`index/*`, `version.txt`) and blob stores go through `atomic_write`
+  (unique `.name.tmp.{seq}` temp + `fs::rename`); readers never observe a partial file.
+- Blob GC and WAL pruning are age-gated (`WAL_GRACE_SECS=60`, `BLOB_GRACE_SECS=30`) so cleanup
+  never races an in-flight writer's freshly written file.
+- `NEW_FORMAT_VERSION` bumped 3 → 5: caches holding corrupt same-ms WAL files, and caches whose
+  analysis entries may hold a baked-in test harness, are wiped once so every consumer starts
+  from a clean, concurrency-safe layout.
+
+### Tests
+
+- `wal_filenames_are_collision_free_across_writes`: 50 back-to-back WAL writes produce 50
+  unique files that all replay.
+- `replay_wal_ignores_corrupt_and_truncated_files`: a truncated JSON WAL and a binary-garbage
+  WAL are dropped (with warnings) while the valid file's records still replay.
+- `prune_stale_wal_removes_only_old_files`: only files older than the grace window are removed.
+- `concurrent_caches_share_one_cache_dir_without_corruption`: 8 threads × 16 store rounds on a
+  single shared `bin/.cache` (including the simultaneous cold start), then a fresh load must see
+  all 8 writers' final entries.
+- `build_cache_distinguishes_test_and_normal_builds`: storing the same build with `test_mode`
+  true then false yields two distinct entries, each retrievable by its own key.
+
+## [3.24.24] - 2026-08-04 (.method() syntax for builtin collections)
+
+### Added
+
+- **Cache blob checksum validation (strict mode)** (`incremental/cache.rs`, `incremental/utils.rs`,
+  `incremental/mod.rs`, `avens/config.rs`): in `mode = "strict"`, every cached blob read is
+  re-hashed and compared to its filename (the filename is the content checksum). A mismatch —
+  on-disk corruption or tampering — deletes the blob and treats the entry as a cache miss, so
+  tampered bytes are never deserialized. Controlled via `[cache].blob_checksum`; defaults to
+  `true` under strict security mode, `false` otherwise (`CacheSettings::blob_checksum`,
+  `CacheOverrides::blob_checksum`).
+- **Manifest entry path containment** (`avens/manifest.rs` `check_entry_containment`,
+  `loader/load.rs` `resolve_package`, `cli/options.rs` `default_entry_from_manifest`):
+  `[project].entry` paths that are absolute or resolve outside the package root via `..`
+  are rejected with an explicit error instead of being loaded (`EntryContainment::EscapesRoot`).
+  Replaces the previous load-time-only containment (exports already checked; entry was not).
+
+### Tests
+
+- `cache_blob_checksum_rejects_tampered_blob_in_strict_mode`: tampered blob → miss + blob
+  deleted in checksum mode.
+- `cache_without_checksum_accepts_tampered_blob`: open mode still trusts the cache (miss via
+  deserialization, blob kept).
+- `entry_containment_accepts_entry_inside_root` / `rejects_absolute_escape` /
+  `rejects_dotdot_escape` for `check_entry_containment`.
+
+### Docs
+
+- `docs/SECURITY.md`: new "Cache Integrity & Path Containment" section documenting
+  `[cache].blob_checksum` and `check_entry_containment` behavior.
+
+### Fixed
+
+- **Macro auto-scope strict-mode gate** (`avens/build_support.rs` `inject_macros`):
+  macro injection from dependency `[macros]` sections is gated on `mode = "strict"`
+  security; in strict mode each dep must be at least `TrustTier::Macros`. In open mode
+  all deps' macros auto-scope (the `[macros]` manifest contract), preserving the
+  non-strict behavior.
+- **`resolve_macro_file` canonicalization** (`avens/build_support.rs`): candidate
+  resolution now canonicalizes each candidate and verifies it stays under the
+  canonical dependency root before accepting a file (fixes symlink/`..` escapes and
+  stale-root comparisons).
+- **Case-insensitive `[security]` enum values** (`avens/config.rs`): `SecurityMode`
+  and `TrustTier` now use `#[serde(rename_all = "lowercase")]`, so
+  `mode = "strict"` and `deps = { mire = "macros" }` parse as documented instead of
+  failing the whole manifest with "unknown variant". (Previously only the
+  capitalized forms `"Strict"`/`"Macros"` worked; lowercase configs broke at load.)
+
+### Added
+- **`.method()` syntax for builtin collections**: `v.len()`, `v.get::i64(1)`, `m.len()`, `s.len()` now work. The parser normalizes `::` to `.` in dotted names (`src/parser/expression_primary.rs`); `builtin_method_target` in `typeck_expressions.rs` now produces `.`-separated names matching the function table keys. Overloaded methods with type suffixes (`v.get::i64(1)`) are handled by extracting the base method name and delegating type-suffix selection to `builtin_method_target` — no double-suffix appending.
+
+## [3.24.23] - 2026-08-02 (incremental roundtrip + HOF externs + stale-test migration)
+
+### Fixed
+
+- **Incremental cache version-file parse bug** (`incremental/cache.rs`): `version.txt`
+  is written as two lines `"MIREINC4\n3\n"` (format tag + version) but `load_with_settings`
+  parsed the whole trimmed content as a single `u32`, so the parse always failed and the
+  cache was wiped on every load (regression from 8b5bc4d). Now reads line 1 as the format
+  tag and the last line as the version; wipes only when either mismatches
+  `NEW_CACHE_FORMAT`/`NEW_FORMAT_VERSION` (3). This fixed all 4 `incremental::hashing`
+  roundtrip tests.
+- **Meta key reconstruction after reload** (`incremental/cache.rs`, `cache_types.rs`):
+  `load_*_metas` keyed in-memory maps by the hash-file stem instead of the original key,
+  so `latest_successful_analysis`/`analysis_invalidation_report` false-missed after a
+  reload. Added `#[serde(default)] key: String` to `FileMeta`/`AnalysisMeta`/`BuildMeta`/
+  `MirMeta`; `write_*_meta` stamp it; `load_*_metas` prefer the persisted key (fall back
+  to the stem for pre-key meta files). Removed dead `wal_records` accumulation in `save()`.
+- **HOF `lists::*` builtins emitted undefined rt globals**: `list_hofs` (and downstream
+  list HOF usage) failed with "use of undefined value '@rt_lists_get_i64'". The HOF
+  lowering (`lower/expr_collections.rs`) emits `rt_list_create`/`rt_list_len`/
+  `rt_list_push_i64`/`rt_list_push_ptr`/`rt_lists_get_i64`, but only `rt_lists_contains_i64`
+  was declared in `builtin_runtime_externs` (`lower/mod.rs`). Added the 5 missing externs.
+- **Stale test sources migrated to the current kioto API** (`tests/language_regressions.rs`,
+  `tests/syntax/prototype.mire`, `tests/compiler_benchmarks.rs`): the old kioto
+  `lists`/`dicts` modules were removed (session 2) and kioto functions were namespaced
+  (session 5), leaving 11 regression tests + benchmark snippets broken. Migrated
+  `lists.*` → `vec::*` (`len`, `get::i64`, `first::i64`, `last::i64`, `index::i64`,
+  `contains::i64`, `push::i64`), `dicts.*` → `map::*` (`len`, `has`, `is::empty`,
+  now with explicit `load mire::map`), `env.get` → `env::var`, `fs.mkdir/rmdir` →
+  `fs::dir::create/remove`, `fs.join/dir/name/ext` → `fs::path::*`, `proc.shell/spawn` →
+  `proc::run::shell/spawn`, `async.ready/value` → `async::task::ready/value`,
+  `fs::root_open(".")` → `fs::root::open(".")`, `time::unix::ms()` → `time::now::ms()`.
+
+### Changed
+
+- Stale benchmark `term::bar` section replaced with `kioto_math_ops` (`math::abs`/`math::clamp`)
+  since the kioto `term` module was removed.
+
+## [3.24.23] - 2026-08-02 (PAL Core/backend hardening — races, traversal, slot ownership)
+
+### Fixed
+
+- **Slot table made thread-safe** (`pal_core.c`): added atomic `pal_core_validate_and_get`
+  (validate + internal access under `g_mutex`, replacing the `validate`+`get_internal`
+  two-step that raced with reserve/release). `pal_core_release` now rejects handles owned
+  by another thread (was an ownership/type confusion). `pal_core_validate`/`get_internal`
+  take `g_mutex`; removed dead `pal_core_set_internal`.
+- **Dispatch layer now validates everything** (`pal_dispatch.c`): every operation goes
+  through `pal_core_validate_and_get`; sockets/listeners/channels were previously
+  `get_internal`-only (type confusion could reinterpret memory). All `_close` fns release
+  the slot ONLY after validation succeeds — fixed the unconditional `pal_core_release`
+  that could free a live resource's slot (OS fd/pipe/zombie leaks). `pal_proc_create`
+  validates its 3 channel args (`{0,0}` = "no pipe" passes through).
+- **Path traversal blocked** (`pal_linux.c`): `linux_openat2_sandbox` uses
+  `openat2` + `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` for relative paths
+  (`../`/symlink escapes rejected — verified `../etc/passwd` → EXDEV). Absolute paths fall
+  back to legacy `openat` (kioto passes absolutes through `pal_file_open(root, path)`);
+  ENOSYS (kernel < 5.10) → `openat`. `linux_root_open` TOCTOU removed (redundant `stat`).
+  `linux_dir_next` handles `DT_UNKNOWN` via `fstatat`.
+- **Compiler: member access on `&T`/`&mut T` struct params** lowered to constant 0:
+  `get_struct_name` (`expr_values.rs`) now derefs `Ref`/`RefMut` to the inner struct name
+  (`ch.handle` on `&Channel` was emitting `i64 0`, breaking channel roundtrip).
+- **Thread-safety/minor**: `g_cwd_buf` is now `__thread`; removed dead `g_proc_buf[65536]`;
+  added `pal_last_error_message()` getter ([BORROWED], thread-local, host-side only).
+
+### Changed
+
+- `pal.h`/`pal_core.h`: documented `pal_last_error_message()` (host-side error message
+  getter; not added to codegen catalogue to keep the ABI surface unchanged).
+
+## [3.24.23] - 2026-08-01 (PAL v4 hardening: sandbox isolation, ownership, struct-return audit)
+
+### Fixed
+
+- **PAL absolute-path operations isolated** (`pal_fs_exists/mkdir/rmdir/unlink/read_file`):
+  wrapped in `PAL_ALLOW_UNSANDBOXED` guard (default ON for compat, flip to 0 to strip).
+  Documented as UNSANDBOXED — bypass root capabilities; never expose to untrusted Mire code.
+  `pal_fs_read_file` now returns `NULL` on error instead of a string literal (was `free("")` UB).
+- **Legacy shell operations gated** (`pal_proc_system/capture/capture_output`):
+  wrapped in `PAL_ALLOW_LEGACY_SHELL` guard (default ON). Documented as command-injection surface;
+  `pal_proc_capture_output` now returns `NULL` on error instead of `""` (was `free("")` UB).
+- **Crypto error codes unified**: `pal_crypto.h` functions now return `pal_error_code_t`
+  (`PAL_ERR_OK` / non-zero) instead of raw `int`, matching the PAL error convention.
+  Header includes `pal.h` for the error enum.
+- **Codegen struct-return orphan declarations removed**: `pal_dir_next(i64,ptr)->i1` and
+  `pal_channel_recv(i64,ptr)->i1` in `builtins.rs` had signatures that don't match the C ABI
+  (C returns 259B and 16B structs respectively; codegen has no struct-return support).
+  Removed from codegen and `docs/abi_map.toml` (128 → 126 symbols). Kioto already uses safe
+  bridges (`pal_dir_next_name`, `rt_channel_recv_into`).
+- **Ownership conventions documented** in `PAL-ABI.md`: `[PAL-OWNED]` (caller frees),
+  `[BORROWED]` (static, don't free), `[WRITE-INTO]` (caller buffer).
+  Sandbox boundaries and sret ABI rule also documented.
+
+### Changed
+
+- `docs/abi_map.toml`: `symbol_count` 128 → 126 (removed orphan `pal_dir_next` and
+  `pal_channel_recv` entries).
+
+### Added
+
+- **Enum payload lowering (MIR)**: enums now carry payload fields. Variants are
+  lowered as tagged structs (`i64` discriminant + payload fields), matched
+  through `lower/mod.rs` `extract_enum_payloads` and `stmt.rs`
+  `bind_match_payloads`. Discriminant checks in `Statement::Match` select the
+  variant block and bind payload identifiers before the body.
+- **Enum constructors in the build pipeline**: `generate_enum_constructors`
+  emits a heap constructor per variant matching the tagged-struct layout.
+- **Incremental cache format v3**: cache version mismatch now wipes the cache
+  (`wipe_cache_dir`) instead of silently reusing stale analysis/MIR/builds.
+  WAL removal tolerates already-missing files.
+
+### Fixed
+
+- **Array-by-value garbage (critical)**: array expressions lower to a pointer
+  (alloca) but function signatures and return types use `[N x T]` by-value LLVM
+  types. `materialize_array_value` emits a `MirOp::Load` so callers pass by-value
+  arrays; `Statement::Return` materializes before `ret`. Borrowck treats
+  `DataType::Array` as Copy (fixed-size inline POD). Struct/enum constructors
+  pass array fields by value. `arr.mire` now prints `42`.
+- **Enum codegen type**: `DataType::EnumNamed` now lowers to `ptr` (heap tagged
+  struct) instead of `i64`, fixing payload matches.
+- **Imported method names canonicalized**: `semantic.rs` routes `impl` method
+  names through `canonical_fn_name` so qualified calls resolve consistently.
+- **Transitive path dependencies**: `loader/load.rs` absolutizes relative
+  dependency paths against the declaring package root, so a `load` deep inside a
+  dependency resolves against its own root, not the top-level consumer's.
+
+### Changed
+
+- `mire` stdlib collections: kioto `lists`/`dicts` removed in favor of
+  `mire::vec` / `mire::map` (see kioto CHANGELOG 2.4.3).
+- **Version**: 3.24.21 → 3.24.22
+
+## [3.24.21] - 2026-07-31 (OOP expansion: inheritance, skills, async, proc)
+
+### Added
+
+- **Struct inheritance (`extends`)**: A struct can extend a parent struct and
+  inherit its fields. Constructor accepts both parent and child fields (named
+  or positional). Inherited fields are accessible from local variables and via
+  `self` inside impl blocks. Single inheritance only. (`SYNTAX.md §10.5`)
+- **Skill inheritance (`super`)**: A skill can extend another skill, inheriting
+  its method signatures. The implementing type must provide all methods from
+  both the parent and child skills. (`SYNTAX.md §12.5`)
+- **Enum match inside impl blocks**: `match self { ... }` inside `impl Enum { }`
+  blocks now correctly lowers to discriminant checks and case blocks instead of
+  being silently dropped.
+- **`async` module** (`kioto::core::async`): Added `Task` struct, `ready()`,
+  `value()`, `spawn()`, `wait()` for async task/future pattern and process
+  spawning via PAL.
+- **`proc::shell(cmd)`** (`kioto::core::proc`): Captures command output via
+  `rt_proc_capture_output` (PAL-based, managed memory).
+
+### Fixed
+
+- **`strings.replace` → `strings.replace.all`**: Updated test to match the
+  current kioto namespace API.
+- **`owl_build_run_info_cycle`**: Uses `mire` instead of stale `owl` binary.
+
+### Changed
+
+- **Version**: 3.24.20 → 3.24.21
+
+## [3.24.20] - 2026-07-28 (Avenys test runner isolation)
+
+### Fixed
+
+- Test harness sources are generated outside the incremental cache, so cache
+  cleanup cannot remove a source while a test worker compiles it.
+- Recursive test discovery ignores `.git`, `.cache`, `target`, and `bin`
+  artifacts instead of treating generated sources as tests.
+
+## [3.24.19] - 2026-07-28 (Avenys documentation and PAL contract cleanup)
+
+### Changed
+
+- Updated README and SYNTAX to the current compiler version, module layout, Unicode terminology, and `mu` unit value.
+- Rewrote the current PAL ABI reference around the actual `{index, generation}` handles and `src/pal/pal.h` contract.
+- Removed obsolete v3 ABI inventory and the superseded PAL archive; the current symbol catalogue is `docs/abi_map.toml`.
+- Updated library and PAL documentation to describe Core dispatch and the current host adapter instead of removed TLS, WASM-stub, and legacy backend files.
+
+## [3.24.18] - 2026-07-28 (Avenys UTF-8 traversal correction)
+
+### Fixed
+
+- Corrected UTF-8 codepoint boundary traversal for length, substring, and index operations.
+- Invalid, truncated, overlong, surrogate, and out-of-range byte sequences are treated as individual invalid bytes instead of being misread as valid codepoints.
+- Clarified that the runtime's case conversion helpers are not a complete Unicode case-mapping implementation.
+
+## [3.24.17] - 2026-07-28 (Avenys runtime, cache, and lexer stabilization)
+
+### Changed
+
+- Extracted lexer keyword classification into `lexer/keywords.rs` and restored keyword token spans to the identifier start position.
+- Made incremental cache WAL replay, metadata writes, cleanup, and flush failures explicit instead of silently discarding I/O errors.
+- Repaired managed-string hash-table probe clusters after deletion and prevented duplicate or partially registered entries.
+- Added overflow checks to runtime list allocation and growth paths, plus safe handling for null list operands and invalid scalar element sizes.
+- Removed an unused UTF-8 cache helper and made the POSIX monotonic clock declaration explicit for strict C11 builds.
+
+## [3.24.16] - 2026-07-28 (Avenys build pipeline modularization)
+
+### Changed
+
+- Split runtime declarations, struct constructor generation, C object caching, cfg filtering, and test harness injection into `avens/build_support.rs`.
+- Reduced `avens/build_pipeline.rs` to build-phase orchestration and result handling.
+
+## [3.24.15] - 2026-07-28 (Avenys loader modularization)
+
+### Changed
+
+- Split expression, query-operation, and enum-variant renaming into `loader/rename_expression.rs`.
+- Kept module prefixing, declaration renaming, scope tracking, and type-name handling in `loader/rename.rs`.
+
+## [3.24.14] - 2026-07-28 (Avenys MIR modularization)
+
+### Changed
+
+- Split MIR list operations (`map`, `filter`, `fold`) into `compiler/mir/lower/expr_collections.rs`.
+- Split literal lowering, element-type lookup, and scalar conversion emission into `compiler/mir/lower/expr_values.rs`.
+- Kept `lower/expr.rs` focused on expression dispatch and scalar expression lowering.
+
+## [3.24.13] - 2026-07-28 (Avenys type checking)
+
+### Changed
+
+- Moved the type-checker test suite to `compiler/typeck_tests.rs`; production type checking no longer shares a 900-line test block in `typeck.rs`.
+
+## [3.24.12] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split conditional statements, loops, `find`, and `unsafe` parsing into `parser/statement_control.rs`.
+- Reduced `parser/statements.rs` below 700 lines while preserving statement dispatch behavior.
+
+## [3.24.11] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split function, nominal type, struct, type alias, and skill declarations into `parser/statement_declarations.rs`.
+- Kept statement dispatch and control-flow parsing in `parser/statements.rs`.
+
+## [3.24.10] - 2026-07-28 (Avenys parser modularization)
+
+### Changed
+
+- Split expression precedence and unary parsing into `parser/expression_precedence.rs`.
+- Split primary expressions, closures, lifecycle expressions, and conditional expressions into `parser/expression_primary.rs`.
+- Reduced `parser/expressions.rs` to postfix, calls, literals, interpolation, and assignment-target responsibilities.
+
+## [3.24.9] - 2026-07-28 (Avenys diagnostics)
+
+### Fixed
+
+- The loop string-concatenation warning now requires the identifier's actual `str` type instead of treating every identifier as a string.
+
+## [3.24.8] - 2026-07-28 (Avenys stabilization)
+
+### Changed
+
+- Separated persistent cache records and metadata types from cache coordination logic without changing the on-disk format.
+
+## [3.24.7] - 2026-07-28 (Avenys stabilization)
+
+### Changed
+
+- Separated borrow-checker scope and binding state management into its own module.
+- Separated warning diagnostic emission and `deny(unsafe)` validation from AST scanning.
+- Preserved existing cache, parser, and diagnostic behavior while reducing compiler cross-responsibility.
+
+## [3.24.6] - 2026-07-28 (Avenys modularization)
+
+### Changed
+
+- Moved `ErrorKind` to diagnostic metadata and help resolution in `src/error/kind.rs`, keeping error construction focused on lifecycle and context.
+- Renamed the parser's `imports.rs` unit to `loads.rs`; it contains only `load` and `load!` parsing.
+- `mu` is the sole unit type/literal spelling in the parser; the obsolete `none` compatibility diagnostic was removed.
+
+## [3.24.5] - 2026-07-27 (Avenys stabilization)
+
+### Fixed
+
+- C source discovery now propagates filesystem errors instead of silently producing an incomplete runtime link set.
+- `rt_build_argv` validates inputs and arithmetic, checks every allocation, and releases partially built argv arrays on failure.
+- Process cleanup no longer kills or waits on a process after it has already been reaped.
+
+### Changed
+
+- C source collection is recursive and owned by the toolchain module rather than the build pipeline.
+- PAL conformance checks resolve implementations from the current PAL Core/runtime tree, matching the PAL v4 layout.
+
+## [3.24.4] - 2026-07-27 (PAL v4 Handle Safety & Kioto proc/fs Fixes)
+
+### Fixed
+
+- **PAL slot table recycling**: `pal_core_reserve` now uses `in_use` flag for the free
+  list instead of generation wraparound. `pal_core_release` clears `in_use` without
+  resetting `generation`, eliminating ABA-style handle reuse bugs.
+- **`pal_core_validate(slot, generation, type)`** added as the canonical handle validity
+  check — verifies `in_use && generation match && type match`. Wired up in all 30+
+  handle-based dispatch functions in `pal_dispatch.c`.
+- **`pal_dir_next` ABI mismatch** (memory corruption on every directory iteration):
+  The C function `pal_dir_next(pal_dir_t dir)` returns `pal_dir_entry_t` (259 bytes)
+  by value, requiring a hidden pointer on x86-64 SysV ABI. Kioto's Mire FFI declared it
+  as `(dir :i64, entry :&str) :i64` — completely wrong return model and ghost parameter.
+  Added `pal_dir_next_into(pal_dir_t dir, pal_dir_entry_t *out)` (struct-pointer out-param)
+  and `pal_dir_next_name(dir, out_buf, cap)` (Kioto-friendly name-only helper) to
+  `pal_dispatch.c` and `pal.h`. Updated Kioto `fs.mod.mire` to use `pal_dir_next_name`.
+- **`proc.spawn` was using shell via `pal_proc_system`**, ignoring `args` and leaking
+  shell injection surface. Now uses `pal_proc_create(argv, PAL_SPAWN_WAIT, ...)` via
+  `rt_build_argv(cmd, args)` — proper argv construction, no shell, blocking exit code.
+- **`proc.wait` was calling `pal_proc_wait_pid` with a PAL handle** instead of PID.
+  Fixed to use `pal_proc_wait(pal_process_t proc)` (handle-based wait).
+- **`pal_proc_create` ABI mismatch** — Kioto declared `argv :&str` (`const char *`) but
+  C expects `const char **`. Added `rt_build_argv(cmd, args_vec, argc_out)` runtime helper
+  that marshals `vec[str]` → `char **argv` with NULL terminator, plus `rt_free_argv` for cleanup.
+- **Kioto `fs.join`/`fs.dir`/`fs.name`/`fs.ext`**: replaced broken builtins `concat(a,b)`
+  and `substr(s,i,n)` with `rt_string_concat` and `rt_strings_substr` respectively.
+  Also added `"concat"` and `"substr"` to the MIR lowerer's `builtin_names` protection list.
+- **Dead code cleanup**: Removed unused `g_proc_buf[65536]` and dead `pal_slot_t *s`
+  in `pal_dispatch.c`.
+
+### Changed
+
+- **Kioto version**: 2.3.2 → 2.4.0
+
+## [3.24.3] - 2026-07-26 (Nested Function Flattening)
+
+### Added
+
+- **Nested function definitions**: Functions can now be defined inside other
+  function bodies. A flattening pass automatically promotes nested `fn`
+  declarations to top-level with `parent::child` naming:
+  - Single level: `pub fn unwrap: () { pub fn i64: ... }` → `unwrap::i64`
+  - Multi-level: `unwrap::i64::or` via deeper nesting
+  - Parent functions with ONLY nested fn children become empty namespace anchors
+  - Mixed bodies supported — parent keeps executable statements, children promoted
+  - Flat (`pub fn unwrap::i64:`) and nested styles coexist (backward compatible)
+  - Flattening runs inside `parse()` — all parse paths get it automatically
+  - Visibility modifiers (`pub`/`fn`) preserved through flattening
+- **Loader prefix-group fallback**: `load mire::maybe::unwrap` (3+ segments)
+  falls back to loading the parent module (`mire::maybe`) and filtering exports
+  by prefix (`unwrap::`), enabling targeted imports of grouped functions.
+- **7 unit tests** in `src/parser/flatten.rs` + **8 integration tests** in
+  `tests/nested_functions.rs`
+
+### Changed
+
+- **`mire::maybe` stdlib module**: Rewritten with nested function grouping
+  (`some`, `is`, `unwrap` groups). All 27 functions preserved.
+
+## [3.24.2] - 2026-07-26 (Stdlib Consolidation & Crypto Removal)
+
+### Removed
+
+- **`mire::math` stdlib module**: Removed 32 functions (pi, sin, cos, tan, sqrt, pow,
+  sum, mean, range, random, etc.) — exact duplicates of `kioto::math`. Use
+  `load kioto::math` instead.
+- **`mire::io` stdlib module**: Removed 4 functions (print, println, input,
+  input_prompt) — duplicates of `kioto::proc`. Use `load kioto::proc` instead.
+- **`crypto::` builtins from avenys**: Removed SHA-256, HMAC-SHA256, base64, and hex
+  encode/decode builtins (`crypto.c`, LLVM extern declarations, ABI map entries,
+  SYNTAX.md documentation). Kioto's `kioto::crypto` module provides the full crypto
+  API. Three byte/file utility helpers (`rt_crypto_byte_at`, `rt_read_bytes`,
+  `rt_hex_to_file`) retained in `helpers.c` for kioto compatibility.
+- **Dead `std_module_members` function**: Removed unused `std_module_members()` from
+  `builtins/mod.rs` (defined but never called).
+
+## [3.24.1] - 2026-07-26 (Loader Modularization & Clippy Cleanup)
+
+### Added
+
+- **Loader module split**: Modularized `loader.rs` (1887 lines) into 6 focused files:
+  - `mod.rs` — types, public API, `load_file` dispatcher
+  - `files.rs` — file I/O, parsing, cache, dependency candidates
+  - `load.rs` — regular `load`/`use` package resolution
+  - `lload.rs` — local `load!`/`use!` resolution
+  - `select.rs` — import selection and transitive dependency resolution
+  - `rename.rs` — `ModuleRenamer` (scoped prefix renaming)
+
+### Fixed
+
+- **Zero clippy warnings**: Resolved all 40 lib + 4 bin clippy warnings across the
+  codebase — collapsed nested `if` blocks, replaced manual pattern matching with
+  `unwrap_or`/`is_some_and`/`next_back`/`strip_prefix`, removed redundant dereferences,
+  eliminated identical if-else branches, and fixed unused variable warnings.
+- **`canonical_fn_name` centralized**: All 12 scattered `name.replace("::", ".")` calls
+  replaced with a single utility function in `lib.rs`.
+
+## [3.24.0] - 2026-07-26 (`::` Preservation & Normalization)
+
+### Fixed
+
+- **`::` naming convention preserved in AST**: Parser now keeps `::` separators in
+  function declaration names (`pub fn get::i64:` → AST name `get::i64` instead of
+  `get.i64`). This allows the renamer to correctly distinguish original names from
+  already-prefixed names, fixing double-prefixing in nested module loads (e.g.,
+  `http.server.server.mime`).
+- **`::` → `.` normalization at boundaries**: Normalization is applied exactly once
+  at each compiler boundary where `.` is required:
+  - Type checker: `collect_function_signatures`, `collect_function_return_signatures`,
+    `check_function_statement` normalize when inserting into function lookup tables.
+  - MIR lowerer: `MirFunction::new`, `seen_functions`, extern function names are
+    normalized to `.` for LLVM compatibility.
+  - Codegen: `sanitize_fn_name` normalizes `::` to `.` for valid LLVM IR identifiers.
+  - Loader: `infer_reachable_import_items` normalizes exports when matching against
+    call candidates.
+- **Expression parser `::` chains**: `name::member(args)` now correctly parses as a
+  Call expression with a while-loop that handles arbitrary-length chains
+  (`maybe::unwrap::i64::or(args)` → `maybe.unwrap.i64.or`).
+- **Expression parser `.` Call expressions**: `name.member(args)` now also parses as
+  a Call expression instead of requiring an explicit `::` separator.
+- **Keyword support in function names**: `expect_ident()` and `is_member_name_token()`
+  now handle `Is`, `To`, `Find` keywords, enabling names like `is::some`, `to::str`,
+  `find::first`.
+- **Error formatting for unknown spans**: Errors with unknown spans but known
+  filenames now show just the filename (no `0:0`), and the "toolchain error" note
+  only appears when BOTH span and filename are unknown.
+- **Source text in diagnostics**: `ensure_context()` method on `MireError` ensures
+  all errors carry filename and source text before reaching the CLI, enabling
+  source text rendering in error output.
+
+### Changed
+
+- **`infer_reachable_import_items`**: Simplified `::` matching — exports are now
+  normalized to `.` before comparing against call candidates, removing the
+  `prefixed_double_colon` special case.
+
+## [3.23.0] - 2026-07-25 (Source Span Coverage)
+
+### Added
+
+- **`DiagnosticCode::E0017` (CLI Error)**: New error code for invalid CLI flags,
+  missing input files, and other command-line argument errors. Maps to title
+  "CLI Error" in `map_kind()` and is serialized/deserialized via
+  `StoredErrorKind::Cli` in the incremental cache.
+- **`ErrorKind::Cli { message }`**: New variant for CLI-level errors, replacing
+  all `ErrorKind::runtime_msg()` calls in the CLI layer. Constructor:
+  `MireError::cli(message)`.
+- **`Expression::Literal` source spans**: The `Expression::Literal` variant now
+  carries `line` and `column` fields. `expression_location()` returns real source
+  positions instead of `Span::unknown()` for all literal expressions.
+- **`Expression::EnumVariantPath` / `Expression::EnumVariant` source spans**: Both
+  variants now carry `line` and `column` fields. `expression_location()` returns
+  real source positions.
+- **`Statement::Load` source spans**: The `load` statement now carries `line` and
+  `column` fields. `statement_location()` returns the real source position.
+- **`Statement::LoadLocal` source spans**: The `load!` statement now carries
+  `line` and `column` fields. `statement_location()` returns the real source
+  position.
+- **`Statement::ExternLib` source spans**: The `extern ... lib "c"` declaration
+  now carries `line` and `column` fields.
+- **`Statement::ExternFunction` source spans**: The `extern fn` declaration now
+  carries `line` and `column` fields.
+- **Loader source spans**: `resolve_package`, `resolve_load_path`, and
+  `resolve_load_local_target` now accept a `Span` parameter threaded from the
+  calling `Statement::Load` / `Statement::LoadLocal`. Loader errors (package not
+  found, export not found, cyclic load) now report the source position of the
+  `load` statement instead of `0:0`.
+
+### Fixed
+
+- **Build error spans**: `compile_binary_from_ir` errors (clang spawn, stdin
+  write, wait, failure) now report `Span::new(1, 1)` instead of
+  `Span::unknown()`. The format layer shows `<no source location available>`
+  instead of the misleading `<location recorded at 0:0>` and the
+  "compiler bug or toolchain error" note.
+- **`Expression::Literal` match coverage**: All 131 match sites across the
+  codebase updated to use struct-pattern syntax (`Expression::Literal { lit, .. }`
+  or `Expression::Literal { .. }`).
+
+### Removed
+
+- **`ErrorKind::runtime_msg()`**: Dead code (0 callers) — replaced by
+  `ErrorKind::Cli` for CLI errors and `ErrorKind::Runtime` for runtime errors.
+- **`MireError::unknown()`**: Dead code (0 callers) — all former usages now use
+  `MireError::cli()` or `Span::new(1, 1)` as appropriate.
+
+### Changed
+
+- **CLI error messages**: All 23 `runtime_msg()` calls in the CLI layer
+  (`cli/options.rs`, `cli/test.rs`, `cli/files.rs`) replaced with `cli_msg()`
+  using `MireError::cli()`. Invalid flags, unknown commands, and missing input
+  files now show `error[E0017] ── CLI Error`.
+- **`Span::unknown()` count reduced**: From ~70 to ~61 usages across the
+  codebase. Remaining usages are all in infrastructure code (toolchain, cache,
+  build pipeline, top-level entry points) where no source context exists.
+
+## [3.22.0] - 2026-07-24 (Runtime Production Readiness)
+
+### Added
+
+- **`?` operator for `result[T E]`**: Error propagation in MIR lowerer. If the
+  value is `Ok(v)`, unwraps to `v`; if `Err(e)`, returns early from the enclosing
+  function with `Err(e)`. Requires the enclosing function to return `result[T E]`.
+  Uses `rt_result_is_err` / `rt_result_unwrap_i64/str/f64/ptr` for type-specific
+  unwrapping. Implemented in `src/compiler/mir/lower/expr.rs`.
+- **`?` operator for `maybe[T]`**: Same semantics for Maybe — if `Some(v)`,
+  unwraps; if `None`, returns early. Uses `rt_maybe_is_none` /
+  `rt_maybe_unwrap_i64/str/f64/ptr`.
+- **New runtime functions for `?`**: `rt_maybe_unwrap_f64`, `rt_maybe_unwrap_ptr`,
+  `rt_result_unwrap_str`, `rt_result_unwrap_f64`, `rt_result_unwrap_ptr`,
+  `rt_result_err_payload`, `rt_maybe_none_as_ptr` in `src/runtime/mire_types.c`.
+- **`rt_result_err_i64/str/ptr`**: Error constructors for Result (previously only
+  `ok` variants existed).
+- **`rt_result_unwrap_or_f64/str/ptr`**: Default-value unwrapping for Result.
+  Implemented in `src/runtime/mire_types.c` (were previously only declared in
+  `runtime.h` without implementations).
+- **`rt_panic_loc`**: Runtime panic with source location. All runtime safety
+  functions (division by zero, index out of bounds, unwrap on None/Err) now
+  report file:line:col.
+- **Crypto module**: Pure C implementation of SHA-256, HMAC-SHA256, base64,
+  and hex encode/decode in `src/runtime/crypto.c`. Zero external binary
+  dependencies.
+- **File renames**: `src/runtime/lists.c` → `vecs.c`, `dicts.c` → `maps.c`.
+  New `rt_maps_*`/`rt_vecs_*` alias functions added. Old names kept for
+  backward compatibility.
+- **Maps modularization**: `maps.c` split into `maps_internal.h`,
+  `maps_internal.c`, `maps.c` — hash/bucket internals separated from public API.
+- **WASM export macros**: `MIRE_EXPORT`, `MIRE_WASM_EXPORT(name)` in
+  `runtime.h` — no-op on native, export attribute on `__wasm__`.
+- **`docs/abi_map.toml`**: 56 new symbol entries (crypto, arr, result, maybe,
+  safety functions). Updated `dicts.c` → `maps.c` impl references.
+
+### Fixed
+
+- **Runtime safety spans**: All panic paths now report source location (file, line,
+  column): division by zero (`safety.c`), index out of bounds (`safety.c`),
+  unwrap on None (`mire_types.c`), unwrap on Err (`mire_types.c`),
+  first/last on empty vec/arr (`vecs.c`/`mire_types.c`).
+- **`INT64_MIN / -1` undefined behavior**: `safety.c` now guards against this
+  edge case.
+- **Dict string leaks**: `store_value`/`store_key` now duplicate managed strings
+  instead of reusing raw pointers. `rt_dict_remove`/`rt_dict_free` use
+  `rt_managed_free()`.
+- **`rt_arr_join` leak**: Intermediate string from `rt_managed_from_cstr` is now
+  freed after concatenation.
+- **Missing `rt_result_unwrap_or_f64/str/ptr` implementations**: These functions
+  were declared in `runtime.h` but had no C implementation — linker would fail
+  when they were referenced.
+- **Dead code**: Removed unused `lower_try_operand` function from MIR lowerer.
+
+### Changed
+
+- **`?` operator lowering inlined into `Expression::Try`**: Previously dead code
+  path that was never invoked. Now the full error propagation logic lives in
+  the `Expression::Try` match arm in `lower_expression`.
+- **ABI map updated**: 120 symbols catalogued, matching all `declare` statements
+  in `src/compiler/mir/codegen/builtins.rs`.
+
+## [3.20.1] - 2026-07-23 (Warning/Error diagnostic fixes)
+
+### Fixed
+
+- **E0009 span**: `Statement::Assignment` now carries `line`/`column` fields, so "mutation while shared reference" errors point to the correct line instead of `0:0`.
+- **E0016 code**: `@[deny(unsafe)]` now correctly reports `E0016` (unsafe not allowed) instead of silently promoting to `E0015` (runtime error). The diagnostic is forwarded with its original code and span.
+- **W0005/W0006/W0011/W0012/W0035/W0037/W0040/W0042/W0044 span**: Function-level warnings now point to the `fn` line instead of `1:1`. `Statement::Function` carries `name_line`/`name_column` fields, and `statement_location()` uses them.
+- **W0003 (Unused Load)**: Removed — the check was impossible to trigger because `scan_usage` marked every `Load` statement as used.
+- **E0012 (Double Drop)**: Removed — the borrow checker never generated this code; double drops are caught as E0007 (Use After Move).
+
+### Changed
+
+- **ERROR_CODES.md**: Updated to reflect only actually-emitted codes. Ghost codes (W0015, W0016, W0020, W0022, W0023, W0026–W0033) documented as reserved. E0005 description expanded to cover undefined identifiers. E0016 added.
+
+## [3.20.0] - 2026-07-22 (Span refactor)
+
+### Added
+
+- **`Span` type**: New `error::Span { line, column }` struct as the single source of
+  truth for source locations in errors and warnings. Every `MireError` and `Diagnostic`
+  now carries a `Span` — no more `(0, 0)` or `(usize::MAX, usize::MAX)` sentinels.
+- **Guaranteed location display**: All formatted errors and warnings always show a
+  position header (`╭─[ file:line:col ]`). The old `<backend/toolchain error; no source
+  position captured>` message is eliminated.
+- **`type_error_at_span()`**: New convenience function for creating type errors from a
+  `Span` directly, without passing `line`/`column` separately.
+- **`type_error_code_at_span()`**: Same for errors with explicit diagnostic codes.
+- **Warning codes W0048–W0049**: Reserved for future use (`unused_mutable_binding`,
+  `empty_match_body`).
+
+### Changed
+
+- **`ErrorKind` variants** now use `span: Span` instead of separate `line`/`column`
+  fields. All error creation sites across the codebase updated.
+- **`Diagnostic.labels`** use `Label.span` instead of separate `line`/`column` fields.
+- **`location.rs`** functions return `Span` instead of `(usize, usize)` tuples.
+- **`WarningAnalyzer`** tracks `current_span: Span` instead of `current_line`/`current_column`.
+- **`attach_current_context()`** in typeck simplified — only patches `Span::unknown()`
+  to `current_span`, no more `(0, 0)` / `(1, 1)` special cases.
+
+### Removed
+
+- **`NO_POSITION`** and **`UNKNOWN_POSITION`** sentinel constants (replaced by
+  `Span::unknown()`).
+- **`<backend/toolchain error; no source position captured>`** format message — all
+  errors now show their recorded position.
+
+## [3.19.1] - 2026-07-21 (F1.2)
+
+### Changed
+
+- Async channel: replaced file-based IPC (`/tmp` files) with real pthread
+  mutex + condition variable message queue. `async::channel()` returns an
+  opaque handle; `send`/`recv`/`close_channel` use the handle directly.
+  Channel supports blocking recv with a non-blocking queue.
+
+## [3.19.0] - 2026-07-21 (F1)
+
+### Added
+
+- GPU detection: `pal_gpu_snapshot` reads Linux sysfs (`/sys/class/drm/`)
+  to enumerate GPUs with vendor, device, driver, and VRAM info. Returns a
+  real dict instead of a hardcoded `"available=false"` string.
+- Dicts: `dicts.get_i64` reads integer values from dicts. Read-only dict
+  operations (`get`, `has`, `len`, `keys`, `values`, `entries`) now take
+  `&dict` references instead of moving the dict, allowing multiple reads
+  on the same dict.
+
+### Changed
+
+- GPU kioto module returns a parsed dict from the C PAL function directly.
+- Dicts module: `rt_dicts_get_i64` C function added for type-safe i64
+  retrieval from string-keyed dicts.
+
+## [3.18.8] - 2026-07-21
+
+### Added
+
+- Regression test `tests/vec_indexed.mire` for vector indexed read/write.
+
+## [3.18.7] - 2026-07-21
+
+### Changed
+
+- Moved `11_maps.mire` from `tests/broken_mire/` to `tests/` (now compiles).
+
+## [3.18.6] - 2026-07-21 (F0.3)
+
+### Fixed
+
+- Vector indexed-assignment: adjust Gep index by header offset (8 bytes) for
+  `Vector`/`List` types in both read and write paths. Write path resolves target
+  type via `var_types` instead of `extract_data_type`.
+- Map type annotation: `[] :map[K V]` now produces a Dict instead of a Vector.
+  `apply_type_ascription` converts empty List to Dict when the target type is Map.
+
+## [3.18.5] - 2026-07-21
+
+### Changed
+
+- Resolve owl dependencies from `~/.owl/libs` instead of `~/.owl/modules`,
+  matching the package layout produced by owl.
+
+## [3.18.4] - 2026-07-21 (F0.4)
+
+### Added
+
+- Built-ins allowlist enforced from the manifest. `MireManifest.builtins`
+  (`enabled`, `allow`) lets a project restrict privileged built-ins; the type
+  checker rejects calls to built-ins not present in `allow` when enabled. With
+  no `[builtins]` section all built-ins remain allowed.
+
+## [3.18.3] - 2026-07-21 (F0.2)
+
+### Added
+
+- Accept `:Type mut` parameter syntax. The `mut` token after a parameter type
+  is now parsed and consumed; it exposes the existing capability of treating
+  parameters as mutable internally.
+
+## [3.18.2] - 2026-07-21 (F0.1)
+
+### Added
+
+- Parse qualified generic calls, e.g. `helper::push[i64](v 5)`. `parse_postfix`
+  now accepts `Expression::MemberAccess` as a call target with type arguments
+  (via `member_access_name`), not just `Expression::Identifier`.
+
+## [3.18.1] - 2026-07-21 (F0)
+
+### Added
+
+- `docs/ROADMAP.md`: ecosystem roadmap and versioning scheme (target 4.0.0,
+  phases F0–F5 with documentation sub-phases).
+
+### Changed
+
+- Removed `docs/VEC_INDEXED_ASSIGN_BUG.md`; the vec indexed-assignment bug is
+  now tracked as part of the F0.3 compiler work in the roadmap.
+
 ## [3.18.0] - 2026-07-19
 
 ### Fixed
@@ -1313,7 +2211,7 @@ All notable changes to Mire are documented in this file.
 
 ### Changed
 - Compiler modularization phase 2:
- - parser import parsing moved to `src/parser/imports.rs`
+ - parser load parsing moved to `src/parser/loads.rs`
  - parser type parsing and generic type-parameter helpers moved to `src/parser/types.rs`
  - type checker builtin registry/import helpers moved to `src/compiler/typeck/typeck_builtins.rs`
 - `src/parser/mod.rs` and `src/compiler/typeck.rs` reduced as orchestration layers while preserving behavior.

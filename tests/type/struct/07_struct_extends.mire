@@ -1,0 +1,15 @@
+struct Animal { name :str }
+struct Dog extends Animal { age :i64 }
+impl Dog {
+    fn greet: (self) :str {
+        return self.name
+    }
+    fn get_age: (self) :i64 {
+        return self.age
+    }
+}
+pub fn main: () {
+    set d = Dog(name="Rex" age=3)
+    set g = d.greet()
+    set a = d.get_age()
+}

@@ -93,6 +93,10 @@ pub(super) fn hash_data_type(data_type: &DataType, hasher: &mut FxHasher) {
             hash_data_types(params, hasher);
             hash_data_type(return_type, hasher);
         }
+        DataType::Maybe { inner } => {
+            hasher.write_u8(41);
+            hash_data_type(inner, hasher);
+        }
     }
 }
 

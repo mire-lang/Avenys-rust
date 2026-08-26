@@ -1,18 +1,18 @@
+use crate::error::Span;
 use crate::parser::ast::{Expression, Statement};
 
-pub const NO_POSITION: (usize, usize) = (0, 0);
+/// Compatibility alias — prefer `Span::unknown()` in new code.
+pub const NO_POSITION: Span = Span { line: 0, column: 0 };
 
-pub const UNKNOWN_POSITION: (usize, usize) = (usize::MAX, usize::MAX);
-
-pub fn statement_location(statement: &Statement) -> (usize, usize) {
+pub fn statement_location(statement: &Statement) -> Span {
     match statement {
         Statement::Let {
             name_line,
             name_column,
             ..
-        } => (*name_line, *name_column),
-        Statement::Assignment { value, .. }
-        | Statement::Expression(value)
+        } => Span::new(*name_line, *name_column),
+        Statement::Assignment { line, column, .. } => Span::new(*line, *column),
+        Statement::Expression(value)
         | Statement::Drop { value }
         | Statement::New {
             value: Some(value), ..
@@ -21,6 +21,7 @@ pub fn statement_location(statement: &Statement) -> (usize, usize) {
             value: Some(value), ..
         }
         | Statement::Move { value, .. } => expression_location(value),
+        Statement::Function { name_line, name_column, .. } => Span::new(*name_line, *name_column),
         Statement::Return(Some(value)) => expression_location(value),
         Statement::If { condition, .. } | Statement::While { condition, .. } => {
             expression_location(condition)
@@ -29,14 +30,29 @@ pub fn statement_location(statement: &Statement) -> (usize, usize) {
             expression_location(iterable)
         }
         Statement::Match { value, .. } => expression_location(value),
-        Statement::Unsafe { line, column, .. } => (*line, *column),
-        _ => NO_POSITION,
+        Statement::Unsafe { line, column, .. } => Span::new(*line, *column),
+        Statement::Load { line, column, .. } => Span::new(*line, *column),
+        Statement::LoadLocal { line, column, .. } => Span::new(*line, *column),
+        Statement::ExternLib { line, column, .. } => Span::new(*line, *column),
+        Statement::ExternFunction { line, column, .. } => Span::new(*line, *column),
+        Statement::Module { .. }
+        | Statement::Break
+        | Statement::Continue
+        | Statement::Type { .. }
+        | Statement::Skill { .. }
+        | Statement::Impl { .. }
+        | Statement::Asm { .. }
+        | Statement::Enum { .. }
+        | Statement::Query { .. }
+        | Statement::Return(None)
+        | Statement::New { value: None, .. }
+        | Statement::Own { value: None, .. } => Span::unknown(),
     }
 }
 
-pub fn expression_location(expression: &Expression) -> (usize, usize) {
+pub fn expression_location(expression: &Expression) -> Span {
     match expression {
-        Expression::Identifier(ident) => (ident.line, ident.column),
+        Expression::Identifier(ident) => Span::new(ident.line, ident.column),
         Expression::BinaryOp { left, .. }
         | Expression::NamedArg { value: left, .. }
         | Expression::Reference { expr: left, .. }
@@ -45,7 +61,8 @@ pub fn expression_location(expression: &Expression) -> (usize, usize) {
         | Expression::Pipeline { input: left, .. }
         | Expression::Try { expr: left, .. }
         | Expression::Ok { value: left, .. }
-        | Expression::Err { value: left, .. } => expression_location(left),
+        | Expression::Err { value: left, .. }
+        | Expression::Some { value: left, .. } => expression_location(left),
         Expression::UnaryOp { operand, .. } => expression_location(operand),
         Expression::Call {
             name_line,
@@ -54,32 +71,36 @@ pub fn expression_location(expression: &Expression) -> (usize, usize) {
             ..
         } => {
             if *name_line > 0 {
-                (*name_line, *name_column)
+                Span::new(*name_line, *name_column)
             } else {
-                args.first().map(expression_location).unwrap_or(NO_POSITION)
+                args.first()
+                    .map(expression_location)
+                    .unwrap_or(Span::unknown())
             }
         }
         | Expression::List { elements: args, .. }
         | Expression::Tuple { elements: args, .. } => {
-            args.first().map(expression_location).unwrap_or(NO_POSITION)
+            args.first()
+                .map(expression_location)
+                .unwrap_or(Span::unknown())
         }
         Expression::Dict { entries, .. } => entries
             .first()
             .map(|(key, _)| expression_location(key))
-            .unwrap_or(NO_POSITION),
+            .unwrap_or(Span::unknown()),
         Expression::Index { target, .. } | Expression::MemberAccess { target, .. } => {
             expression_location(target)
         }
-        Expression::Closure { body, .. } => {
-            body.first().map(statement_location).unwrap_or(NO_POSITION)
-        }
-        Expression::Match { value, .. } => expression_location(value),
-        Expression::EnumVariant { payloads, .. } => payloads
+        Expression::Closure { body, .. } => body
             .first()
-            .map(expression_location)
-            .unwrap_or(NO_POSITION),
+            .map(statement_location)
+            .unwrap_or(Span::unknown()),
+        Expression::Match { value, .. } => expression_location(value),
+        Expression::EnumVariant { line, column, .. } => Span::new(*line, *column),
         Expression::Ascription { expr, .. } => expression_location(expr),
         Expression::UseMacro { inner } => expression_location(inner),
-        Expression::Literal(_) | Expression::EnumVariantPath { .. } => NO_POSITION,
+        Expression::MacroCall { inner } => expression_location(inner),
+        Expression::Literal { line, column, .. } => Span::new(*line, *column),
+        Expression::EnumVariantPath { line, column, .. } => Span::new(*line, *column),
     }
 }

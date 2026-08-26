@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +35,13 @@ char *rt_string_concat(const char *left, const char *right) {
     memcpy(out + llen, right, rlen);
     out[llen + rlen] = '\0';
     return out;
+}
+
+int64_t rt_strings_char_at(const char *s, int64_t index) {
+    if (!s || index < 0) return 0;
+    size_t len = str_byte_len(s);
+    if ((size_t)index >= len) return 0;
+    return (unsigned char)s[index];
 }
 
 char *rt_strings_repeat(const char *input, int64_t count) {
@@ -293,6 +302,7 @@ char *rt_strings_pad_right(const char *input, int64_t width, const char *pad) {
 char *rt_strings_trim(const char *input) {
     if (!input) return rt_managed_from_slice("", 0);
     size_t len = str_byte_len(input);
+    if (len == 0) return rt_managed_from_slice("", 0);
     const char *start = input;
     const char *end = input + len - 1;
     while (start <= end && (unsigned char)*start <= ' ') start++;
@@ -369,6 +379,39 @@ void *rt_get_args(int argc, char **argv) {
         list = rt_list_push_ptr(list, copy);
     }
     return list;
+}
+
+char **rt_build_argv(const char *cmd, void *args_vec, int64_t *argc_out) {
+    if (!cmd || !args_vec || !argc_out) return NULL;
+    int64_t nargs = rt_lists_len(args_vec);
+    if (nargs < 0 || nargs > (INT64_MAX / (int64_t)sizeof(char *)) - 2) return NULL;
+    size_t argc = (size_t)nargs + 2;
+    if (argc > SIZE_MAX / sizeof(char *)) return NULL;
+    char **argv = (char **)calloc(argc, sizeof(char *));
+    if (!argv) return NULL;
+    argv[0] = rt_strdup_raw(cmd);
+    if (!argv[0]) {
+        free(argv);
+        return NULL;
+    }
+    for (int64_t i = 0; i < nargs; i++) {
+        argv[i + 1] = rt_strdup_raw(rt_vec_get_str(args_vec, i));
+        if (!argv[i + 1]) {
+            rt_free_argv(argv, i + 1);
+            return NULL;
+        }
+    }
+    argv[nargs + 1] = NULL;
+    *argc_out = nargs + 1;
+    return argv;
+}
+
+void rt_free_argv(char **argv, int64_t argc) {
+    if (!argv) return;
+    for (int64_t i = 0; i < argc; i++) {
+        if (argv[i]) free(argv[i]);
+    }
+    free(argv);
 }
 
 static int64_t monotonic_ns(void) {

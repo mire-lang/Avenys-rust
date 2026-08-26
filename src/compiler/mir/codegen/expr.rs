@@ -4,9 +4,9 @@ use super::types::{llvm_type_str, render_struct_llvm_type};
 use super::{const_str, sanitize_fn_name, LlvmCtx, tmp_extra, tmp_result};
 use crate::compiler::mir::{DataType, MirCmp, MirConst, MirInst, MirOp, MirValue};
 
-/// Resuelve el tipo de resultado flotante común para una operación binaria.
-/// Devuelve `Some("float")` / `Some("double")` si alguno de los operandos es
-/// flotante, o `None` si ambos son enteros (usar "i64" por defecto).
+/// Resolves the common floating-point result type for a binary operation.
+/// Returns `Some("float")` / `Some("double")` if either operand is
+/// floating-point, or `None` if both are integers (use "i64" by default).
 fn float_result_ty(lt: &str, rt: &str) -> Option<&'static str> {
     let lf = lt == "float" || lt == "double";
     let rf = rt == "float" || rt == "double";
@@ -120,10 +120,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     result, lhs, rhs
                 )
             } else {
-                let ty = match float_result_ty(&lt, &rt) {
-                    Some(f) => f,
-                    None => "i64",
-                };
+                let ty = float_result_ty(&lt, &rt).unwrap_or("i64");
                 let result = tmp_result(ctx, ty, inst.result);
                 let op = match ty {
                     "double" => "fadd",
@@ -138,10 +135,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::Sub(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let ty = match float_result_ty(&lt, &rt) {
-                Some(f) => f,
-                None => "i64",
-            };
+            let ty = float_result_ty(&lt, &rt).unwrap_or("i64");
             let result = tmp_result(ctx, ty, inst.result);
             let op = match ty {
                 "double" => "fsub",
@@ -155,10 +149,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
         MirOp::Mul(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
-            let ty = match float_result_ty(&lt, &rt) {
-                Some(f) => f,
-                None => "i64",
-            };
+            let ty = float_result_ty(&lt, &rt).unwrap_or("i64");
             let result = tmp_result(ctx, ty, inst.result);
             let op = match ty {
                 "double" => "fmul",

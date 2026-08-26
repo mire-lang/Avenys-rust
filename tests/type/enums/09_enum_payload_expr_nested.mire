@@ -1,0 +1,29 @@
+enum Kind { A(i :i64) B(j :i64) C }
+
+fn pick: (k :Kind) :i64 {
+    set r = match k {
+        Kind.A(i) {
+            if i > 0 { i } else { -i }
+        }
+        Kind.B(j) {
+            match j {
+                _ { j + 100 }
+            }
+        }
+        Kind.C {
+            match k {
+                Kind.A(_) { 1 }
+                Kind.B(_) { 2 }
+                Kind.C { 3 }
+            }
+        }
+    } :i64
+    return r
+}
+
+pub fn main: () {
+    use dasu(pick(Kind.A(i: 7)))
+    use dasu(pick(Kind.A(i: -7)))
+    use dasu(pick(Kind.B(j: 1)))
+    use dasu(pick(Kind.C))
+}

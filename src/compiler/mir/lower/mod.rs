@@ -1,4 +1,5 @@
 use super::*;
+use crate::canonical_fn_name;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Literal, Program, Statement};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -6,6 +7,8 @@ use std::collections::HashSet;
 mod collections;
 mod decl;
 mod expr;
+mod expr_values;
+mod expr_collections;
 mod stmt;
 mod types;
 
@@ -21,18 +24,29 @@ struct MirLower {
     globals: HashMap<String, DataType>,
     struct_types: HashMap<String, Vec<(String, DataType)>>,
     enum_types: HashMap<String, Vec<(String, usize)>>,
+    /// Per-variant payload layouts: "Enum.Variant" -> [(payload_name, DataType), ...].
+    enum_payloads: HashMap<String, Vec<(String, DataType)>>,
     bare_to_qualified: HashMap<String, String>,
     method_map: HashMap<String, HashMap<String, String>>,
     current_block: usize,
+    /// Stack of enclosing loop targets as `(continue_target, break_target)`
+    /// block indices, used by `Statement::Break`/`Statement::Continue` lowering.
+    loop_stack: Vec<(usize, usize)>,
     closure_functions: Vec<MirFunction>,
     closure_counter: usize,
     filename: String,
 }
 
 fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataType)>> {
-    let mut struct_types = HashMap::new();
+    let mut raw: HashMap<String, (Option<String>, Vec<(String, DataType)>)> = HashMap::new();
     for stmt in &program.statements {
-        if let Statement::Type { name, fields, .. } = stmt {
+        if let Statement::Type {
+            name,
+            fields,
+            parent,
+            ..
+        } = stmt
+        {
             let mut field_list = Vec::new();
             for f in fields {
                 if let Statement::Let {
@@ -42,10 +56,51 @@ fn extract_struct_types(program: &Program) -> HashMap<String, Vec<(String, DataT
                     field_list.push((name.clone(), data_type.clone()));
                 }
             }
-            struct_types.insert(name.clone(), field_list);
+            raw.insert(name.clone(), (parent.clone(), field_list));
         }
     }
-    struct_types
+    fn flatten(
+        name: &str,
+        raw: &HashMap<String, (Option<String>, Vec<(String, DataType)>)>,
+        seen: &mut HashSet<String>,
+    ) -> Vec<(String, DataType)> {
+        if !seen.insert(name.to_string()) {
+            return Vec::new();
+        }
+        let mut fields = Vec::new();
+        if let Some((Some(parent), _)) = raw.get(name) {
+            let parent_fields = flatten(parent, raw, seen);
+            fields.extend(parent_fields);
+        }
+        if let Some((_, own)) = raw.get(name) {
+            for f in own {
+                if !fields.iter().any(|(n, _)| *n == f.0) {
+                    fields.push(f.clone());
+                }
+            }
+        }
+        fields
+    }
+    let mut result = HashMap::new();
+    let names: Vec<String> = raw.keys().cloned().collect();
+    for name in &names {
+        let mut seen = HashSet::new();
+        result.insert(name.clone(), flatten(name, &raw, &mut seen));
+    }
+    // Enum variants are lowered as tagged structs: the discriminant is always the
+    // first (i64) field, followed by the variant's payload fields.
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for variant in variants {
+                let mut fields = vec![("__discriminant".to_string(), DataType::I64)];
+                for (pname, ptype) in variant.payload_names.iter().zip(variant.data_types.iter()) {
+                    fields.push((pname.clone(), ptype.clone()));
+                }
+                result.insert(format!("{}.{}", name, variant.name), fields);
+            }
+        }
+    }
+    result
 }
 
 fn extract_enum_types(program: &Program) -> HashMap<String, Vec<(String, usize)>> {
@@ -61,6 +116,24 @@ fn extract_enum_types(program: &Program) -> HashMap<String, Vec<(String, usize)>
         }
     }
     enum_types
+}
+
+fn extract_enum_payloads(program: &Program) -> HashMap<String, Vec<(String, DataType)>> {
+    let mut payloads = HashMap::new();
+    for stmt in &program.statements {
+        if let Statement::Enum { name, variants, .. } = stmt {
+            for variant in variants {
+                let fields: Vec<(String, DataType)> = variant
+                    .payload_names
+                    .iter()
+                    .zip(variant.data_types.iter())
+                    .map(|(n, t)| (n.clone(), t.clone()))
+                    .collect();
+                payloads.insert(format!("{}.{}", name, variant.name), fields);
+            }
+        }
+    }
+    payloads
 }
 
 fn extract_method_map(program: &Program) -> HashMap<String, HashMap<String, String>> {
@@ -135,6 +208,8 @@ fn top_level_global_type(stmt: &Statement) -> Option<DataType> {
 /// Aggregate types (structs, vectors, lists, maps) are lowered as main-prologue
 /// locals instead, because their values are pointer-based in this ABI and a bare
 /// `store` of an SSA aggregate does not initialize the global correctly.
+/// Enum values are pointers to heap-allocated tagged structs (like `str`), so
+/// they are safe to store into a true global.
 fn is_global_compatible(ty: &DataType) -> bool {
     matches!(
         ty,
@@ -146,12 +221,13 @@ fn is_global_compatible(ty: &DataType) -> bool {
             | DataType::Char
             | DataType::Str
             | DataType::None
+            | DataType::EnumNamed(_)
     )
 }
 
 fn infer_literal_type(expr: &Expression) -> Option<DataType> {
     match expr {
-        Expression::Literal(lit) => Some(match lit {
+        Expression::Literal { lit, .. } => Some(match lit {
             Literal::Int(_) => DataType::I64,
             Literal::Float(_) => DataType::F64,
             Literal::Char(_) => DataType::Char,
@@ -174,8 +250,22 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
     let mut extern_functions = Vec::new();
     let mut extern_libs = Vec::new();
     let mut seen_functions = HashSet::new();
+    eprintln!("[DBG-lower] program statements with fs_:");
+    for s in &program.statements {
+        if let Statement::Function { name, .. } = s {
+            if name.contains("fs_") || name.contains("fs.") {
+                eprintln!("  Function: {}", name);
+            }
+        }
+        if let Statement::ExternFunction { name, .. } = s {
+            if name.contains("fs") {
+                eprintln!("  ExternFunction: {}", name);
+            }
+        }
+    }
     let mut struct_types = extract_struct_types(program);
     let enum_types = extract_enum_types(program);
+    let enum_payloads = extract_enum_payloads(program);
     let method_map = extract_method_map(program);
 
     for stmt in &program.statements {
@@ -188,13 +278,13 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         } = stmt
         {
             extern_functions.push(MirExternFunction {
-                name: name.clone(),
+                name: canonical_fn_name(name),
                 lib_name: lib_name.clone(),
                 params: params.iter().map(|(_, t)| t.clone()).collect(),
                 return_type: return_type.clone(),
             });
         }
-        if let Statement::ExternLib { name, path } = stmt {
+        if let Statement::ExternLib { name, path, .. } = stmt {
             let clean = name.rsplit('.').next().unwrap_or(name);
             extern_libs.push((clean.to_string(), path.clone()));
         }
@@ -220,6 +310,40 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
             ],
             return_type: DataType::Bool,
         },
+        // Runtime functions emitted directly by the `lists::map/filter/fold`
+        // HOF lowering (expr_collections.rs). They are never declared through
+        // a loaded lib, so without these entries the emitted IR calls them
+        // without a `declare` and clang fails with "use of undefined value".
+        MirExternFunction {
+            name: "rt_list_create".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::I64, DataType::I64],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_list_len".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown],
+            return_type: DataType::I64,
+        },
+        MirExternFunction {
+            name: "rt_list_push_i64".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::I64],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_list_push_ptr".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::Unknown],
+            return_type: DataType::Unknown,
+        },
+        MirExternFunction {
+            name: "rt_lists_get_i64".to_string(),
+            lib_name: "c".to_string(),
+            params: vec![DataType::Unknown, DataType::I64],
+            return_type: DataType::I64,
+        },
     ];
     for ext in builtin_runtime_externs {
         if !extern_functions.iter().any(|e| e.name == ext.name) {
@@ -229,7 +353,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
 
     for stmt in &program.statements {
         if let Statement::Function { name, .. } = stmt {
-            seen_functions.insert(name.clone());
+            seen_functions.insert(canonical_fn_name(name));
         }
         if let Statement::Impl {
             type_name, methods, ..
@@ -237,7 +361,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
         {
             for method in methods {
                 if let Statement::Function { name, .. } = method {
-                    seen_functions.insert(format!("{}.{}", type_name, name));
+                    seen_functions.insert(format!("{}.{}", canonical_fn_name(type_name), canonical_fn_name(name)));
                 }
             }
         }
@@ -255,10 +379,10 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
     for stmt in &program.statements {
         match stmt {
             Statement::Let { name, .. } => {
-                if let Some(ty) = top_level_global_type(stmt) {
-                    if is_global_compatible(&ty) {
-                        globals.insert(name.clone(), ty);
-                    }
+                if let Some(ty) = top_level_global_type(stmt)
+                    && is_global_compatible(&ty)
+                {
+                    globals.insert(name.clone(), ty);
                 }
                 top_level_binding_stmts.push(stmt.clone());
             }
@@ -266,10 +390,10 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 target: AssignmentTarget::Variable(name),
                 ..
             } => {
-                if let Some(ty) = top_level_global_type(stmt) {
-                    if is_global_compatible(&ty) {
-                        globals.entry(name.clone()).or_insert(ty);
-                    }
+                if let Some(ty) = top_level_global_type(stmt)
+                    && is_global_compatible(&ty)
+                {
+                    globals.entry(name.clone()).or_insert(ty);
                 }
                 top_level_binding_stmts.push(stmt.clone());
             }
@@ -288,7 +412,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                 body,
                 ..
             } => {
-                if !seen_functions.insert(name.clone()) {
+                if !seen_functions.insert(canonical_fn_name(name)) {
                     continue;
                 }
                 let mir_params = params
@@ -300,16 +424,18 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                     .collect();
 
                 let mut lower = MirLower {
-                    func: MirFunction::new(name.clone(), mir_params, return_type.clone()),
+                    func: MirFunction::new(canonical_fn_name(name), mir_params, return_type.clone()),
                     next_temp: 0,
                     vars: HashMap::new(),
                     var_types: HashMap::new(),
                     globals: globals.clone(),
                     struct_types: struct_types.clone(),
                     enum_types: enum_types.clone(),
+                    enum_payloads: enum_payloads.clone(),
                     bare_to_qualified: bare_to_qualified.clone(),
                     method_map: method_map.clone(),
                     current_block: 0,
+                    loop_stack: Vec::new(),
                     closure_functions: Vec::new(),
                     closure_counter: 0,
                     filename: filename.to_string(),
@@ -347,7 +473,7 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                         ..
                     } = method
                     {
-                        let full_name = format!("{}.{}", type_name, name);
+                        let full_name = format!("{}.{}", canonical_fn_name(type_name), canonical_fn_name(name));
                         if !seen_functions.insert(full_name.clone()) {
                             continue;
                         }
@@ -374,9 +500,11 @@ pub fn lower_program_with_filename(program: &Program, filename: &str) -> MirProg
                             globals: globals.clone(),
                             struct_types: struct_types.clone(),
                             enum_types: enum_types.clone(),
+                            enum_payloads: enum_payloads.clone(),
                             bare_to_qualified: bare_to_qualified.clone(),
                             method_map: method_map.clone(),
                             current_block: 0,
+                            loop_stack: Vec::new(),
                             closure_functions: Vec::new(),
                             closure_counter: 0,
                             filename: filename.to_string(),

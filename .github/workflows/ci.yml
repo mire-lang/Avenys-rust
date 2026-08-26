@@ -17,16 +17,27 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev
+          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev libsodium-dev
 
-      - name: Checkout kioto
+      - name: Checkout kioto (up-to-date Evelynx-Dev fork, PR #2 = v2.4.7)
         uses: actions/checkout@v4
         with:
-          repository: mire-lang/Kioto
+          repository: Evelynx-Dev/Kioto-1
           path: kioto-src
+          ref: master
 
       - name: Setup kioto for tests
         run: cp -r kioto-src ../kioto
+
+      - name: Checkout mire stdlib (mire-lang/mire-lib == local Arch/mire, kioto transitivity)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/mire-lib
+          path: mire-src
+          ref: main
+
+      - name: Setup mire stdlib for tests
+        run: cp -r mire-src ../mire
 
       - name: Build
         run: cargo build --release
@@ -55,7 +66,7 @@ jobs:
       - name: Install runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev
+          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev libsodium-dev
 
       - name: Download mire artifact
         uses: actions/download-artifact@v4
@@ -76,23 +87,35 @@ jobs:
           fi
           mire --version || echo "mire installed"
 
-      - name: Checkout kioto
+      - name: Checkout kioto (up-to-date Evelynx-Dev fork, PR #2 = v2.4.7)
         uses: actions/checkout@v4
         with:
-          repository: mire-lang/Kioto
+          repository: Evelynx-Dev/Kioto-1
           path: kioto-src
+          ref: master
 
-      - name: Checkout owl source
+      - name: Checkout owl source (up-to-date Evelynx-Dev fork, PR #14 = migrated namespaced API)
         uses: actions/checkout@v4
         with:
-          repository: mire-lang/owl
+          repository: Evelynx-Dev/owl
           path: owl-src
+          ref: pr-0.27.0
+
+      - name: Checkout mire stdlib (mire-lang/mire-lib, == local Arch/mire)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/mire-lib
+          path: mire
+          ref: main
 
       - name: Setup owl dependencies
         run: |
           mkdir -p ~/.owl/modules
           cp -r kioto-src ~/.owl/modules/kioto
           cp -r kioto-src ./kioto
+          # owl-src/owl.toml hardcodes Evelyn's local kioto path; repoint to
+          # the sibling checkout so `load kioto` resolves in CI.
+          sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
 
       - name: Build owl
         working-directory: owl-src

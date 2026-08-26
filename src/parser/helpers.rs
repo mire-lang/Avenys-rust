@@ -15,6 +15,7 @@ impl Parser {
             TokenType::OwnKw => "own",
             TokenType::Set => "set",
             TokenType::To => "to",
+            TokenType::Is => "is",
             _ => return Err(self.error("Expected identifier")),
         };
         self.advance();
@@ -81,8 +82,7 @@ impl Parser {
 
     pub(super) fn error_at(&self, line: usize, column: usize, message: &str) -> MireError {
         MireError::new(ErrorKind::Parser {
-            line,
-            column,
+            span: crate::error::Span::new(line, column),
             message: message.to_string(),
         })
     }
@@ -191,10 +191,14 @@ impl Parser {
             ttype,
             TokenType::Ident
                 | TokenType::Set
+                | TokenType::Cons
                 | TokenType::NewKw
                 | TokenType::DropKw
                 | TokenType::MoveKw
                 | TokenType::OwnKw
+                | TokenType::Is
+                | TokenType::To
+                | TokenType::Find
         )
     }
 
@@ -315,7 +319,7 @@ pub(super) fn identifier_expr_with_pos(name: &str, line: usize, column: usize) -
 }
 
 pub(super) fn string_expr(value: &str) -> Expression {
-    Expression::Literal(Literal::Str(value.to_string()))
+    Expression::Literal { lit: Literal::Str(value.to_string()), line: 0, column: 0 }
 }
 
 pub(super) fn data_type_name(data_type: &DataType) -> String {
@@ -352,6 +356,9 @@ pub(super) fn data_type_name(data_type: &DataType) -> String {
         DataType::Result { ok, err } => {
             format!("result[{} {}]", data_type_name(ok), data_type_name(err))
         }
+        DataType::Maybe { inner } => {
+            format!("maybe[{}]", data_type_name(inner))
+        }
         DataType::StructNamed(name) | DataType::EnumNamed(name) | DataType::Generic(name) => {
             name.clone()
         }
@@ -361,7 +368,7 @@ pub(super) fn data_type_name(data_type: &DataType) -> String {
 
 pub(super) fn concat_expressions(mut parts: Vec<Expression>) -> Expression {
     parts.retain(
-        |part| !matches!(part, Expression::Literal(Literal::Str(value)) if value.is_empty()),
+        |part| !matches!(part, Expression::Literal { lit: Literal::Str(value), .. } if value.is_empty()),
     );
 
     if parts.is_empty() {
@@ -427,6 +434,21 @@ pub fn apply_map_type_to_dict(
         *dt = DataType::Map {
             key_type,
             value_type,
+        };
+    } else if let Expression::List {
+        elements,
+        ..
+    } = expr
+        && elements.is_empty()
+    {
+        *expr = Expression::Dict {
+            entries: Vec::new(),
+            key_type: (*key_type).clone(),
+            value_type: (*value_type).clone(),
+            data_type: DataType::Map {
+                key_type,
+                value_type,
+            },
         };
     }
 }

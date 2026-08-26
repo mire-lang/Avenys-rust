@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::lexer::{Token, TokenType};
 use crate::parser::ast::{
     Attribute, AttributeArg, DataType, EnumVariantDef, Expression, Literal, Statement,
-    TraitMethodSig, Visibility,
+    Visibility,
 };
 
 use super::Parser;
@@ -14,6 +14,12 @@ impl Parser {
             self.advance(); // @
             self.advance(); // [
             let name = self.expect_ident()?;
+            let name = if self.check(TokenType::Bang) {
+                self.advance();
+                format!("{name}!")
+            } else {
+                name
+            };
             let mut args = Vec::new();
             if self.check(TokenType::Lparen) {
                 self.advance();
@@ -134,6 +140,7 @@ impl Parser {
             }
             TokenType::Module => self.parse_module_statement(),
             TokenType::Set => self.parse_set_statement(),
+            TokenType::Cons => self.parse_cons_statement(),
             TokenType::Use => {
                 // use always produces an expression statement (side-effect call).
                 // use dasu("hello"), use foo(), use pipeline => ...
@@ -280,6 +287,8 @@ impl Parser {
                 target,
                 value: expr,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -292,6 +301,8 @@ impl Parser {
                 target,
                 value,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -304,6 +315,8 @@ impl Parser {
                 target,
                 value,
                 is_mutable: true,
+                line: var_token.line,
+                column: var_token.column,
             });
         }
 
@@ -322,187 +335,46 @@ impl Parser {
         })
     }
 
-    fn parse_visibility(&mut self) -> Result<Visibility> {
-        if self.check(TokenType::Pub) {
-            self.advance();
-            Ok(Visibility::Public)
-        } else if self.check(TokenType::Priv) {
-            self.advance();
-            Ok(Visibility::Private)
-        } else {
-            Err(self.error("Expected visibility keyword"))
+    fn parse_cons_statement(&mut self) -> Result<Statement> {
+        let _cons_token = self.advance(); // cons
+        let var_token = self.peek();
+        let target = self.parse_assignment_target()?;
+
+        let op = self.advance();
+        if op.ttype != TokenType::Assign {
+            return Err(self.error("Expected '=' after constant name"));
         }
-    }
 
-    fn parse_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
-        self.expect(TokenType::Fn)?;
-        let name = self.expect_ident()?;
-        let (type_params, type_param_bounds) = self.parse_optional_type_params_with_bounds()?;
-        self.expect(TokenType::Colon)?;
-        self.expect(TokenType::Lparen)?;
-        self.push_type_param_scope(type_params.clone());
-        let params = self.parse_param_list()?;
-        self.expect(TokenType::Rparen)?;
+        let value = self.parse_expression()?;
 
-        let return_type = if self.check(TokenType::Colon) {
+        if self.check(TokenType::Mut) {
+            return Err(self.error("Constants cannot be mutable"));
+        }
+
+        let crate::parser::ast::AssignmentTarget::Variable(target_name) = &target else {
+            return Err(self.error("Constant must be a simple variable name"));
+        };
+
+        let data_type = if let Some(dt) = Self::extract_ascription_type(&value) {
+            dt
+        } else if self.check(TokenType::Colon) {
             self.advance();
             self.parse_type()?
         } else {
-            DataType::None
+            DataType::Unknown
         };
 
-        self.expect_block_open()?;
-        self.push_scope();
-        for (param_name, _) in &params {
-            self.declare(param_name);
-        }
-        self.function_body_depth += 1;
-        let body = self.parse_block()?;
-        self.function_body_depth -= 1;
-        self.pop_scope();
-        self.expect_block_close()?;
-        self.pop_type_param_scope();
-        self.declare(&name);
-
-        let attributes = std::mem::take(&mut self.pending_attributes);
-        Ok(Statement::Function {
-            name,
-            attributes,
-            type_params,
-            type_param_bounds,
-            params,
-            body,
-            return_type,
-            visibility,
-            is_method: self.method_context > 0,
-        })
-    }
-
-    fn parse_nominal_type_statement(
-        &mut self,
-        keyword: TokenType,
-        visibility: Visibility,
-    ) -> Result<Statement> {
-        self.expect(keyword)?;
-        let name = self.expect_ident()?;
-        let (type_params, type_param_bounds) = self.parse_optional_type_params_with_bounds()?;
-        self.push_type_param_scope(type_params.clone());
-
-        let parent = if self.check(TokenType::Extends) {
-            self.advance();
-            Some(self.expect_ident()?)
-        } else {
-            None
-        };
-
-        self.expect_block_open()?;
-        let mut fields = Vec::new();
-
-        while !self.check_block_close() && !self.is_at_end() {
-            self.skip_newlines();
-            if self.check_block_close() {
-                break;
-            }
-            if self.peek().ttype == TokenType::Ident {
-                let field_token = self.peek();
-                let field_name = self.expect_ident()?;
-                let field_type = if self.check(TokenType::Colon) {
-                    self.advance();
-                    self.parse_type()?
-                } else {
-                    DataType::Unknown
-                };
-                let is_mutable = if self.check(TokenType::Mut) {
-                    self.advance();
-                    true
-                } else {
-                    false
-                };
-                fields.push(Statement::Let {
-                    name: field_name,
-                    data_type: field_type,
-                    value: None,
-                    is_constant: false,
-                    is_mutable,
-                    is_static: false,
-                    visibility: Visibility::Private,
-                    name_line: field_token.line,
-                    name_column: field_token.column,
-                });
-                // Fields may be separated by commas (as in struct literals).
-                if self.check(TokenType::Comma) {
-                    self.advance();
-                }
-            } else if self.check(TokenType::Comma) {
-                // Tolerate stray/leading commas between fields.
-                self.advance();
-            } else {
-                // Defensive: never spin on an unexpected token. Advance to make
-                // forward progress so a malformed body cannot hang the parser.
-                self.advance();
-            }
-            self.skip_newlines();
-        }
-
-        self.expect_block_close()?;
-        self.pop_type_param_scope();
-        self.declare(&name);
-        Ok(Statement::Type {
-            name,
-            visibility,
-            type_params,
-            type_param_bounds,
-            parent,
-            fields,
-        })
-    }
-
-    fn parse_struct_statement(&mut self, visibility: Visibility) -> Result<Statement> {
-        self.parse_nominal_type_statement(TokenType::Struct, visibility)
-    }
-
-    fn parse_type_statement(&mut self, visibility: Visibility) -> Result<Statement> {
-        self.parse_nominal_type_statement(TokenType::Type, visibility)
-    }
-
-    fn parse_skill_statement(&mut self, visibility: Visibility) -> Result<Statement> {
-        self.expect(TokenType::Skill)?;
-        let name = self.expect_ident()?;
-        self.expect_block_open()?;
-        let mut methods = Vec::new();
-
-        while !self.check_block_close() && !self.is_at_end() {
-            self.skip_newlines();
-            if self.check_block_close() {
-                break;
-            }
-            self.expect(TokenType::Fn)?;
-            let method_name = self.expect_ident()?;
-            self.expect(TokenType::Colon)?;
-            self.expect(TokenType::Lparen)?;
-            let params = self.parse_param_list()?;
-            self.expect(TokenType::Rparen)?;
-
-            let return_type = if self.check(TokenType::Colon) {
-                self.advance();
-                self.parse_type()?
-            } else {
-                DataType::None
-            };
-
-            methods.push(TraitMethodSig {
-                name: method_name,
-                params,
-                return_type,
-            });
-            self.skip_newlines();
-        }
-
-        self.expect_block_close()?;
-        Ok(Statement::Skill {
-            name,
-            visibility,
-            methods,
+        self.declare(target_name);
+        Ok(Statement::Let {
+            name: target_name.clone(),
+            data_type,
+            value: Some(value),
+            is_constant: true,
+            is_mutable: false,
+            is_static: false,
+            visibility: Visibility::Private,
+            name_line: var_token.line,
+            name_column: var_token.column,
         })
     }
 
@@ -599,148 +471,6 @@ impl Parser {
         })
     }
 
-    fn parse_if_statement(&mut self) -> Result<Statement> {
-        let if_token = self.peek();
-        self.expect(TokenType::If)?;
-        let condition = self.parse_expression_until_block_open()?;
-
-        if !self.check(TokenType::Lbrace) {
-            return Err(self.error_at(
-                if_token.line,
-                if_token.column,
-                "Expected '{' after if condition",
-            ));
-        }
-        self.expect_block_open()?;
-
-        self.push_scope();
-        let then_branch = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-
-        let else_branch = if self.check(TokenType::Elif) {
-            let nested = self.parse_if_statement_from_elif()?;
-            Some(vec![nested])
-        } else if self.check(TokenType::Else) {
-            self.advance();
-            self.expect_block_open()?;
-            self.push_scope();
-            let body = self.parse_block()?;
-            self.pop_scope();
-            self.expect_block_close()?;
-            Some(body)
-        } else {
-            None
-        };
-
-        Ok(Statement::If {
-            condition,
-            then_branch,
-            else_branch,
-        })
-    }
-
-    fn parse_if_statement_from_elif(&mut self) -> Result<Statement> {
-        self.expect(TokenType::Elif)?;
-        let condition = self.parse_expression_until_block_open()?;
-        self.expect_block_open()?;
-        self.push_scope();
-        let then_branch = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-
-        let else_branch = if self.check(TokenType::Elif) {
-            Some(vec![self.parse_if_statement_from_elif()?])
-        } else if self.check(TokenType::Else) {
-            self.advance();
-            self.expect_block_open()?;
-            self.push_scope();
-            let body = self.parse_block()?;
-            self.pop_scope();
-            self.expect_block_close()?;
-            Some(body)
-        } else {
-            None
-        };
-
-        Ok(Statement::If {
-            condition,
-            then_branch,
-            else_branch,
-        })
-    }
-
-    fn parse_while_statement(&mut self) -> Result<Statement> {
-        self.expect(TokenType::While)?;
-        let condition = self.parse_expression_until_block_open()?;
-        self.expect_block_open()?;
-        self.push_scope();
-        let body = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-        Ok(Statement::While { condition, body })
-    }
-
-    fn parse_for_statement(&mut self) -> Result<Statement> {
-        self.expect(TokenType::For)?;
-        let first = self.expect_ident()?;
-        let second = if self.check(TokenType::Comma) {
-            self.advance();
-            Some(self.expect_ident()?)
-        } else {
-            None
-        };
-        self.expect(TokenType::In)?;
-        let iterable = self.parse_expression_until_block_open()?;
-        self.expect_block_open()?;
-        self.push_scope();
-        self.declare(&first);
-        if let Some(second) = &second {
-            self.declare(second);
-        }
-        let body = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-
-        Ok(Statement::For {
-            variable: first,
-            index: second,
-            iterable,
-            body,
-        })
-    }
-
-    fn parse_find_statement(&mut self) -> Result<Statement> {
-        self.expect(TokenType::Find)?;
-        let variable = self.expect_ident()?;
-        self.expect(TokenType::In)?;
-        let iterable = self.parse_expression_until_block_open()?;
-        self.expect_block_open()?;
-        self.push_scope();
-        self.declare(&variable);
-        let body = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-        Ok(Statement::Find {
-            variable,
-            iterable,
-            body,
-        })
-    }
-
-    fn parse_unsafe_statement(&mut self) -> Result<Statement> {
-        let token = self.peek();
-        let line = token.line;
-        let column = token.column;
-        self.expect(TokenType::Unsafe)?;
-        self.expect_block_open()?;
-        self.push_scope();
-        let body = self.parse_block()?;
-        self.pop_scope();
-        self.expect_block_close()?;
-        Ok(Statement::Unsafe { line, column, body })
-    }
-
     fn parse_extern_statement(&mut self) -> Result<Statement> {
         self.expect(TokenType::Extern)?;
         match self.peek().ttype {
@@ -759,6 +489,7 @@ impl Parser {
     }
 
     fn parse_extern_lib_statement(&mut self) -> Result<Statement> {
+        let lib_token = self.peek();
         self.expect(TokenType::Lib)?;
         let name = self.expect_string_or_ident()?;
         let path = if self.check(TokenType::StrLit) || self.check(TokenType::Ident) {
@@ -766,10 +497,11 @@ impl Parser {
         } else {
             name.clone()
         };
-        Ok(Statement::ExternLib { name, path })
+        Ok(Statement::ExternLib { name, path, line: lib_token.line, column: lib_token.column })
     }
 
     fn parse_extern_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
+        let fn_token = self.peek();
         self.expect(TokenType::Fn)?;
         let name = self.expect_ident()?;
         self.expect(TokenType::Colon)?;
@@ -790,6 +522,8 @@ impl Parser {
             params,
             return_type,
             visibility,
+            line: fn_token.line,
+            column: fn_token.column,
         })
     }
 
@@ -856,7 +590,7 @@ impl Parser {
                 .join(" ")
                 .trim()
                 .to_string();
-            instructions.push((opcode, Expression::Literal(Literal::Str(operand_text))));
+            instructions.push((opcode, Expression::Literal { lit: Literal::Str(operand_text), line: 0, column: 0 }));
         }
 
         self.expect_block_close()?;

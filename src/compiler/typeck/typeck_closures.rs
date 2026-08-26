@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn check_expression_allow_unknown_identifier(
@@ -73,17 +74,15 @@ impl TypeChecker {
             capture,
         } = expr
         else {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!("{} expects a closure argument", context),
             ));
         };
 
         if params.len() != expected_params.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "{} expects a closure with {} parameter(s), got {}",
                     context,
@@ -126,9 +125,8 @@ impl TypeChecker {
         } else if inferred_return != DataType::Unknown
             && !self.is_assignable(return_type, &inferred_return)
         {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "{} return type mismatch: declared {:?}, inferred {:?}",
                     context, return_type, inferred_return

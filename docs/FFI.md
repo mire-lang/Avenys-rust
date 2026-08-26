@@ -74,6 +74,45 @@ pub fn quit: () {
 }
 ```
 
+### Binding to the PAL (the kioto pattern)
+
+Kioto modules declare exactly the PAL primitives they need and wrap them in
+composition. The removal API is a clean example — `fs::remove` is a 1:1
+capability wrapper, `fs::remove_all` composes recursion in Mire:
+
+```mire
+// kioto/core/fs/mod.mire (excerpt)
+extern fn pal_root_remove: (root :i64, path :&str) :bool lib "c"
+extern fn pal_last_error: () :i64 lib "c"
+
+// 1:1 capability wrapper: remove ONE entry (file, symlink, empty dir).
+pub fn remove: (path :&str) :bool {
+    set root = pal_root_open(fs::path::dir(path))
+    if root <= 0 {
+        return false
+    }
+    set ok = pal_root_remove(root, fs::path::name(path))
+    pal_root_close(root)
+    return ok
+}
+
+// Composition: recursion lives HERE, never in PAL.
+pub fn remove_all: (path :&str) :bool {
+    set root = pal_root_open(fs::path::dir(path))
+    if root <= 0 {
+        return false
+    }
+    set ok = fs_remove_recursive(root, fs::path::name(path))
+    pal_root_close(root)
+    return ok
+}
+```
+
+The `extern fn ... lib "c"` generates an LLVM `declare`; the linker resolves
+the symbol against the C runtime that Avenys compiles from `src/pal/`. See
+`docs/LIBRARIES.md` for the full chain and the difference between these direct
+externs and the compiler-emitted symbols catalogued in `docs/abi_map.toml`.
+
 ## How it works
 
 1. **Parser**: `extern fn ... lib "name"` → `Statement::ExternFunction`

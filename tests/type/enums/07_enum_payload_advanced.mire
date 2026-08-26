@@ -1,0 +1,35 @@
+struct Point { x :i64 y :i64 }
+
+enum Shape {
+    Circle(radius :i64)
+    Rect(width :i64 height :i64)
+    Label(text :str)
+    Located(center :Point)
+}
+
+fn describe: (s :Shape) :i64 {
+    match s {
+        Shape.Circle(r) { return r }
+        Shape.Rect(w, h) { return w + h }
+        Shape.Label(t) { return use dasu(t) }
+        Shape.Located(p) { return p.x * 100 + p.y }
+    }
+    return 0
+}
+
+fn make_circle: (r :i64) :Shape { return Shape.Circle(r) }
+
+pub fn main: () {
+    set c = make_circle(7)
+    use dasu(describe(c))
+
+    set r = Shape.Rect(width: 3 height: 4)
+    use dasu(describe(r))
+
+    set l = Shape.Label(text: "hi")
+    use dasu(describe(l))
+
+    set p = Point(x=2 y=5)
+    set loc = Shape.Located(center: p)
+    use dasu(describe(loc))
+}

@@ -1,4 +1,8 @@
-use crate::error::Result;
+use std::collections::HashSet;
+use crate::parser::ast::Visibility;
+
+use crate::canonical_fn_name;
+use crate::error::{Result, type_error_at_span};
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, QueryBinding, QueryOp, Statement,
 };
@@ -6,7 +10,7 @@ use crate::parser::ast::{
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
 };
-use crate::compiler::typeck::{FunctionSig, TypeChecker, type_error};
+use crate::compiler::typeck::{FunctionSig, TypeChecker};
 impl TypeChecker {
     pub(super) fn check_let_statement(
         &mut self,
@@ -14,11 +18,12 @@ impl TypeChecker {
         data_type: &mut DataType,
         value: &mut Option<Expression>,
         is_mutable: bool,
+        is_constant: bool,
     ) -> Result<()> {
         if let Some(expr) = value
-            && let Expression::Literal(Literal::Int(int_val)) = expr
+            && let Expression::Literal { lit: Literal::Int(int_val), .. } = expr
         {
-            Self::validate_int_literal_range(data_type, *int_val, self.current_line, self.current_column)?;
+            Self::validate_int_literal_range(data_type, *int_val, self.current_span.line, self.current_span.column)?;
         }
         let inferred = if let Some(expr) = value {
             self.check_expression(expr)?
@@ -34,16 +39,16 @@ impl TypeChecker {
                     && crate::types::unify::is_numeric(&inferred)
                 {
                     return Err(crate::types::errors::precision_loss(
-                        self.current_line,
-                        self.current_column,
+                        self.current_span.line,
+                        self.current_span.column,
                         data_type,
                         &inferred,
                         Some(&format!("(value :{})", crate::types::errors::pretty(data_type))),
                     ));
                 }
                 return Err(crate::types::errors::type_mismatch(
-                    self.current_line,
-                    self.current_column,
+                    self.current_span.line,
+                    self.current_span.column,
                     data_type,
                     &inferred,
                     "let binding",
@@ -56,6 +61,9 @@ impl TypeChecker {
         };
 
         *data_type = final_type.clone();
+        if is_constant {
+            self.insert_constant(name.to_string());
+        }
         self.insert_var(name.to_string(), final_type, is_mutable);
         self.refresh_binding_metadata(name, data_type, value.as_ref());
         Ok(())
@@ -69,17 +77,15 @@ impl TypeChecker {
         let value_type = self.check_expression(value)?;
         let (mut target_type, is_target_mutable) =
             self.resolve_assignment_target(target)?.ok_or_else(|| {
-                type_error(
-                    self.current_line,
-                    self.current_column,
+                type_error_at_span(
+                    self.current_span,
                     format!("Assignment to undefined variable '{}'", target),
                 )
             })?;
 
         if !self.is_assignable(&target_type, &value_type) {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Type mismatch in assignment to '{}': expected {:?}, got {:?}",
                     target, target_type, value_type
@@ -87,10 +93,21 @@ impl TypeChecker {
             ));
         }
 
+        if let AssignmentTarget::Variable(name) = target {
+            if self.is_constant(name) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!(
+                        "Cannot reassign constant '{}'",
+                        name
+                    ),
+                ));
+            }
+        }
+
         if !is_target_mutable {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Variable '{}' is not mutable, maybe you meant to use 'mut'",
                     target
@@ -125,9 +142,8 @@ impl TypeChecker {
         };
 
         let (owner_type, owner_mutable) = self.lookup_var(owner).ok_or_else(|| {
-            type_error(
-                self.current_line,
-                self.current_column,
+            type_error_at_span(
+                self.current_span,
                 format!("Cannot find variable '{}' for field assignment", owner),
             )
         })?;
@@ -140,17 +156,15 @@ impl TypeChecker {
                 .iter()
                 .find(|f| f.name == field_name)
                 .ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Struct '{}' has no field '{}'", struct_name, field_name),
                     )
                 })?;
 
             if !self.is_assignable(&field.data_type, value_type) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Type mismatch for field '{}': expected {:?}, got {:?}",
                         field_name, field.data_type, value_type
@@ -203,9 +217,8 @@ impl TypeChecker {
     ) -> Result<()> {
         let cond_type = self.check_expression(condition)?;
         if !Self::is_bool_like(&cond_type) {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!("If condition must be bool, got {:?}", cond_type),
             ));
         }
@@ -230,9 +243,8 @@ impl TypeChecker {
     ) -> Result<()> {
         let cond_type = self.check_expression(condition)?;
         if !Self::is_bool_like(&cond_type) {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!("While condition must be bool, got {:?}", cond_type),
             ));
         }
@@ -296,9 +308,8 @@ impl TypeChecker {
                     && case_type != DataType::Unknown
                     && !self.is_assignable(&value_type, &case_type)
                 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Match case type mismatch: value is {:?}, case is {:?}",
                             value_type, case_type
@@ -346,8 +357,12 @@ impl TypeChecker {
         body: &mut [Statement],
         return_type: &mut DataType,
     ) -> Result<()> {
+        let is_macro = self.macro_names.contains(name);
+        let old_in_macro_def = self.in_macro_definition;
+        self.in_macro_definition = is_macro;
+
         self.functions.insert(
-            name.to_string(),
+            canonical_fn_name(name),
             FunctionSig {
                 type_params: type_params.to_vec(),
                 type_param_bounds: type_param_bounds.to_vec(),
@@ -355,6 +370,11 @@ impl TypeChecker {
                 return_type: return_type.clone(),
             },
         );
+
+        let old_params = std::mem::take(&mut self.current_function_type_params);
+        let old_bounds = std::mem::take(&mut self.current_function_type_bounds);
+        self.current_function_type_params = type_params.to_vec();
+        self.current_function_type_bounds = type_param_bounds.to_vec();
 
         self.push_scope();
         for (param_name, param_type) in params.iter() {
@@ -364,6 +384,9 @@ impl TypeChecker {
 
         self.return_type_stack.push(return_type.clone());
         self.check_statements(body)?;
+
+        self.current_function_type_params = old_params;
+        self.current_function_type_bounds = old_bounds;
         if *return_type != DataType::None
             && !statements_contain_explicit_return(body)
             && let Some(expr) = implicit_return_expression_mut(body)
@@ -381,9 +404,8 @@ impl TypeChecker {
         } else if inferred_return != DataType::Unknown
             && !self.is_assignable(return_type, &inferred_return)
         {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Function '{}' return type mismatch: declared {:?}, inferred {:?}",
                     name, return_type, inferred_return
@@ -392,6 +414,8 @@ impl TypeChecker {
         }
 
         self.pop_scope();
+
+        self.in_macro_definition = old_in_macro_def;
 
         if let Some(sig) = self.functions.get_mut(name) {
             sig.return_type = return_type.clone();
@@ -448,9 +472,8 @@ impl TypeChecker {
         if let Some(initial) = value {
             let initial_ty = self.check_expression(initial)?;
             if !self.is_assignable(declared_type, &initial_ty) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "new:: value type mismatch: declared {:?}, got {:?}",
                         declared_type, initial_ty
@@ -470,9 +493,8 @@ impl TypeChecker {
         if let Some(initial) = value {
             let initial_ty = self.check_expression(initial)?;
             if !self.is_assignable(inner_type, &initial_ty) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "own:: value type mismatch: declared {:?}, got {:?}",
                         inner_type, initial_ty
@@ -521,9 +543,8 @@ impl TypeChecker {
             QueryOp::Update { condition, assigns } => {
                 let cond_type = self.check_expression(condition)?;
                 if !Self::is_bool_like(&cond_type) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("Query update condition must be bool, got {:?}", cond_type),
                     ));
                 }
@@ -534,9 +555,8 @@ impl TypeChecker {
             QueryOp::Delete { condition } => {
                 let cond_type = self.check_expression(condition)?;
                 if !Self::is_bool_like(&cond_type) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("Query delete condition must be bool, got {:?}", cond_type),
                     ));
                 }
@@ -544,9 +564,8 @@ impl TypeChecker {
             QueryOp::Get(get) => {
                 let cond_type = self.check_expression(&mut get.condition)?;
                 if !Self::is_bool_like(&cond_type) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("Query get condition must be bool, got {:?}", cond_type),
                     ));
                 }
@@ -568,8 +587,18 @@ impl TypeChecker {
         &mut self,
         trait_name: &Option<String>,
         type_name: &str,
+        type_params: &[String],
         methods: &mut [Statement],
     ) -> Result<()> {
+        for method in methods.iter() {
+            if let Statement::Function {
+                name_line, name_column, ..
+            } = method
+            {
+                self.current_span = crate::error::Span::new(*name_line, *name_column);
+                break;
+            }
+        }
         self.validate_impl_method_declarations(type_name, methods)?;
         if let Some(trait_name) = trait_name {
             self.validate_trait_impl(trait_name, type_name, methods)?;
@@ -577,10 +606,17 @@ impl TypeChecker {
 
         let old_self = self.impl_self_type.take();
         let old_self_name = self.impl_self_name.take();
+        let old_impl_params = std::mem::take(&mut self.impl_type_params);
+        self.impl_type_params = type_params.to_vec();
         let method_mask = self
             .current_nested_statement_mask()
             .map(|mask| mask.to_vec());
 
+        let (type_base, _) = Self::split_nominal_type_args(type_name);
+        let is_enum = self
+            .enum_variants
+            .keys()
+            .any(|k| k.starts_with(&format!("{}.", type_base)));
         for (method_index, method) in methods.iter_mut().enumerate() {
             if method_mask
                 .as_ref()
@@ -594,33 +630,110 @@ impl TypeChecker {
                 Statement::Function { params, .. }
                     if params.iter().any(|(param_name, _)| param_name == "self")
             );
-            self.impl_self_type = has_self.then(|| DataType::StructNamed(type_name.to_string()));
-            self.impl_self_name = has_self.then(|| type_name.to_string());
+            self.impl_self_type = has_self.then(|| {
+                if is_enum {
+                    DataType::EnumNamed(type_name.to_string())
+                } else {
+                    DataType::StructNamed(type_name.to_string())
+                }
+            });
+            self.impl_self_name = Some(type_name.to_string());
             self.check_statement(method)?;
         }
 
         self.impl_self_type = old_self;
         self.impl_self_name = old_self_name;
+        self.impl_type_params = old_impl_params;
         Ok(())
     }
 
-    pub(super) fn check_type_statement(&mut self, fields: &mut [Statement]) -> Result<()> {
+    pub(super) fn check_type_statement(
+        &mut self,
+        _name: &str,
+        parent: Option<&str>,
+        fields: &mut Vec<Statement>,
+    ) -> Result<()> {
+        let parent_fields = if let Some(parent_name) = parent {
+            self.collect_struct_fields(parent_name)?
+        } else {
+            Vec::new()
+        };
+        for parent_field in &parent_fields {
+            if let Statement::Let { name: pf_name, .. } = parent_field {
+                if !fields.iter().any(|f| match f {
+                    Statement::Let { name, .. } => name == pf_name,
+                    _ => false,
+                }) {
+                    fields.push(parent_field.clone());
+                }
+            }
+        }
         self.check_container_statements(fields)
+    }
+
+    fn collect_struct_fields(&self, type_name: &str) -> Result<Vec<Statement>> {
+        let (base, _) = Self::split_nominal_type_args(type_name);
+        let Some(class_sig) = self.classes.get(base) else {
+            return Ok(Vec::new());
+        };
+        Ok(class_sig
+            .fields
+            .iter()
+            .map(|field| Statement::Let {
+                name: field.name.clone(),
+                data_type: field.data_type.clone(),
+                value: None,
+                is_constant: field.has_default,
+                is_mutable: false,
+                is_static: false,
+                visibility: Visibility::Private,
+                name_line: 0,
+                name_column: 0,
+            })
+            .collect())
     }
 
     pub(super) fn check_skill_statement(
         &mut self,
         name: &str,
+        parent: Option<&str>,
         methods: &[crate::parser::ast::TraitMethodSig],
     ) -> Result<()> {
+        let parent_methods = if let Some(parent_name) = parent {
+            self.collect_skill_methods(parent_name)?
+        } else {
+            Vec::new()
+        };
+        let mut all_methods = parent_methods;
+        let mut method_names: HashSet<String> = all_methods.iter().map(|m| m.name.clone()).collect();
+        for method in methods {
+            if !method_names.insert(method.name.clone()) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!("Duplicate method '{}' in skill '{}'", method.name, name),
+                ));
+            }
+            all_methods.push(method.clone());
+        }
+        let methods: Vec<_> = all_methods;
         if methods.is_empty() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!("Skill '{}' must declare at least one method", name),
             ));
         }
-        self.validate_trait_method_declarations(name, methods, "Skill")?;
+        self.validate_trait_method_declarations(name, &methods, "Skill")?;
         Ok(())
+    }
+
+    fn collect_skill_methods(
+        &self,
+        skill_name: &str,
+    ) -> Result<Vec<crate::parser::ast::TraitMethodSig>> {
+        Ok(self
+            .traits
+            .get(skill_name)
+            .map(|trait_sig| trait_sig.methods.clone())
+            .unwrap_or_default())
     }
 }

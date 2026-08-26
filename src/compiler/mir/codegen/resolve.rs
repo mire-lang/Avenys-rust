@@ -198,7 +198,7 @@ pub(crate) fn coerce_to(
     if from_ty == to_ty {
         return operand.to_string();
     }
-    // bool (i1) <-> enteros: el resto del codegen ya zexta bool a i64 antes de llamar.
+    // bool (i1) <-> integers: the rest of codegen already zero-extends bool to i64 before calling.
     if to_ty == "double" && from_ty == "i64" {
         let conv = tmp_extra(ctx, "double");
         extra.push(format!("{} = sitofp i64 {} to double", conv, operand));
@@ -219,7 +219,7 @@ pub(crate) fn coerce_to(
         extra.push(format!("{} = fptrunc double {} to float", conv, operand));
         return conv;
     }
-    // Entero -> entero de distinto ancho (extensiones/truncamientos explícitos).
+    // Integer -> integer of different width (explicit extensions/truncations).
     let int_width = |t: &str| match t {
         "i1" => 1,
         "i8" => 8,

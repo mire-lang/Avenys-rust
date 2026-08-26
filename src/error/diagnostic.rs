@@ -36,11 +36,18 @@ pub enum DiagnosticCode {
     E0009,
     E0010,
     E0011,
-    E0012,
     E0013,
     E0014,
     E0015,
     E0016,
+    E0017,
+    E0018,
+    E0019,
+    E0020,
+    E0021,
+    E0022,
+    E0023,
+    E0024,
     E0100,
     E0101,
     E0102,
@@ -54,7 +61,6 @@ pub enum DiagnosticCode {
     E0110,
     W0001,
     W0002,
-    W0003,
     W0004,
     W0005,
     W0006,
@@ -86,6 +92,8 @@ pub enum DiagnosticCode {
     W0045,
     W0046,
     W0047,
+    W0048,
+    W0049,
 }
 
 impl DiagnosticCode {
@@ -99,11 +107,18 @@ impl DiagnosticCode {
             DiagnosticCode::E0009 => "E0009",
             DiagnosticCode::E0010 => "E0010",
             DiagnosticCode::E0011 => "E0011",
-            DiagnosticCode::E0012 => "E0012",
             DiagnosticCode::E0013 => "E0013",
             DiagnosticCode::E0014 => "E0014",
             DiagnosticCode::E0015 => "E0015",
             DiagnosticCode::E0016 => "E0016",
+            DiagnosticCode::E0017 => "E0017",
+            DiagnosticCode::E0018 => "E0018",
+            DiagnosticCode::E0019 => "E0019",
+            DiagnosticCode::E0020 => "E0020",
+            DiagnosticCode::E0021 => "E0021",
+            DiagnosticCode::E0022 => "E0022",
+            DiagnosticCode::E0023 => "E0023",
+            DiagnosticCode::E0024 => "E0024",
             DiagnosticCode::E0100 => "E0100",
             DiagnosticCode::E0101 => "E0101",
             DiagnosticCode::E0102 => "E0102",
@@ -117,7 +132,6 @@ impl DiagnosticCode {
             DiagnosticCode::E0110 => "E0110",
             DiagnosticCode::W0001 => "W0001",
             DiagnosticCode::W0002 => "W0002",
-            DiagnosticCode::W0003 => "W0003",
             DiagnosticCode::W0004 => "W0004",
             DiagnosticCode::W0005 => "W0005",
             DiagnosticCode::W0006 => "W0006",
@@ -149,12 +163,14 @@ impl DiagnosticCode {
             DiagnosticCode::W0045 => "W0045",
             DiagnosticCode::W0046 => "W0046",
             DiagnosticCode::W0047 => "W0047",
+            DiagnosticCode::W0048 => "W0048",
+            DiagnosticCode::W0049 => "W0049",
         }
     }
 
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
-            DiagnosticCode::W0001 | DiagnosticCode::W0002 | DiagnosticCode::W0003 => {
+            DiagnosticCode::W0001 | DiagnosticCode::W0002 => {
                 Some(WarningCategory::Unused)
             }
             DiagnosticCode::W0004 | DiagnosticCode::W0005 | DiagnosticCode::W0021 => {
@@ -179,6 +195,8 @@ impl DiagnosticCode {
             | DiagnosticCode::W0045
             | DiagnosticCode::W0046
             | DiagnosticCode::W0047 => Some(WarningCategory::Complexity),
+            DiagnosticCode::W0048 => Some(WarningCategory::Style),
+            DiagnosticCode::W0049 => Some(WarningCategory::Logic),
             DiagnosticCode::W0025 => Some(WarningCategory::Memory),
             DiagnosticCode::W0010 => Some(WarningCategory::Deprecated),
             DiagnosticCode::W0034 | DiagnosticCode::W0035 | DiagnosticCode::W0037 => {
@@ -197,7 +215,6 @@ impl DiagnosticCode {
         match self {
             DiagnosticCode::W0001 => "unused_variables",
             DiagnosticCode::W0002 => "dead_code",
-            DiagnosticCode::W0003 => "unused_imports",
             DiagnosticCode::W0004 => "implicit_type",
             DiagnosticCode::W0005 => "implicit_return_type",
             DiagnosticCode::W0006 => "empty_body",
@@ -229,6 +246,8 @@ impl DiagnosticCode {
             DiagnosticCode::W0045 => "redundant_bool_compare",
             DiagnosticCode::W0046 => "simplifiable_if_return_bool",
             DiagnosticCode::W0047 => "string_concat_in_loop",
+            DiagnosticCode::W0048 => "unused_mutable_binding",
+            DiagnosticCode::W0049 => "empty_match_body",
             DiagnosticCode::E0100 => "precision_loss",
             DiagnosticCode::E0101 => "unsigned_precision_loss",
             DiagnosticCode::E0102 => "float_precision_loss",
@@ -245,10 +264,11 @@ impl DiagnosticCode {
     }
 }
 
+use crate::error::Span;
+
 #[derive(Debug, Clone)]
 pub struct Label {
-    pub line: usize,
-    pub column: usize,
+    pub span: Span,
     pub length: usize,
     pub message: String,
     pub style: LabelStyle,
@@ -266,8 +286,7 @@ pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub message: String,
     pub title: String,
-    pub line: usize,
-    pub column: usize,
+    pub span: Span,
     pub labels: Vec<Label>,
     pub notes: Vec<String>,
     pub help: Option<String>,
@@ -282,16 +301,14 @@ impl Diagnostic {
         code: DiagnosticCode,
         title: impl Into<String>,
         message: impl Into<String>,
-        line: usize,
-        column: usize,
+        span: Span,
     ) -> Self {
         Self {
             severity,
             code,
             title: title.into(),
             message: message.into(),
-            line,
-            column,
+            span,
             labels: Vec::new(),
             notes: Vec::new(),
             help: None,

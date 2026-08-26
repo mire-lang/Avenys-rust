@@ -1,0 +1,15 @@
+enum Status { Active Inactive }
+struct Holder { status :Status }
+impl Holder {
+    fn describe: (self) :i64 {
+        match self.status {
+            Status.Active { return 1 }
+            Status.Inactive { return 0 }
+        }
+        return -1
+    }
+}
+pub fn main: () {
+    set h = Holder(status=Status.Active)
+    set r = h.describe()
+}

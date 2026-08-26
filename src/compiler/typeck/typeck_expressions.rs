@@ -1,7 +1,7 @@
-use crate::error::{ErrorKind, MireError, Result};
+use crate::error::{ErrorKind, MireError, Result, type_error_at_span};
 use crate::parser::ast::{DataType, Expression, Literal, Statement};
 
-use crate::compiler::typeck::{FunctionSig, TypeChecker, type_error};
+use crate::compiler::typeck::{FunctionSig, TypeChecker};
 impl TypeChecker {
     pub(super) fn infer_collection_call(
         &self,
@@ -45,9 +45,8 @@ impl TypeChecker {
                 DataType::Vector { element_type, .. } => *element_type,
                 DataType::List | DataType::Unknown | DataType::Anything => DataType::Anything,
                 other => {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("lists.get expects vec/vec! input, got {:?}", other),
                     ));
                 }
@@ -69,8 +68,7 @@ impl TypeChecker {
                     | DataType::Anything
             ) {
                 return Err(MireError::new(ErrorKind::Backend {
-                    line: self.current_line,
-                    column: self.current_column,
+                    span: self.current_span,
                     message: format!(
                         "contains(...) is not implemented for type {:?}",
                         haystack_type
@@ -104,9 +102,8 @@ impl TypeChecker {
                     dynamic: true,
                 },
                 other => {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("lists.push expects vec[T], got {:?}", other),
                     ));
                 }
@@ -127,9 +124,8 @@ impl TypeChecker {
                     dynamic: true,
                 },
                 other => {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("lists.slice expects vector input, got {:?}", other),
                     ));
                 }
@@ -144,9 +140,8 @@ impl TypeChecker {
                 DataType::Vector { element_type, .. } => *element_type,
                 DataType::List | DataType::Unknown | DataType::Anything => DataType::Anything,
                 other => {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("{} expects vec[T] input, got {:?}", name, other),
                     ));
                 }
@@ -170,16 +165,14 @@ impl TypeChecker {
                 parts_type,
                 DataType::Vector { .. } | DataType::List | DataType::Unknown | DataType::Anything
             ) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!("strings.join expects vec input, got {:?}", parts_type),
                 ));
             }
             if sep_type != DataType::Str && sep_type != DataType::Unknown {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!("strings.join separator expects Str, got {:?}", sep_type),
                 ));
             }
@@ -241,6 +234,15 @@ impl TypeChecker {
         }
 
         if let Some(ret) = self.builtin_returns.get(name).cloned() {
+            if !self.is_builtin_allowed(name) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!(
+                        "builtin '{}' is not enabled in owl.toml [builtins].allow",
+                        name
+                    ),
+                ));
+            }
             *data_type = ret.clone();
             return Ok(Some(ret));
         }
@@ -248,11 +250,40 @@ impl TypeChecker {
         if let Some(rest) = name.strip_prefix("std.")
             && let Some(ret) = self.builtin_returns.get(rest).cloned()
         {
+            if !self.is_builtin_allowed(rest) {
+                return Err(type_error_at_span(
+                    self.current_span,
+                    format!(
+                        "builtin '{}' is not enabled in owl.toml [builtins].allow",
+                        name
+                    ),
+                ));
+            }
             *data_type = ret.clone();
             return Ok(Some(ret));
         }
 
         Ok(None)
+    }
+
+    /// Returns true when a builtin call is permitted by the project's
+    /// `[builtins]` allowlist. When no allowlist is configured (the common
+    /// case) every builtin is allowed, preserving existing behavior.
+    fn is_builtin_allowed(&self, name: &str) -> bool {
+        match &self.allowed_builtins {
+            None => true,
+            Some(allow) => {
+                if allow.contains(name) {
+                    return true;
+                }
+                // Also accept the bare name (after the last '.') so users can
+                // list either `lists.len` or just `len`.
+                match name.rsplit_once('.') {
+                    Some((_, bare)) => allow.contains(bare),
+                    None => false,
+                }
+            }
+        }
     }
 
     fn resolve_function_call(
@@ -263,9 +294,8 @@ impl TypeChecker {
         type_args: &mut Vec<DataType>,
     ) -> Result<DataType> {
         if sig.params.len() != arg_types.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Function '{}' expects {} arguments, got {}",
                     display_name,
@@ -277,9 +307,8 @@ impl TypeChecker {
 
         let resolved_type_args = if sig.type_params.is_empty() {
             if !type_args.is_empty() {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Function '{}' is not generic; remove explicit type arguments",
                         display_name
@@ -301,9 +330,8 @@ impl TypeChecker {
             .enumerate()
         {
             if !self.is_assignable(&expected, actual) {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Function '{}' argument {} expects {:?}, got {:?}",
                         display_name,
@@ -333,9 +361,8 @@ impl TypeChecker {
         if name == "new::" {
             if args.is_empty() {
                 if *data_type == DataType::Unknown {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "new::() requires a type annotation (:T)".to_string(),
                     ));
                 }
@@ -351,9 +378,8 @@ impl TypeChecker {
         if name == "own::" {
             if args.is_empty() {
                 if *data_type == DataType::Unknown {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "own::() requires a type annotation (:T)".to_string(),
                     ));
                 }
@@ -390,9 +416,8 @@ impl TypeChecker {
             return Ok(());
         }
 
-        Err(type_error(
-            self.current_line,
-            self.current_column,
+        Err(type_error_at_span(
+            self.current_span,
             format!(
                 "new:: only supports arr/vec/map targets, got {:?}",
                 declared_type
@@ -429,9 +454,8 @@ impl TypeChecker {
             return Ok(());
         }
 
-        Err(type_error(
-            self.current_line,
-            self.current_column,
+        Err(type_error_at_span(
+            self.current_span,
             format!("own:: target type {:?} is not heap-allocatable", inner_type),
         ))
     }
@@ -455,9 +479,8 @@ impl TypeChecker {
                 ..
             } => {
                 if enum_name != expected_enum {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Match pattern enum mismatch: expected '{}', got '{}'",
                             expected_enum, enum_name
@@ -517,9 +540,8 @@ impl TypeChecker {
             }
             for variant_name in variant_names {
                 if !covered.insert(variant_name.clone()) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Duplicate match arm for enum variant '{}.{}'",
                             enum_name, variant_name
@@ -542,9 +564,8 @@ impl TypeChecker {
             return Ok(());
         }
 
-        Err(type_error(
-            self.current_line,
-            self.current_column,
+        Err(type_error_at_span(
+            self.current_span,
             format!(
                 "Non-exhaustive match for enum '{}'; missing variants: {}",
                 enum_name,
@@ -572,9 +593,8 @@ impl TypeChecker {
             }
             for variant_name in variant_names {
                 if !covered.insert(variant_name.clone()) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Duplicate match arm for enum variant '{}.{}'",
                             enum_name, variant_name
@@ -584,7 +604,7 @@ impl TypeChecker {
             }
         }
 
-        let has_default = !matches!(default, Expression::Literal(Literal::None));
+        let has_default = !matches!(default, Expression::Literal { lit: Literal::None, .. });
         if has_default {
             return Ok(());
         }
@@ -598,14 +618,106 @@ impl TypeChecker {
             return Ok(());
         }
 
-        Err(type_error(
-            self.current_line,
-            self.current_column,
+        Err(type_error_at_span(
+            self.current_span,
             format!(
                 "Non-exhaustive match expression for enum '{}'; missing variants: {}",
                 enum_name,
                 missing.join(", ")
             ),
         ))
+    }
+
+    /// Phase 3c: route `receiver.method(args)` to the underlying collection
+    /// library call (e.g. `v.len()` -> `vec::len(v)`) by computing the
+    /// namespaced target name. `method` is the bare method name (no receiver).
+    /// Type-directed: the element/value type selects the `::i64`/`:str` variant
+    /// of overloaded stdlib functions (e.g. `vec::contains::i64`).
+    pub(super) fn builtin_method_target(
+        receiver: &DataType,
+        method: &str,
+    ) -> Option<String> {
+        let receiver = match receiver {
+            DataType::Ref { inner } | DataType::RefMut { inner } => inner.as_ref(),
+            other => other,
+        };
+        match receiver {
+            DataType::Vector { element_type, .. } => {
+                let e = type_suffix(element_type);
+                let name = match method {
+                    "len" => return Some("vec.len".to_string()),
+                    "contains" => format!("vec.contains.{e}"),
+                    "get" => format!("vec.get.{e}"),
+                    "set" => format!("vec.set.{e}"),
+                    "push" => format!("vec.push.{e}"),
+                    "first" => format!("vec.first.{e}"),
+                    "last" => format!("vec.last.{e}"),
+                    "index" => format!("vec.index.{e}"),
+                    "remove" => "vec.remove".to_string(),
+                    "clear" => "vec.clear".to_string(),
+                    "sort" => "vec.sort".to_string(),
+                    "reverse" => "vec.reverse".to_string(),
+                    "unique" => "vec.unique".to_string(),
+                    "flatten" => "vec.flatten".to_string(),
+                    "concat" => "vec.concat".to_string(),
+                    "join" => "vec.join".to_string(),
+                    "slice" => "vec.slice".to_string(),
+                    _ => return None,
+                };
+                Some(name)
+            }
+            DataType::Map { value_type, .. } => {
+                let v = type_suffix(value_type);
+                let name = match method {
+                    "len" => return Some("map.len".to_string()),
+                    "has" => return Some("map.has".to_string()),
+                    "remove" => return Some("map.remove".to_string()),
+                    "keys" => return Some("map.keys".to_string()),
+                    "entries" => return Some("map.entries".to_string()),
+                    "count" => return Some("map.count".to_string()),
+                    "merge" => return Some("map.merge".to_string()),
+                    "get" => format!("map.get.{v}"),
+                    "set" => format!("map.set.{v}"),
+                    "values" => format!("map.values.{v}"),
+                    "is_empty" => "map.is.empty".to_string(),
+                    _ => return None,
+                };
+                Some(name)
+            }
+            DataType::Str => Some(match method {
+                "len" => "str.len",
+                "contains" => "str.contains",
+                "index" => "str.index",
+                "replace" => "str.replace",
+                "replace_first" => "str.replace.first",
+                "starts_with" => "str.starts.with",
+                "ends_with" => "str.ends.with",
+                "trim" => "str.trim",
+                "strip" => "str.strip",
+                "to_upper" => "str.upper",
+                "to_lower" => "str.lower",
+                "pad_left" => "str.pad.left",
+                "pad_right" => "str.pad.right",
+                "split" => "str.split",
+                "substr" => "str.substr",
+                "repeat" => "str.repeat",
+                "copy" => "str.copy",
+                "is_empty" => "str.is.empty",
+                "concat" => "str.concat",
+                _ => return None,
+            }.to_string()),
+            _ => None,
+        }
+    }
+}
+
+fn type_suffix(t: &DataType) -> &'static str {
+    match t {
+        DataType::I64 | DataType::I32 | DataType::I16 | DataType::I8 | DataType::U64 | DataType::U32 => "i64",
+        DataType::Str => "str",
+        DataType::Bool => "bool",
+        DataType::F64 => "f64",
+        DataType::Char => "char",
+        _ => "i64",
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::type_error_at_span;
 
 impl TypeChecker {
     pub(super) fn validate_explicit_nested_literal(
@@ -81,9 +82,8 @@ impl TypeChecker {
             });
 
             let Some((implemented_params, implemented_return)) = implemented else {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Type '{}' does not implement required method '{}.{}'",
                         type_name, trait_name, required_method.name
@@ -94,9 +94,8 @@ impl TypeChecker {
             let required_kind = Self::method_kind_for_params(&required_method.params);
             let implemented_kind = Self::method_kind_for_params(&implemented_params);
             if required_kind != implemented_kind {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Method '{}.{}' must be implemented as {}, got {}",
                         trait_name,
@@ -112,18 +111,18 @@ impl TypeChecker {
             let implemented_params =
                 Self::normalize_trait_impl_params(type_name, &implemented_params);
 
+            let required_return = Self::substitute_self_type(&required_method.return_type, type_name);
             if implemented_params != required_params
-                || implemented_return != required_method.return_type
+                || implemented_return != required_return
             {
-                return Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                return Err(type_error_at_span(
+                    self.current_span,
                     format!(
                         "Method '{}.{}' implementation signature does not match declaration: expected {:?} -> {:?}, got {:?} -> {:?}",
                         trait_name,
                         required_method.name,
                         required_params,
-                        required_method.return_type,
+                        required_return,
                         implemented_params,
                         implemented_return,
                     ),
@@ -171,6 +170,20 @@ impl TypeChecker {
         Ok(())
     }
 
+    fn substitute_self_type(dt: &DataType, type_name: &str) -> DataType {
+        match dt {
+            DataType::Unknown => DataType::StructNamed(type_name.to_string()),
+            DataType::Result { ok, err } => DataType::Result {
+                ok: Box::new(Self::substitute_self_type(ok, type_name)),
+                err: Box::new(Self::substitute_self_type(err, type_name)),
+            },
+            DataType::Maybe { inner } => DataType::Maybe {
+                inner: Box::new(Self::substitute_self_type(inner, type_name)),
+            },
+            _ => dt.clone(),
+        }
+    }
+
     pub(super) fn normalize_trait_impl_params(
         owner_type_name: &str,
         params: &[(String, DataType)],
@@ -181,7 +194,7 @@ impl TypeChecker {
                 if name == "self" && matches!(data_type, DataType::Unknown | DataType::Struct) {
                     DataType::StructNamed(owner_type_name.to_string())
                 } else {
-                    data_type.clone()
+                    Self::substitute_self_type(data_type, owner_type_name)
                 }
             })
             .collect()

@@ -67,9 +67,10 @@ pub(crate) fn build_cache_key(
     import_mode: ImportMode,
     emit_binary: bool,
     persist_ir: bool,
+    test_mode: bool,
 ) -> String {
     format!(
-        "{}::{mode:?}::{import_mode:?}::{emit_binary}::{persist_ir}",
+        "{}::{mode:?}::{import_mode:?}::{emit_binary}::{persist_ir}::test={test_mode}",
         normalize_path_key(source_path)
     )
 }
@@ -199,6 +200,7 @@ pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSetting
     #[derive(Deserialize)]
     struct ManifestFile {
         cache: Option<ManifestCache>,
+        security: Option<ManifestSecurity>,
     }
 
     #[derive(Deserialize)]
@@ -206,12 +208,17 @@ pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSetting
         max_units: Option<usize>,
         analysis_cache: Option<bool>,
         compression: Option<bool>,
+        blob_checksum: Option<bool>,
+    }
+
+    #[derive(Deserialize)]
+    struct ManifestSecurity {
+        mode: Option<crate::avens::SecurityMode>,
     }
 
     let manifest = toml::from_str::<ManifestFile>(&raw).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
-            line: 0,
-            column: 0,
+            span: crate::error::Span::unknown(),
             message: format!("Invalid owl.toml cache configuration: {}", err),
         })
     })?;
@@ -221,6 +228,19 @@ pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSetting
         .as_ref()
         .and_then(|cache| cache.max_units)
         .unwrap_or(DEFAULT_MAX_UNITS);
+
+    // In strict security mode, cache blobs are validated with a checksum on
+    // read (see docs/SECURITY.md). Explicit `[cache].blob_checksum` overrides
+    // the security-mode default.
+    let strict_mode = manifest
+        .security
+        .as_ref()
+        .and_then(|security| security.mode)
+        == Some(crate::avens::SecurityMode::Strict);
+    let blob_checksum = cache
+        .as_ref()
+        .and_then(|cache| cache.blob_checksum)
+        .unwrap_or(strict_mode);
 
     Ok(CacheSettings {
         max_units: (max_units != 0).then_some(max_units),
@@ -232,5 +252,6 @@ pub(crate) fn manifest_cache_settings(source_path: &Path) -> Result<CacheSetting
             .as_ref()
             .and_then(|cache| cache.compression)
             .unwrap_or(defaults.compression),
+        blob_checksum,
     })
 }

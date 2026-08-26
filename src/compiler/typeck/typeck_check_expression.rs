@@ -1,5 +1,6 @@
-use crate::error::Result;
-use crate::parser::ast::{DataType, Expression, Literal};
+use crate::error::{Result, type_error_at_span, type_error_code_at_span, DiagnosticCode};
+use crate::parser::ast::{DataType, Expression, Identifier, Literal};
+use crate::canonical_fn_name;
 
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
@@ -8,10 +9,9 @@ use crate::compiler::typeck::typeck_type_parsing::data_type_name_for_diag;
 use crate::compiler::typeck::{TypeChecker, type_error};
 impl TypeChecker {
     pub(super) fn check_expression(&mut self, expression: &mut Expression) -> Result<DataType> {
-        let (line, column) = super::location::expression_location(expression);
-        if line > 0 {
-            self.current_line = line;
-            self.current_column = column;
+        let span = super::location::expression_location(expression);
+        if !span.is_unknown() {
+            self.current_span = span;
         }
         match expression {
             Expression::Ascription {
@@ -22,30 +22,30 @@ impl TypeChecker {
                 let inner = self.check_expression(expr)?;
                 if inner != DataType::Unknown && *target != DataType::Unknown {
                     let literal_ok = match &**expr {
-                        Expression::Literal(Literal::Int(v)) => {
+                        Expression::Literal { lit: Literal::Int(v), .. } => {
                             crate::types::unify::validate_int_literal_range(
-                                target, *v, line, column,
+                                target, *v, span.line, span.column,
                             )
                             .is_ok()
                         }
-                        Expression::Literal(Literal::Float(_)) => {
+                        Expression::Literal { lit: Literal::Float(_), .. } => {
                             matches!(target, DataType::F32 | DataType::F64)
                         }
-                        Expression::Literal(_) => self.is_assignable(target, &inner),
+                        Expression::Literal { .. } => self.is_assignable(target, &inner),
                         _ => false,
                     };
                     if !literal_ok && !self.is_assignable(target, &inner) {
                         if crate::types::unify::is_numeric(target)
                             && crate::types::unify::is_numeric(&inner)
                         {
-                            if let Expression::Literal(Literal::Int(v)) = &**expr {
+                            if let Expression::Literal { lit: Literal::Int(v), .. } = &**expr {
                                 crate::types::unify::validate_int_literal_range(
-                                    target, *v, line, column,
+                                    target, *v, span.line, span.column,
                                 )?;
                             }
                             return Err(crate::types::errors::precision_loss(
-                                line,
-                                column,
+                                span.line,
+                                span.column,
                                 target,
                                 &inner,
                                 Some(&format!(
@@ -55,14 +55,14 @@ impl TypeChecker {
                             ));
                         }
                         return Err(crate::types::errors::type_mismatch(
-                            line, column, target, &inner, "type ascription",
+                            span.line, span.column, target, &inner, "type ascription",
                         ));
                     }
                 }
                 *data_type = target.clone();
                 Ok(target.clone())
             }
-            Expression::Literal(lit) => Ok(Self::literal_type(lit)),
+            Expression::Literal { lit, .. } => Ok(Self::literal_type(lit)),
             Expression::Identifier(ident) => {
                 if let Some((resolved, _)) = self.lookup_var(&ident.name) {
                     if ident.data_type == DataType::Unknown {
@@ -125,9 +125,8 @@ impl TypeChecker {
                     "-" if Self::is_numeric(&operand_type) => operand_type,
                     "!" if Self::is_bool_like(&operand_type) => DataType::Bool,
                     "-" => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!("Unary '-' requires numeric operand, got {:?}", operand_type),
                         ));
                     }
@@ -149,12 +148,43 @@ impl TypeChecker {
                 self.in_use_macro = false;
                 result
             }
+Expression::MacroCall { inner } => {
+                 let name = match inner.as_ref() {
+                     Expression::Call { name, .. } => Some(name.clone()),
+                     _ => None,
+                 };
+                 if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
+                     let label = name.unwrap_or_else(|| "?".to_string());
+                     return Err(type_error_code_at_span(
+                         self.current_span,
+                         DiagnosticCode::E0019,
+                         format!(
+                             "no macro named '{label}'\n\n\
+                              (macros are declared with `@[macro!]` and invoked with `name!(...)`)"
+                         ),
+                     ));
+                 }
+                 let label = name.clone().unwrap_or_default();
+                 if !self.is_macro_allowed(&label) {
+                     return Err(type_error_code_at_span(
+                         self.current_span,
+                         DiagnosticCode::E0021,
+                         format!(
+                             "macro '{label}' is not allowed in this project's [security].macros allowlist"
+                         ),
+                     ));
+                 }
+                 self.in_macro_call = true;
+                 let result = self.check_expression(inner);
+                 self.in_macro_call = false;
+                 result
+             }
             Expression::Call {
                 name,
                 args,
                 type_args,
-                name_line: _,
-                name_column: _,
+                name_line,
+                name_column,
                 data_type,
             } => {
                 // A qualified call into a `load!`-imported module is only
@@ -165,18 +195,39 @@ impl TypeChecker {
                         .split_once("::")
                         .or_else(|| name.split_once('.'))
                         .map(|(q, _)| q.to_string());
-                    if let Some(qualifier) = qualifier {
-                        if self.load_local_modules.contains(&qualifier) {
-                            return Err(type_error(
-                                self.current_line,
-                                self.current_column,
-                                format!(
-                                    "calls into module '{qualifier}' require `use!` \
-                                     (e.g. `set x = use! {qualifier}::symbol(...)`)"
-                                ),
-                            ));
-                        }
+                    if let Some(qualifier) = qualifier
+                        && self.load_local_modules.contains(&qualifier)
+                    {
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            format!(
+                                "calls into module '{qualifier}' require `use!` \
+                                 (e.g. `set x = use! {qualifier}::symbol(...)`)"
+                            ),
+                        ));
                     }
+                }
+                if !self.in_macro_call && self.macro_names.contains(&name.clone()) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0020,
+                        format!(
+                            "macro '{name}' must be invoked with `!`: use `{name}!(...)`",
+                        ),
+                    ));
+                }
+                // Macro body sandbox: macro bodies cannot call extern functions
+                // unless they are in the [security].externs allowlist.
+                if self.in_macro_definition && self.extern_fn_names.contains(&canonical_fn_name(name))
+                    && !self.is_extern_allowed(name)
+                {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0021,
+                        format!(
+                            "macro bodies cannot call extern function '{name}' (not in [security].externs allowlist)"
+                        ),
+                    ));
                 }
                 if name == "ireru" && *data_type != DataType::Unknown {
                     *data_type = data_type.clone();
@@ -188,9 +239,8 @@ impl TypeChecker {
                 }
                 if name == "call" {
                     if args.is_empty() {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             "call expects at least a callback argument".to_string(),
                         ));
                     }
@@ -228,18 +278,16 @@ impl TypeChecker {
                                     .lookup_var(&ident.name)
                                     .is_some_and(|(ty, _)| ty == DataType::Function)
                                 {
-                                    return Err(type_error(
-                                        self.current_line,
-                                        self.current_column,
+                                    return Err(type_error_at_span(
+                                        self.current_span,
                                         format!(
                                             "call callback '{}' is typed as :function but its signature cannot be inferred",
                                             ident.name
                                         ),
                                     ));
                                 }
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
                                         "call callback '{}' must be a known function, extern fn, or function value",
                                         callback_name
@@ -248,9 +296,8 @@ impl TypeChecker {
                             }
                             let callback_sig = callback_sig.expect("checked is_some");
                             if callback_sig.params.len() != callback_args.len() {
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
                                         "call callback '{}' expects {} argument(s), got {}",
                                         callback_name,
@@ -264,9 +311,8 @@ impl TypeChecker {
                             {
                                 let actual_ty = self.check_expression(actual_expr)?;
                                 if !self.is_assignable(expected_ty, &actual_ty) {
-                                    return Err(type_error(
-                                        self.current_line,
-                                        self.current_column,
+                                    return Err(type_error_at_span(
+                                        self.current_span,
                                         format!(
                                             "call callback '{}' expects {:?}, got {:?}",
                                             callback_name, expected_ty, actual_ty
@@ -285,9 +331,8 @@ impl TypeChecker {
                             capture,
                         } => {
                             if params.len() != callback_args.len() {
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
                                         "call closure expects {} argument(s), got {}",
                                         params.len(),
@@ -302,9 +347,8 @@ impl TypeChecker {
                                 let resolved_param = Self::unify_types(param_ty, &actual_ty)?;
                                 *param_ty = resolved_param.clone();
                                 if !self.is_assignable(&resolved_param, &actual_ty) {
-                                    return Err(type_error(
-                                        self.current_line,
-                                        self.current_column,
+                                    return Err(type_error_at_span(
+                                        self.current_span,
                                         format!(
                                             "call closure expects {:?}, got {:?}",
                                             resolved_param, actual_ty
@@ -331,9 +375,8 @@ impl TypeChecker {
                                 && !self.is_assignable(return_type, &inferred_return)
                             {
                                 self.pop_scope();
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
                                         "call closure must return {:?}, got {:?}",
                                         return_type, inferred_return
@@ -348,9 +391,8 @@ impl TypeChecker {
                             let callback_ty = self.check_expression(callback_expr)?;
                             if !matches!(callback_ty, DataType::Function | DataType::Closure { .. } | DataType::Unknown)
                             {
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
                                         "call expects function callback, got {:?}",
                                         callback_ty
@@ -361,9 +403,8 @@ impl TypeChecker {
                                 self.function_signature_for_expr(callback_expr)
                             {
                                 if callback_sig.params.len() != callback_args.len() {
-                                    return Err(type_error(
-                                        self.current_line,
-                                        self.current_column,
+                                    return Err(type_error_at_span(
+                                        self.current_span,
                                         format!(
                                             "call callback expression expects {} argument(s), got {}",
                                             callback_sig.params.len(),
@@ -376,9 +417,8 @@ impl TypeChecker {
                                 {
                                     let actual_ty = self.check_expression(actual_expr)?;
                                     if !self.is_assignable(expected_ty, &actual_ty) {
-                                        return Err(type_error(
-                                            self.current_line,
-                                            self.current_column,
+                                        return Err(type_error_at_span(
+                                            self.current_span,
                                             format!(
                                                 "call callback expression expects {:?}, got {:?}",
                                                 expected_ty, actual_ty
@@ -390,7 +430,7 @@ impl TypeChecker {
                                 return Ok(callback_sig.return_type);
                             }
                             if callback_ty == DataType::Function {
-                                return Err(type_error(self.current_line, self.current_column,
+                                return Err(type_error_at_span(self.current_span,
                                     "call callback expression is :function but its signature cannot be inferred"
                                         .to_string(),
                                 ));
@@ -404,6 +444,34 @@ impl TypeChecker {
                     }
                 }
 
+                // Phase 3c: builtin collection methods via `.method()` syntax.
+                // `v.len()` parses to Call{ name: "v.len", args: [...] } (the
+                // receiver identifier is folded into the dotted name). Rewrite
+                // to the namespaced library call (e.g. "vec.len(v, ...)") with
+                // the receiver prepended, then let normal resolution below handle
+                // the rewritten call. Only fires for `ident.method` where `ident`
+                // is a collection-typed local; struct methods and enum variants
+                // fall through to their existing handlers untouched.
+                // Overloaded methods like `v.get::i64(1)` parse as "v.get.i64"
+                // (the parser converts `::` to `.`); the type suffix after the
+                // second dot is handled by builtin_method_target which picks the
+                // correct variant based on the receiver's actual element type.
+                if let Some((receiver_name, method)) = name.split_once('.')
+                    && let Some((receiver_ty, _)) = self.lookup_var(receiver_name)
+                {
+                    let base_method = method.split_once('.').map(|(base, _)| base).unwrap_or(method);
+                    if let Some(target) = Self::builtin_method_target(&receiver_ty, base_method) {
+                        let receiver = Expression::Identifier(Identifier {
+                            name: receiver_name.to_string(),
+                            data_type: receiver_ty.clone(),
+                            line: *name_line,
+                            column: *name_column,
+                        });
+                        args.insert(0, receiver);
+                        *name = target;
+                    }
+                }
+
                 let arg_types: Vec<DataType> = args
                     .iter_mut()
                     .map(|arg| self.check_expression(arg))
@@ -411,18 +479,16 @@ impl TypeChecker {
 
                 if name == "__if_expr" {
                     if args.len() != 3 {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             "__if_expr expects condition, then branch, and else branch".to_string(),
                         ));
                     }
 
                     let cond_type = arg_types.first().cloned().unwrap_or(DataType::Unknown);
                     if !Self::is_bool_like(&cond_type) {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!("If expression condition must be bool, got {:?}", cond_type),
                         ));
                     }
@@ -456,12 +522,24 @@ impl TypeChecker {
                 }
 
                 let (base_name, nominal_type_args_from_name) = Self::split_nominal_type_args(name);
-                let nominal_type_args = if !type_args.is_empty() {
+                let mut nominal_type_args = if !type_args.is_empty() {
                     type_args.clone()
                 } else {
                     nominal_type_args_from_name
                 };
                 if let Some(class_sig) = self.classes.get(base_name).cloned() {
+                    if nominal_type_args.is_empty() && !class_sig.type_params.is_empty() {
+                        if let Some(ref impl_self_name) = self.impl_self_name {
+                            let (impl_base, _) = Self::split_nominal_type_args(impl_self_name);
+                            if impl_base == base_name {
+                                nominal_type_args = self
+                                    .impl_type_params
+                                    .iter()
+                                    .map(|p| DataType::Generic(p.clone()))
+                                    .collect();
+                            }
+                        }
+                    }
                     let bindings = self.bindings_for_nominal_type_args(
                         &class_sig.type_params,
                         &nominal_type_args,
@@ -475,7 +553,7 @@ impl TypeChecker {
                         name, &class_sig, &bindings, args, &arg_types,
                     )?;
                     let typed_name = if nominal_type_args.is_empty() {
-                        name.clone()
+                        base_name.to_string()
                     } else {
                         format!(
                             "{}[{}]",
@@ -524,42 +602,39 @@ impl TypeChecker {
                     return Ok(DataType::EnumNamed(enum_name));
                 }
 
-                if let Some((var_type, _)) = self.lookup_var(name) {
-                    if matches!(var_type, DataType::Closure { .. } | DataType::Function) {
-                        let closure_type = var_type.clone();
-                        if let DataType::Closure { params, return_type } = closure_type {
-                            if params.len() != arg_types.len() {
-                                return Err(type_error(
-                                    self.current_line,
-                                    self.current_column,
+                if let Some((var_type, _)) = self.lookup_var(name)
+                    && matches!(var_type, DataType::Closure { .. } | DataType::Function)
+                {
+                    let closure_type = var_type.clone();
+                    if let DataType::Closure { params, return_type } = closure_type {
+                        if params.len() != arg_types.len() {
+                            return Err(type_error_at_span(
+                                self.current_span,
+                                format!(
+                                    "Closure expects {} argument(s), got {}",
+                                    params.len(),
+                                    arg_types.len()
+                                ),
+                            ));
+                        }
+                        for (actual_ty, expected_ty) in arg_types.iter().zip(params.iter()) {
+                            if !self.is_assignable(expected_ty, actual_ty) {
+                                return Err(type_error_at_span(
+                                    self.current_span,
                                     format!(
-                                        "Closure expects {} argument(s), got {}",
-                                        params.len(),
-                                        arg_types.len()
+                                        "Closure expects {:?}, got {:?}",
+                                        expected_ty, actual_ty
                                     ),
                                 ));
                             }
-                            for (actual_ty, expected_ty) in arg_types.iter().zip(params.iter()) {
-                                if !self.is_assignable(expected_ty, actual_ty) {
-                                    return Err(type_error(
-                                        self.current_line,
-                                        self.current_column,
-                                        format!(
-                                            "Closure expects {:?}, got {:?}",
-                                            expected_ty, actual_ty
-                                        ),
-                                    ));
-                                }
-                            }
-                            *data_type = return_type.as_ref().clone();
-                            return Ok(return_type.as_ref().clone());
                         }
+                        *data_type = return_type.as_ref().clone();
+                        return Ok(return_type.as_ref().clone());
                     }
                 }
 
-                Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                Err(type_error_at_span(
+                    self.current_span,
                     format!("Unknown function '{}'", name),
                 ))
             }
@@ -633,9 +708,8 @@ impl TypeChecker {
                     && !matches!(target_type, DataType::Dict)
                     && index_type != DataType::Unknown
                 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Index must be numeric for {:?}, got {:?}",
                             target_type, index_type
@@ -653,9 +727,8 @@ impl TypeChecker {
                     DataType::Map { value_type, .. } => *value_type,
                     DataType::Unknown => DataType::Unknown,
                     other => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!("Type {:?} is not indexable", other),
                         ));
                     }
@@ -670,6 +743,14 @@ impl TypeChecker {
                 data_type,
             } => {
                 let target_type = self.check_expression(target)?;
+                // Auto-deref: `x.field` on `&T`/`&mut T` resolves through the
+                // reference to the underlying struct, same as a value target.
+                let target_type = match &target_type {
+                    DataType::Ref { inner } | DataType::RefMut { inner } => {
+                        (**inner).clone()
+                    }
+                    other => other.clone(),
+                };
                 if target_type.is_struct_like() {
                     if let Some(struct_name) = self
                         .struct_name_for_expr(target)
@@ -681,8 +762,15 @@ impl TypeChecker {
                                 &class_sig.type_params,
                                 &type_args,
                             )?;
-                            if let Some(field) = class_sig.fields.iter().find(|f| f.name == *member)
-                            {
+                            let field = class_sig.fields.iter().find(|f| f.name == *member);
+                            let field = field.or_else(|| {
+                                class_sig.parent.as_ref().and_then(|parent_name| {
+                                    self.classes.get(parent_name).and_then(|parent_sig| {
+                                        parent_sig.fields.iter().find(|f| f.name == *member)
+                                    })
+                                })
+                            });
+                            if let Some(field) = field {
                                 let resolved_field =
                                     self.substitute_generics(&field.data_type, &bindings);
                                 if *data_type == DataType::Unknown {
@@ -698,18 +786,16 @@ impl TypeChecker {
                             *data_type = fn_sig.return_type.clone();
                             return Ok(fn_sig.return_type.clone());
                         }
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!(
                                 "Struct '{}' has no field or method '{}'",
                                 struct_name, member
                             ),
                         ));
                     }
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Cannot resolve concrete struct type for member access '.{}'",
                             member
@@ -721,18 +807,16 @@ impl TypeChecker {
                     return Ok(DataType::Anything);
                 }
                 if matches!(target_type, DataType::Unknown) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Cannot access member '{}' on unknown type - type not determined",
                             member
                         ),
                     ));
                 }
-                Err(type_error(
-                    self.current_line,
-                    self.current_column,
+                Err(type_error_at_span(
+                    self.current_span,
                     format!("Type {:?} has no member '{}'", target_type, member),
                 ))
             }
@@ -740,13 +824,13 @@ impl TypeChecker {
                 enum_name,
                 variant_name,
                 data_type,
+                ..
             } => {
                 let full_name =
                     Self::canonical_enum_variant_name(&format!("{}.{}", enum_name, variant_name));
                 if !self.enum_variants.contains_key(&full_name) {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!("Unknown enum variant '{}'", full_name),
                     ));
                 }
@@ -758,13 +842,13 @@ impl TypeChecker {
                 variant_name,
                 payloads,
                 data_type,
+                ..
             } => {
                 let typed_name = format!("{}.{}", enum_name, variant_name);
                 let full_name = Self::canonical_enum_variant_name(&typed_name);
                 let variant_sig = self.enum_variants.get(&full_name).cloned().ok_or_else(|| {
-                    type_error(
-                        self.current_line,
-                        self.current_column,
+                    type_error_at_span(
+                        self.current_span,
                         format!("Unknown enum variant '{}'", typed_name),
                     )
                 })?;
@@ -814,9 +898,8 @@ impl TypeChecker {
                 let target_type = self.check_expression(expr)?;
                 let target_is_mutable = self.reference_target_is_mutable(expr);
                 if *is_mutable && !target_is_mutable {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         "Cannot take mutable reference from immutable target".to_string(),
                     ));
                 }
@@ -841,9 +924,8 @@ impl TypeChecker {
                         .unwrap_or(DataType::Unknown),
                     DataType::Unknown => DataType::Unknown,
                     other => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             format!("Cannot dereference non-reference type {:?}", other),
                         ));
                     }
@@ -898,7 +980,7 @@ impl TypeChecker {
                     let inferred_return = self.return_type_stack.pop().unwrap_or(DataType::Unknown);
                     if *return_type == DataType::Unknown {
                         if inferred_return == DataType::Unknown {
-                            return Err(type_error(self.current_line, self.current_column,
+                            return Err(type_error_at_span(self.current_span,
                                 "Pipeline stage return type cannot be inferred - closure must return a value".to_string(),
                             ));
                         }
@@ -907,7 +989,7 @@ impl TypeChecker {
                     self.pop_scope();
                     DataType::Vector {
                         element_type: Box::new(if *return_type == DataType::Unknown {
-                            return Err(type_error(self.current_line, self.current_column,
+                            return Err(type_error_at_span(self.current_span,
                                     "Cannot determine pipeline output element type - specify return type in closure".to_string(),
                                 ));
                         } else {
@@ -922,9 +1004,8 @@ impl TypeChecker {
                 } else {
                     let stage_check = self.check_expression(stage)?;
                     if stage_check == DataType::Unknown {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
+                        return Err(type_error_at_span(
+                            self.current_span,
                             "Pipeline stage has unknown type - cannot infer output type"
                                 .to_string(),
                         ));
@@ -936,9 +1017,8 @@ impl TypeChecker {
                     *data_type = resolved.clone();
                 } else if resolved != DataType::Unknown && !self.is_assignable(data_type, &resolved)
                 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Pipeline type mismatch: expected {:?}, got {:?}",
                             data_type, resolved
@@ -951,21 +1031,20 @@ impl TypeChecker {
                 let inner_type = self.check_expression(expr)?;
                 let resolved = match inner_type {
                     DataType::Result { ok, .. } => *ok,
+                    DataType::Maybe { inner } => *inner,
                     _ => {
-                        return Err(type_error(
-                            self.current_line,
-                            self.current_column,
-                            "'?' operator requires a result[T, E] type".to_string(),
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            "'?' operator requires a result[T, E] or maybe[T] type".to_string(),
                         ));
                     }
                 };
                 if let Some(current_return) = self.return_type_stack.last()
-                    && !matches!(current_return, DataType::Result { .. })
+                    && !matches!(current_return, DataType::Result { .. } | DataType::Maybe { .. })
                 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
-                        "'?' operator can only be used in a function that returns result[T, E]"
+                    return Err(type_error_at_span(
+                        self.current_span,
+                        "'?' operator can only be used in a function that returns result[T, E] or maybe[T]"
                             .to_string(),
                     ));
                 }
@@ -998,7 +1077,7 @@ impl TypeChecker {
                 }
 
                 let is_implicit_default =
-                    matches!(default.as_ref(), Expression::Literal(Literal::None));
+                    matches!(default.as_ref(), Expression::Literal { lit: Literal::None, .. });
                 if !is_implicit_default {
                     let default_type = self.check_expression(default)?;
                     resolved_type = Self::unify_types(&resolved_type, &default_type)?;
@@ -1009,9 +1088,8 @@ impl TypeChecker {
                 } else if resolved_type != DataType::Unknown
                     && !self.is_assignable(data_type, &resolved_type)
                 {
-                    return Err(type_error(
-                        self.current_line,
-                        self.current_column,
+                    return Err(type_error_at_span(
+                        self.current_span,
                         format!(
                             "Match expression type mismatch: expected {:?}, got {:?}",
                             data_type, resolved_type
@@ -1036,6 +1114,16 @@ impl TypeChecker {
                 let resolved = DataType::Result {
                     ok: Box::new(DataType::Unknown),
                     err: Box::new(val_type),
+                };
+                if *data_type == DataType::Unknown {
+                    *data_type = resolved.clone();
+                }
+                Ok(data_type.clone())
+            }
+            Expression::Some { value, data_type } => {
+                let val_type = self.check_expression(value)?;
+                let resolved = DataType::Maybe {
+                    inner: Box::new(val_type),
                 };
                 if *data_type == DataType::Unknown {
                     *data_type = resolved.clone();

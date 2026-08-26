@@ -1,6 +1,6 @@
 use super::MirLower;
 use super::collections::lower_index_write;
-use super::types::{extract_data_type, llvm_elem_type_str};
+use super::types::{extract_data_type, llvm_elem_type_str, llvm_type_byte_size};
 use crate::compiler::location::statement_location;
 use crate::compiler::mir::*;
 use crate::parser::ast::{AssignmentTarget, DataType, Expression, Statement};
@@ -19,7 +19,7 @@ pub(crate) fn needs_convert(from: &DataType, to: &DataType) -> bool {
 
 impl MirLower {
     pub(crate) fn lower_statement(&mut self, stmt: &Statement) {
-        let loc = statement_location(stmt);
+        let loc = statement_location(stmt).to_tuple();
         match stmt {
             Statement::Let {
                 name,
@@ -102,10 +102,10 @@ impl MirLower {
                 let last = self.current_block;
                 match target {
                     AssignmentTarget::Variable(name) => {
-                        if let Some(target_ty) = self.var_types.get(name).cloned() {
-                            if needs_convert(&val_ty, &target_ty) {
-                                v = self.emit_convert(v, &val_ty, &target_ty, loc);
-                            }
+                        if let Some(target_ty) = self.var_types.get(name).cloned()
+                            && needs_convert(&val_ty, &target_ty)
+                        {
+                            v = self.emit_convert(v, &val_ty, &target_ty, loc);
                         }
                         if self.globals.contains_key(name) {
                             self.func.blocks[last].push(
@@ -122,7 +122,11 @@ impl MirLower {
                         }
                     }
                     AssignmentTarget::Index { target, index } => {
-                        let target_type = extract_data_type(target);
+                        let target_type = if let Expression::Identifier(id) = target.as_ref() {
+                            self.var_types.get(&id.name).cloned().unwrap_or(DataType::Unknown)
+                        } else {
+                            extract_data_type(target)
+                        };
                         let value_type = extract_data_type(value);
                         if lower_index_write(self, target, index, v.clone(), &value_type) {
                             return;
@@ -188,9 +192,28 @@ impl MirLower {
 
                         let gep = self.new_temp();
                         let elem_ty = self.get_target_elem_type(target);
+                        let adjusted_index = if matches!(
+                            target_type,
+                            DataType::Vector { .. } | DataType::List
+                        ) {
+                            let elem_size = llvm_type_byte_size(&elem_ty);
+                            let header_offset = 8 / elem_size;
+                            let adj = self.new_temp();
+                            self.func.blocks[last].push(
+                                Some(adj),
+                                MirOp::Add(
+                                    index_val.clone(),
+                                    MirValue::Const(MirConst::Int(header_offset)),
+                                ),
+                                loc,
+                            );
+                            MirValue::temp(adj)
+                        } else {
+                            index_val.clone()
+                        };
                         self.func.blocks[last].push(
                             Some(gep),
-                            MirOp::Gep(target_val, vec![index_val], elem_ty),
+                            MirOp::Gep(target_val, vec![adjusted_index], elem_ty),
                             loc,
                         );
                         self.func.blocks[last].push(
@@ -257,8 +280,11 @@ impl MirLower {
                 let _ = self.lower_expression(expr);
             }
             Statement::Return(val) => {
+                let ret_ty = self.func.ret_type.clone();
+                let loc = statement_location(&Statement::Return(val.clone())).to_tuple();
                 let v = val.as_ref().map(|e| self.lower_expression(e));
                 let last = self.current_block;
+                let v = v.map(|x| self.materialize_array_value(x, &ret_ty, loc));
                 self.func.blocks[last].terminator = MirTerminator::Ret(v);
             }
             Statement::If {
@@ -315,11 +341,15 @@ impl MirLower {
                 let cond = self.lower_expression(condition);
 
                 let body_block = self.new_block("while_body");
+                let end_block = self.new_block("while_end");
+
+                self.loop_stack.push((cond_block, end_block));
                 self.current_block = body_block;
 
                 for stmt in body {
                     self.lower_statement(stmt);
                 }
+                self.loop_stack.pop();
                 if matches!(
                     self.func.blocks[self.current_block].terminator,
                     MirTerminator::Unreachable
@@ -327,7 +357,6 @@ impl MirLower {
                     self.func.blocks[self.current_block].terminator = MirTerminator::Br(cond_block);
                 }
 
-                let end_block = self.new_block("while_end");
                 self.func.blocks[cond_block].terminator =
                     MirTerminator::BrCond(cond, body_block, end_block);
                 self.func.blocks[pre_while_block].terminator = MirTerminator::Br(cond_block);
@@ -395,6 +424,10 @@ impl MirLower {
                 );
 
                 let body_block = self.new_block("for_body");
+                let inc_block = self.new_block("for_inc");
+                let end_block = self.new_block("for_end");
+
+                self.loop_stack.push((inc_block, end_block));
                 self.current_block = body_block;
 
                 let elem_ptr = self.new_temp();
@@ -474,6 +507,7 @@ impl MirLower {
                 for stmt in body {
                     self.lower_statement(stmt);
                 }
+                self.loop_stack.pop();
 
                 let last_body = self.current_block;
                 let body_terminated = !matches!(
@@ -481,33 +515,34 @@ impl MirLower {
                     MirTerminator::Unreachable
                 );
                 if !body_terminated {
-                    let old_idx = self.new_temp();
-                    self.func.blocks[self.current_block].push(
-                        Some(old_idx),
-                        MirOp::Load(
-                            MirValue::temp(idx_ptr),
-                            MirType {
-                                data_type: DataType::I64,
-                            },
-                        ),
-                        loc,
-                    );
-                    let new_idx = self.new_temp();
-                    self.func.blocks[self.current_block].push(
-                        Some(new_idx),
-                        MirOp::Add(MirValue::temp(old_idx), MirValue::Const(MirConst::Int(1))),
-                        loc,
-                    );
-                    self.func.blocks[self.current_block].push(
-                        None,
-                        MirOp::Store(MirValue::temp(idx_ptr), MirValue::temp(new_idx)),
-                        loc,
-                    );
-
-                    self.func.blocks[last_body].terminator = MirTerminator::Br(cond_block);
+                    self.func.blocks[last_body].terminator = MirTerminator::Br(inc_block);
                 }
 
-                let end_block = self.new_block("for_end");
+                self.current_block = inc_block;
+                let old_idx = self.new_temp();
+                self.func.blocks[inc_block].push(
+                    Some(old_idx),
+                    MirOp::Load(
+                        MirValue::temp(idx_ptr),
+                        MirType {
+                            data_type: DataType::I64,
+                        },
+                    ),
+                    loc,
+                );
+                let new_idx = self.new_temp();
+                self.func.blocks[inc_block].push(
+                    Some(new_idx),
+                    MirOp::Add(MirValue::temp(old_idx), MirValue::Const(MirConst::Int(1))),
+                    loc,
+                );
+                self.func.blocks[inc_block].push(
+                    None,
+                    MirOp::Store(MirValue::temp(idx_ptr), MirValue::temp(new_idx)),
+                    loc,
+                );
+                self.func.blocks[inc_block].terminator = MirTerminator::Br(cond_block);
+
                 self.func.blocks[cond_block].terminator =
                     MirTerminator::BrCond(MirValue::temp(cond), body_block, end_block);
                 self.func.blocks[pre_for_block].terminator = MirTerminator::Br(cond_block);
@@ -516,6 +551,175 @@ impl MirLower {
             Statement::Unsafe { body, .. } => {
                 for stmt in body {
                     self.lower_statement(stmt);
+                }
+            }
+            Statement::Match {
+                value,
+                cases,
+                default,
+            } => {
+                let match_val = self.lower_expression(value);
+                let n = cases.len();
+
+                // Allocate every block up front so that case bodies (which may
+                // create their own blocks via if/while/for/nested match) never
+                // shift the fixed block indices the chk chain points at.
+                let mut chk_blocks = Vec::with_capacity(n);
+                for i in 0..n {
+                    chk_blocks.push(self.new_block(&format!("stmt_match_chk_{}", i)));
+                }
+                let mut case_blocks = Vec::with_capacity(n);
+                for i in 0..n {
+                    case_blocks.push(self.new_block(&format!("stmt_match_case_{}", i)));
+                }
+                let default_idx = self.new_block("stmt_match_default");
+                let end_idx = self.new_block("stmt_match_end");
+
+                self.func.blocks[self.current_block].terminator =
+                    MirTerminator::Br(if n > 0 { chk_blocks[0] } else { default_idx });
+
+                for (i, (pattern, _body)) in cases.iter().enumerate() {
+                    let chk = chk_blocks[i];
+                    let cs = case_blocks[i];
+                    let next = if i + 1 < n {
+                        chk_blocks[i + 1]
+                    } else {
+                        default_idx
+                    };
+
+                    match pattern {
+                        Expression::Literal { lit, .. } => {
+                            let lit_val = self.lower_literal(lit);
+                            let cmp = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(cmp),
+                                MirOp::ICmp(MirCmp::Eq, match_val.clone(), lit_val),
+                                loc,
+                            );
+                            self.func.blocks[chk].terminator =
+                                MirTerminator::BrCond(MirValue::temp(cmp), cs, next);
+                        }
+                        Expression::EnumVariant {
+                            enum_name,
+                            variant_name,
+                            ..
+                        }
+                        | Expression::EnumVariantPath {
+                            enum_name,
+                            variant_name,
+                            ..
+                        } => {
+                            let discriminant = self
+                                .enum_types
+                                .get(enum_name)
+                                .and_then(|variants| {
+                                    variants
+                                        .iter()
+                                        .find(|(n, _)| n == variant_name)
+                                        .map(|(_, idx)| *idx as i64)
+                                })
+                                .unwrap_or(0);
+                            let variant_full = format!("{}.{}", enum_name, variant_name);
+                            let disc_gep = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc_gep),
+                                MirOp::Gep(
+                                    match_val.clone(),
+                                    vec![
+                                        MirValue::Const(MirConst::Int(0)),
+                                        MirValue::Const(MirConst::Int(0)),
+                                    ],
+                                    variant_full.clone(),
+                                ),
+                                loc,
+                            );
+                            let disc = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(disc),
+                                MirOp::Load(
+                                    MirValue::temp(disc_gep),
+                                    MirType {
+                                        data_type: DataType::I64,
+                                    },
+                                ),
+                                loc,
+                            );
+                            let cmp = self.new_temp();
+                            self.func.blocks[chk].push(
+                                Some(cmp),
+                                MirOp::ICmp(
+                                    MirCmp::Eq,
+                                    MirValue::temp(disc),
+                                    MirValue::Const(MirConst::Int(discriminant)),
+                                ),
+                                loc,
+                            );
+                            self.func.blocks[chk].terminator =
+                                MirTerminator::BrCond(MirValue::temp(cmp), cs, next);
+                        }
+                        _ => {
+                            self.func.blocks[chk].terminator = MirTerminator::Br(cs);
+                        }
+                    }
+                }
+
+                for (i, (pattern, case_body)) in cases.iter().enumerate() {
+                    let cs = case_blocks[i];
+                    self.current_block = cs;
+                    if let Expression::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        payloads,
+                        ..
+                    } = pattern
+                    {
+                        self.bind_match_payloads(
+                            &match_val,
+                            enum_name,
+                            variant_name,
+                            payloads,
+                            loc,
+                        );
+                    }
+                    for s in case_body {
+                        self.lower_statement(s);
+                    }
+                    if matches!(
+                        self.func.blocks[self.current_block].terminator,
+                        MirTerminator::Unreachable
+                    ) {
+                        self.func.blocks[self.current_block].terminator =
+                            MirTerminator::Br(end_idx);
+                    }
+                }
+
+                self.current_block = default_idx;
+                for s in default {
+                    self.lower_statement(s);
+                }
+                if matches!(
+                    self.func.blocks[self.current_block].terminator,
+                    MirTerminator::Unreachable
+                ) {
+                    self.func.blocks[self.current_block].terminator = MirTerminator::Br(end_idx);
+                }
+
+                self.current_block = end_idx;
+            }
+            Statement::Break => {
+                if let Some(&(_, break_target)) = self.loop_stack.last() {
+                    let last = self.current_block;
+                    self.func.blocks[last].terminator = MirTerminator::Br(break_target);
+                    // Route any following (unreachable) statements into a fresh
+                    // block so they don't get appended to a terminated block.
+                    self.current_block = self.new_block("after_break");
+                }
+            }
+            Statement::Continue => {
+                if let Some(&(continue_target, _)) = self.loop_stack.last() {
+                    let last = self.current_block;
+                    self.func.blocks[last].terminator = MirTerminator::Br(continue_target);
+                    self.current_block = self.new_block("after_continue");
                 }
             }
             _ => {}

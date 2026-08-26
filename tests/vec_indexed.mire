@@ -1,0 +1,19 @@
+load kioto
+
+pub fn main: () {
+    set v = [] :vec[i64] mut
+    set i = 0 :i64 mut
+    while i < 10 {
+        set v = lists::push(v 1)
+        set i = i + 1
+    }
+    set v at 4 = 42
+    set a0 = v at 0
+    set a4 = v at 4
+    set a9 = v at 9
+    use dasu("native r/w: " + strings::from::i64(a0) + " " + strings::from::i64(a4) + " " + strings::from::i64(a9))
+    set b4 = lists::get(v 4)
+    set b0 = lists::get(v 0)
+    set b9 = lists::get(v 9)
+    use dasu("lists r: " + strings::from::i64(b0) + " " + strings::from::i64(b4) + " " + strings::from::i64(b9))
+}

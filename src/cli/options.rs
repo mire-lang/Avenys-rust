@@ -13,7 +13,7 @@ pub(crate) struct CommonOptions {
     pub(crate) opt_level: OptLevel,
     pub(crate) output: Option<PathBuf>,
     pub(crate) cache: CacheOverrides,
-    pub(crate) owl_home: Option<PathBuf>,
+    pub(crate) lib_dir: Option<String>,
     pub(crate) warn: WarningCliOptions,
     pub(crate) verbose: bool,
 }
@@ -66,7 +66,7 @@ pub(crate) fn parse_common_with_file(
     let mut output = None;
     let mut file = None;
     let mut cache = CacheOverrides::default();
-    let mut owl_home = None;
+    let mut lib_dir = None;
     let mut verbose = false;
     let mut show_warn = false;
     let mut position = false;
@@ -92,37 +92,37 @@ pub(crate) fn parse_common_with_file(
             "-O" | "--opt-level" => {
                 i += 1;
                 let level = args.get(i).ok_or_else(|| {
-                    runtime_msg("Missing optimization level after -O/--opt-level")
+                    cli_msg("Missing optimization level after -O/--opt-level")
                 })?;
                 opt_level = OptLevel::parse(level)
-                    .ok_or_else(|| runtime_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
+                    .ok_or_else(|| cli_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
             }
             flag if flag.starts_with("-O") && flag.len() > 2 => {
                 opt_level = OptLevel::parse(&flag[2..])
-                    .ok_or_else(|| runtime_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
+                    .ok_or_else(|| cli_msg("Invalid optimization level, use 0/1/2/3/s/z"))?;
             }
             "-o" | "--output" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing output path after -o/--output"))?;
+                    .ok_or_else(|| cli_msg("Missing output path after -o/--output"))?;
                 output = Some(PathBuf::from(value));
             }
-            "--owl-home" => {
+            "--lib-dir" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --owl-home"))?;
-                owl_home = Some(PathBuf::from(value));
+                    .ok_or_else(|| cli_msg("Missing value for --lib-dir"))?;
+                lib_dir = Some(value.to_string());
             }
             "--cache-max-units" => {
                 i += 1;
                 let value = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing value for --cache-max-units"))?;
+                    .ok_or_else(|| cli_msg("Missing value for --cache-max-units"))?;
                 let parsed = value
                     .parse::<usize>()
-                    .map_err(|_| runtime_msg("Invalid --cache-max-units value"))?;
+                    .map_err(|_| cli_msg("Invalid --cache-max-units value"))?;
                 cache.max_units = Some(parsed);
             }
             "--no-analysis-cache" => cache.analysis_cache = Some(false),
@@ -130,27 +130,27 @@ pub(crate) fn parse_common_with_file(
             "--show-warn" | "--sh-warn" => show_warn = true,
             "--position" | "--pos" => position = true,
             "--warnings-as-errors" | "--deny-warnings" => {
-                for code in [DiagnosticCode::W0001, DiagnosticCode::W0002, DiagnosticCode::W0003, DiagnosticCode::W0004, DiagnosticCode::W0005, DiagnosticCode::W0034, DiagnosticCode::W0039] {
+                for code in [DiagnosticCode::W0001, DiagnosticCode::W0002, DiagnosticCode::W0004, DiagnosticCode::W0005, DiagnosticCode::W0034, DiagnosticCode::W0039] {
                     deny_codes.insert(code);
                 }
             }
             "--no-warn" => {
                 i += 1;
-                let cat = args.get(i).ok_or_else(|| runtime_msg("Missing warning category after --no-warn"))?;
+                let cat = args.get(i).ok_or_else(|| cli_msg("Missing warning category after --no-warn"))?;
                 no_warn_cats.push(cat.clone());
             }
             "-W" => {
                 i += 1;
                 let code = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing warning code after -W"))?;
+                    .ok_or_else(|| cli_msg("Missing warning code after -W"))?;
                 warn_codes.insert(parse_warning_code(code)?);
             }
             "--deny" => {
                 i += 1;
                 let code = args
                     .get(i)
-                    .ok_or_else(|| runtime_msg("Missing warning code after --deny"))?;
+                    .ok_or_else(|| cli_msg("Missing warning code after --deny"))?;
                 deny_codes.insert(parse_warning_code(code)?);
             }
             "--verbose" | "-v" => verbose = true,
@@ -158,11 +158,11 @@ pub(crate) fn parse_common_with_file(
                 unsafe { std::env::set_var("OWL_PROGRESS", "1") };
             }
             value if value.starts_with('-') => {
-                return Err(runtime_msg(&format!("Unknown option: {value}")));
+                return Err(cli_msg(&format!("Unknown option: {value}")));
             }
             value => {
                 if file.is_some() {
-                    return Err(runtime_msg("Only one input file is supported"));
+                    return Err(cli_msg("Only one input file is supported"));
                 }
                 file = Some(value.to_string());
             }
@@ -192,7 +192,7 @@ pub(crate) fn parse_common_with_file(
             opt_level,
             output,
             cache,
-            owl_home,
+            lib_dir,
             warn: WarningCliOptions {
                 filter: warning_filter,
                 deny: deny_codes,
@@ -239,19 +239,26 @@ pub(crate) fn parse_debug_options(cwd: &Path, args: &[String]) -> Result<DebugOp
 }
 
 pub(crate) fn default_entry_from_manifest(cwd: &Path) -> Result<Option<String>, MireError> {
+    use mire::{check_entry_containment, EntryContainment};
     let project_root = match find_project_root(cwd) {
         Some(root) => root,
         None => return Ok(None),
     };
     let manifest = load_project_manifest(&project_root)?;
     let entry = manifest.map(|m| m.project.entry).unwrap_or_default();
+    if check_entry_containment(&project_root, &entry) == EntryContainment::EscapesRoot {
+        return Err(cli_msg(&format!(
+            "owl.toml `entry` '{}' escapes the package root",
+            entry
+        )));
+    }
     let path = project_root.join(&entry);
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
 pub(crate) fn resolve_source_path(cwd: &Path, file: Option<String>) -> Result<PathBuf, MireError> {
     let file = file.ok_or_else(|| {
-        runtime_msg("No input file provided and no `entry` was found in owl.toml")
+        cli_msg("No input file provided and no `entry` was found in owl.toml")
     })?;
     let path = PathBuf::from(&file);
     let resolved = if path.is_absolute() {
@@ -260,7 +267,7 @@ pub(crate) fn resolve_source_path(cwd: &Path, file: Option<String>) -> Result<Pa
         cwd.join(path)
     };
     if !resolved.exists() {
-        return Err(runtime_msg(&format!(
+        return Err(cli_msg(&format!(
             "Input file not found: {}",
             resolved.display()
         )));
@@ -280,7 +287,6 @@ pub(crate) fn parse_warning_code(value: &str) -> Result<DiagnosticCode, MireErro
     match value.trim().to_ascii_uppercase().as_str() {
         "W0001" => Ok(DiagnosticCode::W0001),
         "W0002" => Ok(DiagnosticCode::W0002),
-        "W0003" => Ok(DiagnosticCode::W0003),
         "W0004" => Ok(DiagnosticCode::W0004),
         "W0005" => Ok(DiagnosticCode::W0005),
         "W0006" => Ok(DiagnosticCode::W0006),
@@ -305,6 +311,6 @@ pub(crate) fn parse_warning_code(value: &str) -> Result<DiagnosticCode, MireErro
         "W0038" => Ok(DiagnosticCode::W0038),
         "W0039" => Ok(DiagnosticCode::W0039),
         "W0040" => Ok(DiagnosticCode::W0040),
-        _ => Err(runtime_msg("Warning code must look like W0001")),
+        _ => Err(cli_msg("Warning code must look like W0001")),
     }
 }

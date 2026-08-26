@@ -26,6 +26,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             target,
             value,
             is_mutable,
+            ..
         } => {
             hasher.write_u8(1);
             hash_assignment_target(target, hasher);
@@ -42,6 +43,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             visibility,
             is_method,
             attributes: _,
+            name_line,
+            name_column,
         } => {
             hasher.write_u8(2);
             name.hash(hasher);
@@ -52,6 +55,8 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             hash_data_type(return_type, hasher);
             hash_visibility(*visibility, hasher);
             is_method.hash(hasher);
+            name_line.hash(hasher);
+            name_column.hash(hasher);
         }
         Statement::Return(expr) => {
             hasher.write_u8(3);
@@ -148,7 +153,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             type_param_bounds.hash(hasher);
             hash_statements(methods, hasher);
         }
-        Statement::ExternLib { name, path } => {
+        Statement::ExternLib { name, path, .. } => {
             hasher.write_u8(18);
             name.hash(hasher);
             path.hash(hasher);
@@ -158,7 +163,7 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
             lib_name,
             params,
             return_type,
-            visibility: _,
+            ..
         } => {
             hasher.write_u8(19);
             name.hash(hasher);
@@ -178,13 +183,13 @@ pub(super) fn hash_statement(statement: &Statement, hasher: &mut FxHasher) {
                 hash_expression(expr, hasher);
             }
         }
-        Statement::Load { path, alias, items } => {
+        Statement::Load { path, alias, items, .. } => {
             hasher.write_u8(23);
             path.hash(hasher);
             alias.hash(hasher);
             items.hash(hasher);
         }
-        Statement::LoadLocal { rel_path, absolute } => {
+        Statement::LoadLocal { rel_path, absolute, .. } => {
             hasher.write_u8(23);
             rel_path.hash(hasher);
             absolute.hash(hasher);

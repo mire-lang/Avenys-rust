@@ -15,13 +15,22 @@ mod typeck_validate;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::load_project_manifest;
+use crate::avens::{SecurityConfig, SecurityMode};
+
 use self::typeck_returns::{implicit_return_expression_mut, statements_contain_explicit_return};
 use crate::compiler::{AnalysisSelection, location};
-use crate::error::{MireError, Result};
+use crate::error::{MireError, Result, type_error_at_span, type_error_code_at_span};
+use crate::error::diagnostic::DiagnosticCode;
 use crate::incremental::analysis_unit_key;
 use crate::parser::ast::{
     AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement, TraitMethodSig,
 };
+use crate::canonical_fn_name;
+
+#[cfg(test)]
+#[path = "typeck_tests.rs"]
+mod tests;
 #[derive(Debug, Clone)]
 struct FunctionSig {
     type_params: Vec<String>,
@@ -41,6 +50,7 @@ struct ClassFieldSig {
 struct ClassSig {
     type_params: Vec<String>,
     type_param_bounds: Vec<(String, Vec<String>)>,
+    parent: Option<String>,
     fields: Vec<ClassFieldSig>,
 }
 
@@ -133,17 +143,26 @@ struct TypeChecker {
     return_type_stack: Vec<DataType>,
     impl_self_type: Option<DataType>,
     impl_self_name: Option<String>,
+    impl_type_params: Vec<String>,
+    current_function_type_params: Vec<String>,
+    current_function_type_bounds: Vec<(String, Vec<String>)>,
     statement_origins: Vec<String>,
     sources_by_filename: HashMap<String, String>,
     base_source: Option<String>,
     current_filename: Option<String>,
-    current_line: usize,
-    current_column: usize,
+    current_span: crate::error::Span,
     current_top_level_index: Option<usize>,
     current_top_level_key: Option<String>,
     nested_statement_masks: HashMap<String, Vec<bool>>,
     load_local_modules: HashSet<String>,
     in_use_macro: bool,
+    in_macro_call: bool,
+    in_macro_definition: bool,
+    macro_names: HashSet<String>,
+    allowed_builtins: Option<HashSet<String>>,
+    security_config: Option<SecurityConfig>,
+    extern_fn_names: HashSet<String>,
+    constant_scopes: Vec<HashSet<String>>,
 }
 
 impl TypeChecker {
@@ -164,26 +183,140 @@ impl TypeChecker {
             return_type_stack: Vec::new(),
             impl_self_type: None,
             impl_self_name: None,
+            impl_type_params: Vec::new(),
+            current_function_type_params: Vec::new(),
+            current_function_type_bounds: Vec::new(),
             statement_origins: Vec::new(),
             sources_by_filename: HashMap::new(),
             base_source: (!source.is_empty()).then(|| source.to_string()),
             current_filename: None,
-            current_line: 1,
-            current_column: 1,
+            current_span: crate::error::Span::new(1, 1),
             current_top_level_index: None,
             current_top_level_key: None,
             nested_statement_masks: HashMap::new(),
             load_local_modules: HashSet::new(),
             in_use_macro: false,
+            in_macro_call: false,
+            in_macro_definition: false,
+            macro_names: HashSet::new(),
+            allowed_builtins: Self::load_allowed_builtins(),
+            security_config: Self::load_security_config(),
+            extern_fn_names: HashSet::new(),
+            constant_scopes: vec![HashSet::new()],
         }
     }
 
-    fn collect_load_local_modules(&mut self, statements: &[Statement]) {
+    /// Loads the `[builtins]` allowlist from the project's owl.toml.
+    /// When `enabled = true` and `allow` is set, only those builtins are
+    /// permitted; everything else is rejected at call sites. When the section
+    /// is absent the behavior is unchanged (all builtins allowed).
+    fn load_allowed_builtins() -> Option<HashSet<String>> {
+        let cwd = std::env::current_dir().ok()?;
+        let manifest = load_project_manifest(&cwd).ok()??;
+        let builtins = manifest.builtins?;
+        if !builtins.enabled {
+            return None;
+        }
+        if builtins.allow.is_empty() {
+            return None;
+        }
+Some(builtins.allow.into_iter().collect())
+    }
+
+    /// Loads the `[security]` configuration from the project's owl.toml.
+    /// When the section is absent, returns None (open mode, backward compatible).
+    fn load_security_config() -> Option<SecurityConfig> {
+        let cwd = std::env::current_dir().ok()?;
+        let manifest = load_project_manifest(&cwd).ok()??;
+        manifest.security
+    }
+
+    /// Check if an extern symbol is allowed in strict mode.
+    /// Supports `*` suffix patterns (e.g. `rt_*` matches `rt_panic_loc`).
+    fn is_extern_allowed(&self, symbol: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.externs.is_empty() {
+            return false;
+        }
+        config.externs.iter().any(|pattern| {
+            if let Some(prefix) = pattern.strip_suffix('*') {
+                symbol.starts_with(prefix)
+            } else {
+                symbol == pattern
+            }
+        })
+    }
+
+    /// Check if an extern lib is allowed in strict mode.
+    fn is_extern_lib_allowed(&self, lib: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.extern_libs.is_empty() {
+            return false;
+        }
+        config.extern_libs.iter().any(|allowed| allowed == lib)
+    }
+
+    /// Check if a macro name is allowed in strict mode.
+    fn is_macro_allowed(&self, name: &str) -> bool {
+        let config = match &self.security_config {
+            Some(c) => c,
+            None => return true,
+        };
+        if config.mode != SecurityMode::Strict {
+            return true;
+        }
+        if config.macros.is_empty() {
+            return false;
+        }
+        config.macros.iter().any(|allowed| allowed == name)
+    }
+
+    /// Check if `unsafe` is allowed in strict mode.
+    fn is_unsafe_allowed(&self) -> bool {
+        match &self.security_config {
+            Some(c) => c.unsafe_allowed || c.mode != SecurityMode::Strict,
+            None => true,
+        }
+    }
+
+    /// Check if `asm` is allowed in strict mode.
+    fn is_asm_allowed(&self) -> bool {
+        match &self.security_config {
+            Some(c) => c.asm_allowed || c.mode != SecurityMode::Strict,
+            None => true,
+        }
+    }
+
+      fn collect_load_local_modules(&mut self, statements: &[Statement]) {
         for statement in statements {
-            if let Statement::LoadLocal { rel_path, .. } = statement {
-                if let Some(prefix) = rel_path.last() {
+            match statement {
+                Statement::LoadLocal { rel_path, .. }
+                    if let Some(prefix) = rel_path.last()
+                =>
+                {
                     self.load_local_modules.insert(prefix.clone());
                 }
+                Statement::Function {
+                    name, attributes, ..
+                } =>
+                {
+                    if attributes.iter().any(|a| a.name == "macro!") {
+                        self.macro_names.insert(name.clone());
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -207,9 +340,8 @@ impl TypeChecker {
         statement_mask: &[bool],
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Typecheck mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -250,9 +382,8 @@ impl TypeChecker {
         statement_mask: &[bool],
     ) -> Result<()> {
         if statement_mask.len() != statements.len() {
-            return Err(type_error(
-                self.current_line,
-                self.current_column,
+            return Err(type_error_at_span(
+                self.current_span,
                 format!(
                     "Nested typecheck mask length mismatch: expected {}, got {}",
                     statements.len(),
@@ -281,8 +412,8 @@ impl TypeChecker {
     }
 
     fn attach_current_context(&self, err: MireError) -> MireError {
-        let err = if (err.line == 0 && err.column == 0) || (err.line == 1 && err.column == 1) {
-            err.with_position(self.current_line, self.current_column)
+        let err = if err.span.is_unknown() {
+            err.with_span(self.current_span)
         } else {
             err
         };
@@ -318,17 +449,17 @@ impl TypeChecker {
     }
 
     fn check_statement(&mut self, statement: &mut Statement) -> Result<()> {
-        let (line, column) = location::statement_location(statement);
-        self.current_line = line;
-        self.current_column = column;
+        let span = location::statement_location(statement);
+        self.current_span = span;
         let result = match statement {
             Statement::Let {
                 name,
                 data_type,
                 value,
                 is_mutable,
+                is_constant,
                 ..
-            } => self.check_let_statement(name, data_type, value, *is_mutable),
+            } => self.check_let_statement(name, data_type, value, *is_mutable, *is_constant),
             Statement::Assignment { target, value, .. } => {
                 self.check_assignment_statement(target, value)
             }
@@ -372,8 +503,40 @@ impl TypeChecker {
                 cases,
                 default,
             } => self.check_match_statement(value, cases, default),
-            Statement::Unsafe { body, .. } => self.check_scoped_body(body),
-            Statement::Asm { instructions } => self.check_asm_statement(instructions),
+Statement::Unsafe { body, .. } => {
+                if !self.is_unsafe_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0023,
+                        "unsafe blocks are not allowed in strict [security] mode".to_string(),
+                    ));
+                }
+                if self.in_macro_definition && !self.is_unsafe_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0023,
+                        "unsafe blocks are not allowed in macro bodies".to_string(),
+                    ));
+                }
+                self.check_scoped_body(body)
+            }
+            Statement::Asm { instructions } => {
+                if !self.is_asm_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0024,
+                        "asm blocks are not allowed in strict [security] mode".to_string(),
+                    ));
+                }
+                if self.in_macro_definition && !self.is_asm_allowed() {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0024,
+                        "asm blocks are not allowed in macro bodies".to_string(),
+                    ));
+                }
+                self.check_asm_statement(instructions)
+            }
             Statement::Drop { value } => self.check_drop_statement(value),
             Statement::New {
                 value,
@@ -391,16 +554,48 @@ impl TypeChecker {
             Statement::Impl {
                 trait_name,
                 type_name,
+                type_params,
                 methods,
                 ..
-            } => self.check_impl_statement(trait_name, type_name, methods),
-            Statement::Type { fields, .. } => self.check_type_statement(fields),
-            Statement::Skill { name, methods, .. } => self.check_skill_statement(name, methods),
-            Statement::Break
-            | Statement::Continue
-            | Statement::ExternLib { .. }
-            | Statement::ExternFunction { .. }
-            | Statement::Enum { .. }
+            } => self.check_impl_statement(trait_name, type_name, type_params, methods),
+            Statement::Type { name, parent, fields, .. } => self.check_type_statement(name, parent.as_deref(), fields),
+            Statement::Skill { name, parent, methods, .. } => self.check_skill_statement(name, parent.as_deref(), methods),
+Statement::Break | Statement::Continue => Ok(()),
+            Statement::ExternLib { name, .. } => {
+                if !self.is_extern_lib_allowed(name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern lib '{name}' is not allowed in [security].extern_libs"
+                        ),
+                    ));
+                }
+                Ok(())
+            }
+            Statement::ExternFunction { name, lib_name, .. } => {
+                self.extern_fn_names.insert(canonical_fn_name(name));
+                if !self.is_extern_allowed(name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern function '{name}' is not allowed in [security].externs"
+                        ),
+                    ));
+                }
+                if !self.is_extern_lib_allowed(lib_name) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0022,
+                        format!(
+                            "extern lib '{lib_name}' is not allowed in [security].extern_libs"
+                        ),
+                    ));
+                }
+                Ok(())
+            }
+            Statement::Enum { .. }
             | Statement::Module { .. } => Ok(()),
             Statement::Load { .. } => Ok(()),
             Statement::LoadLocal { .. } => Ok(()),
@@ -411,858 +606,4 @@ impl TypeChecker {
 
 fn type_error(line: usize, column: usize, message: String) -> MireError {
     crate::error::type_error(line, column, message)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        check_program_types, check_program_types_partial_with_origins,
-        check_program_types_with_origins,
-    };
-    use crate::compiler::AnalysisSelection;
-    use crate::parse;
-    use crate::parser::ast::{
-        AssignmentTarget, DataType, Expression, Identifier, Literal, Program, Statement, Visibility,
-    };
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-
-    #[test]
-    fn infers_unknown_let_from_literal() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![Statement::Let {
-                name: "x".to_string(),
-                data_type: DataType::Unknown,
-                value: Some(Expression::Literal(Literal::Int(42))),
-                is_constant: false,
-                is_mutable: false,
-                is_static: false,
-                visibility: Visibility::Public,
-                name_line: 1,
-                name_column: 1,
-            }],
-        };
-
-        check_program_types(&mut program, "").expect("type check must pass");
-
-        match &program.statements[0] {
-            Statement::Let { data_type, .. } => assert_eq!(*data_type, DataType::I64),
-            _ => panic!("expected let"),
-        }
-    }
-
-    #[test]
-    fn resolves_identifier_type() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "x".to_string(),
-                    data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Expression(Expression::Identifier(Identifier {
-                    name: "x".to_string(),
-                    data_type: DataType::Unknown,
-                    line: 0,
-                    column: 0,
-                })),
-            ],
-        };
-
-        check_program_types(&mut program, "").expect("type check must pass");
-
-        match &program.statements[1] {
-            Statement::Expression(Expression::Identifier(ident)) => {
-                assert_eq!(ident.data_type, DataType::I64)
-            }
-            _ => panic!("expected expression identifier"),
-        }
-    }
-
-    #[test]
-    fn infers_function_call_return_type() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Function {
-                    name: "sum".to_string(),
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    params: vec![
-                        ("a".to_string(), DataType::I64),
-                        ("b".to_string(), DataType::I64),
-                    ],
-                    body: vec![Statement::Return(Some(Expression::BinaryOp {
-                        operator: "+".to_string(),
-                        left: Box::new(Expression::Identifier(Identifier {
-                            name: "a".to_string(),
-                            data_type: DataType::Unknown,
-                            line: 0,
-                            column: 0,
-                        })),
-                        right: Box::new(Expression::Identifier(Identifier {
-                            name: "b".to_string(),
-                            data_type: DataType::Unknown,
-                            line: 0,
-                            column: 0,
-                        })),
-                        data_type: DataType::Unknown,
-                    }))],
-                    return_type: DataType::Unknown,
-                    visibility: Visibility::Public,
-                    is_method: false,
-                    attributes: Vec::new(),
-                },
-                Statement::Expression(Expression::Call {
-                    name: "sum".to_string(),
-                    name_line: 0,
-                    name_column: 0,
-                    args: vec![
-                        Expression::Literal(Literal::Int(1)),
-                        Expression::Literal(Literal::Int(2)),
-                    ],
-                    type_args: Vec::new(),
-                    data_type: DataType::Unknown,
-                }),
-            ],
-        };
-
-        check_program_types(&mut program, "").expect("type check must pass");
-
-        match &program.statements[1] {
-            Statement::Expression(Expression::Call { data_type, .. }) => {
-                assert_eq!(*data_type, DataType::I64)
-            }
-            _ => panic!("expected call expression"),
-        }
-    }
-
-    #[test]
-    fn fails_on_undefined_identifier() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![Statement::Expression(Expression::Identifier(Identifier {
-                name: "missing".to_string(),
-                data_type: DataType::Unknown,
-                line: 0,
-                column: 0,
-            }))],
-        };
-
-        let err = check_program_types(&mut program, "").expect_err("must fail");
-        assert!(err.to_string().contains("Unknown identifier 'missing'"));
-    }
-
-    #[test]
-    fn fails_on_assignment_type_mismatch() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "x".to_string(),
-                    data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Assignment {
-                    target: AssignmentTarget::Variable("x".to_string()),
-                    value: Expression::Literal(Literal::Str("bad".to_string())),
-                    is_mutable: true,
-                },
-            ],
-        };
-
-        let err = check_program_types(&mut program, "").expect_err("must fail");
-        assert!(
-            err.to_string()
-                .contains("Type mismatch in assignment to 'x'")
-        );
-    }
-
-    #[test]
-    fn accepts_builtin_calls() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Expression(Expression::Call {
-                    name: "dasu".to_string(),
-                    args: vec![Expression::Literal(Literal::Str("hello".to_string()))],
-                    type_args: Vec::new(),
-                    name_line: 0,
-                    name_column: 0,
-                    data_type: DataType::Unknown,
-                }),
-                Statement::Expression(Expression::Call {
-                    name: "len".to_string(),
-                    name_line: 0,
-                    name_column: 0,
-                    args: vec![Expression::Literal(Literal::List(vec![
-                        Expression::Literal(Literal::Int(1)),
-                        Expression::Literal(Literal::Int(2)),
-                    ]))],
-                    type_args: Vec::new(),
-                    data_type: DataType::Unknown,
-                }),
-            ],
-        };
-
-        check_program_types(&mut program, "").expect("type check must pass");
-
-        match &program.statements[0] {
-            Statement::Expression(Expression::Call { data_type, .. }) => {
-                assert_eq!(*data_type, DataType::None)
-            }
-            _ => panic!("expected call expression"),
-        }
-        match &program.statements[1] {
-            Statement::Expression(Expression::Call { data_type, .. }) => {
-                assert_eq!(*data_type, DataType::I64)
-            }
-            _ => panic!("expected call expression"),
-        }
-    }
-
-    #[test]
-    fn allows_unknown_in_logical_binary_ops() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "x".to_string(),
-                    data_type: DataType::I64,
-                    value: Some(Expression::Literal(Literal::Int(1))),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Let {
-                    name: "b".to_string(),
-                    data_type: DataType::Unknown,
-                    value: None,
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Expression(Expression::BinaryOp {
-                    operator: "&&".to_string(),
-                    left: Box::new(Expression::Identifier(Identifier {
-                        name: "a".to_string(),
-                        data_type: DataType::Unknown,
-                        line: 0,
-                        column: 0,
-                    })),
-                    right: Box::new(Expression::Identifier(Identifier {
-                        name: "b".to_string(),
-                        data_type: DataType::Unknown,
-                        line: 0,
-                        column: 0,
-                    })),
-                    data_type: DataType::Unknown,
-                }),
-            ],
-        };
-
-        check_program_types(&mut program, "").expect("type check must pass");
-    }
-
-    #[test]
-    fn partial_typecheck_rechecks_only_selected_top_level_statements() {
-        let mut previous = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "x".to_string(),
-                    data_type: DataType::Unknown,
-                    value: Some(Expression::Literal(Literal::Int(1))),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Let {
-                    name: "y".to_string(),
-                    data_type: DataType::Unknown,
-                    value: Some(Expression::Identifier(Identifier {
-                        name: "x".to_string(),
-                        data_type: DataType::Unknown,
-                        line: 0,
-                        column: 0,
-                    })),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-            ],
-        };
-        check_program_types(&mut previous, "").expect("baseline type check must pass");
-
-        let mut current = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "x".to_string(),
-                    data_type: DataType::Unknown,
-                    value: Some(Expression::Literal(Literal::Int(2))),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                previous.statements[1].clone(),
-            ],
-        };
-
-        let origins = vec![PathBuf::from("test.mire"), PathBuf::from("test.mire")];
-        check_program_types_partial_with_origins(
-            &mut current,
-            "",
-            &origins,
-            &HashMap::new(),
-            &AnalysisSelection {
-                statement_mask: vec![true, false],
-                ..AnalysisSelection::default()
-            },
-        )
-        .expect("partial type check must pass");
-
-        match &current.statements[0] {
-            Statement::Let { data_type, .. } => assert_eq!(*data_type, DataType::I64),
-            _ => panic!("expected let"),
-        }
-
-        match &current.statements[1] {
-            Statement::Let {
-                data_type,
-                value: Some(Expression::Identifier(ident)),
-                ..
-            } => {
-                assert_eq!(*data_type, DataType::I64);
-                assert_eq!(ident.data_type, DataType::I64);
-            }
-            _ => panic!("expected reused typed let"),
-        }
-    }
-
-    #[test]
-    fn partial_typecheck_can_skip_unchanged_impl_methods() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![Statement::Impl {
-                trait_name: None,
-                type_name: "Point".to_string(),
-                type_params: Vec::new(),
-                type_param_bounds: Vec::new(),
-                methods: vec![
-                    Statement::Function {
-                        name: "good".to_string(),
-                        type_params: Vec::new(),
-                        type_param_bounds: Vec::new(),
-                        params: vec![],
-                        body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                            1,
-                        ))))],
-                        return_type: DataType::I64,
-                        visibility: Visibility::Public,
-                        is_method: true,
-                        attributes: Vec::new(),
-                    },
-                    Statement::Function {
-                        name: "bad".to_string(),
-                        type_params: Vec::new(),
-                        type_param_bounds: Vec::new(),
-                        params: vec![],
-                        body: vec![Statement::Return(Some(Expression::Identifier(
-                            Identifier {
-                                name: "missing".to_string(),
-                                data_type: DataType::Unknown,
-                                line: 0,
-                                column: 0,
-                            },
-                        )))],
-                        return_type: DataType::I64,
-                        visibility: Visibility::Public,
-                        is_method: true,
-                        attributes: Vec::new(),
-                    },
-                ],
-            }],
-        };
-
-        check_program_types_partial_with_origins(
-            &mut program,
-            "",
-            &[PathBuf::from("test.mire")],
-            &HashMap::new(),
-            &AnalysisSelection {
-                statement_mask: vec![true],
-                nested_statement_masks: HashMap::from([(
-                    "impl::Point".to_string(),
-                    vec![true, false],
-                )]),
-            },
-        )
-        .expect("partial type check should skip unchanged impl method");
-    }
-
-    #[test]
-    fn partial_typecheck_can_skip_nested_members_in_type_and_impl_members() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Type {
-                    visibility: Visibility::Public,
-                    name: "PointType".to_string(),
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    parent: None,
-                    fields: vec![
-                        Statement::Let {
-                            name: "x".to_string(),
-                            data_type: DataType::Unknown,
-                            value: Some(Expression::Literal(Literal::Int(1))),
-                            is_constant: false,
-                            is_mutable: false,
-                            is_static: false,
-                            visibility: Visibility::Public,
-                            name_line: 1,
-                            name_column: 1,
-                        },
-                        Statement::Let {
-                            name: "broken".to_string(),
-                            data_type: DataType::Unknown,
-                            value: Some(Expression::Identifier(Identifier {
-                                name: "missing".to_string(),
-                                data_type: DataType::Unknown,
-                                line: 0,
-                                column: 0,
-                            })),
-                            is_constant: false,
-                            is_mutable: false,
-                            is_static: false,
-                            visibility: Visibility::Public,
-                            name_line: 1,
-                            name_column: 1,
-                        },
-                    ],
-                },
-                Statement::Impl {
-                    trait_name: None,
-                    type_name: "PointType".to_string(),
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    methods: vec![
-                        Statement::Function {
-                            name: "good".to_string(),
-                            type_params: Vec::new(),
-                            type_param_bounds: Vec::new(),
-                            params: vec![],
-                            body: vec![Statement::Return(Some(Expression::Literal(Literal::Int(
-                                1,
-                            ))))],
-                            return_type: DataType::I64,
-                            visibility: Visibility::Public,
-                            is_method: true,
-                            attributes: Vec::new(),
-                        },
-                        Statement::Function {
-                            name: "bad".to_string(),
-                            type_params: Vec::new(),
-                            type_param_bounds: Vec::new(),
-                            params: vec![],
-                            body: vec![Statement::Return(Some(Expression::Identifier(
-                                Identifier {
-                                    name: "missing".to_string(),
-                                    data_type: DataType::Unknown,
-                                    line: 0,
-                                    column: 0,
-                                },
-                            )))],
-                            return_type: DataType::I64,
-                            visibility: Visibility::Public,
-                            is_method: true,
-                            attributes: Vec::new(),
-                        },
-                    ],
-                },
-            ],
-        };
-
-        check_program_types_partial_with_origins(
-            &mut program,
-            "",
-            &[PathBuf::from("test.mire"), PathBuf::from("test.mire")],
-            &HashMap::new(),
-            &AnalysisSelection {
-                statement_mask: vec![true, true],
-                nested_statement_masks: HashMap::from([
-                    ("PointType".to_string(), vec![true, false]),
-                    ("impl::PointType".to_string(), vec![true, false]),
-                ]),
-            },
-        )
-        .expect("partial type check should skip unchanged nested members");
-
-        let Statement::Type { fields, .. } = &program.statements[0] else {
-            panic!("expected type");
-        };
-        let Statement::Let { data_type, .. } = &fields[0] else {
-            panic!("expected typed field");
-        };
-        assert_eq!(*data_type, DataType::I64);
-    }
-
-    #[test]
-    fn dereference_of_reference_binding_recovers_pointed_type() {
-        let source = "pub fn main: () {\n    set x = 1 :i64\n    set r = &x\n    set y = *r\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source).expect("type check must pass");
-
-        let Statement::Function { body, .. } = &program.statements[0] else {
-            panic!("expected function");
-        };
-        let Statement::Let {
-            data_type,
-            value:
-                Some(Expression::Dereference {
-                    data_type: deref_type,
-                    ..
-                }),
-            ..
-        } = &body[2]
-        else {
-            panic!("expected dereference binding");
-        };
-        assert_eq!(*deref_type, DataType::I64);
-        assert_eq!(*data_type, DataType::I64);
-    }
-
-    #[test]
-    fn pipeline_closure_infers_vector_of_return_type() {
-        let source = "pub fn main: () {\n    set nums = [1 2 3] :vec[i64]\n    set doubled = nums => (x => x * 2)\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source).expect("pipeline should type check");
-
-        let Statement::Function { body, .. } = &program.statements[0] else {
-            panic!("expected function");
-        };
-        let Statement::Let { data_type, .. } = &body[1] else {
-            panic!("expected pipeline let");
-        };
-        assert_eq!(
-            *data_type,
-            DataType::Vector {
-                element_type: Box::new(DataType::I64),
-                dynamic: true,
-            }
-        );
-    }
-
-    #[test]
-    fn integer_literal_range_validation_does_not_scan_unrelated_scope_bindings() {
-        let source = "pub fn main: () {\n    set tiny = 1 :i8\n    set big = 300 :i64\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source)
-            .expect("unrelated i8 binding must not reject i64 literal");
-    }
-
-    #[test]
-    fn map_assignment_rejects_vector_values() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Let {
-                    name: "values".to_string(),
-                    data_type: DataType::Vector {
-                        element_type: Box::new(DataType::I64),
-                        dynamic: true,
-                    },
-                    value: Some(Expression::List {
-                        elements: vec![
-                            Expression::Literal(Literal::Int(1)),
-                            Expression::Literal(Literal::Int(2)),
-                            Expression::Literal(Literal::Int(3)),
-                        ],
-                        element_type: DataType::I64,
-                        data_type: DataType::Vector {
-                            element_type: Box::new(DataType::I64),
-                            dynamic: true,
-                        },
-                    }),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-                Statement::Let {
-                    name: "m".to_string(),
-                    data_type: DataType::Map {
-                        key_type: Box::new(DataType::Str),
-                        value_type: Box::new(DataType::I64),
-                    },
-                    value: Some(Expression::Identifier(Identifier {
-                        name: "values".to_string(),
-                        data_type: DataType::Unknown,
-                        line: 0,
-                        column: 0,
-                    })),
-                    is_constant: false,
-                    is_mutable: false,
-                    is_static: false,
-                    visibility: Visibility::Public,
-                    name_line: 1,
-                    name_column: 1,
-                },
-            ],
-        };
-
-        let err = check_program_types(&mut program, "").expect_err("must reject vec -> map");
-        let msg = err.to_string();
-        assert!(
-            msg.to_lowercase().contains("vec") && msg.to_lowercase().contains("map"),
-            "unexpected error: {msg}"
-        );
-    }
-
-    #[test]
-    fn typed_struct_parameters_can_dispatch_instance_methods() {
-        let source = "struct Counter {\n    value :i64\n}\n\nimpl Counter {\n    fn get: (self) :i64 {\n        return self.value\n    }\n}\n\nfn read_counter: (counter :Counter) :i64 {\n    return counter.get()\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source)
-            .expect("typed struct parameter should preserve concrete method dispatch");
-    }
-
-    #[test]
-    fn unify_types_is_order_independent_for_reference_and_value_pairs() {
-        assert_eq!(
-            super::TypeChecker::unify_types(
-                &DataType::Ref {
-                    inner: Box::new(DataType::I64),
-                },
-                &DataType::I64,
-            )
-            .expect("ref + value should unify"),
-            DataType::I64
-        );
-        assert_eq!(
-            super::TypeChecker::unify_types(
-                &DataType::I64,
-                &DataType::Ref {
-                    inner: Box::new(DataType::I64),
-                },
-            )
-            .expect("value + ref should unify"),
-            DataType::I64
-        );
-    }
-
-    #[test]
-    fn mutable_reference_expectation_rejects_shared_reference_argument() {
-        let mut program = Program {
-            file_attributes: vec![],
-            annotations: vec![],
-            statements: vec![
-                Statement::Function {
-                    name: "bump".to_string(),
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    params: vec![(
-                        "value".to_string(),
-                        DataType::RefMut {
-                            inner: Box::new(DataType::I64),
-                        },
-                    )],
-                    body: vec![],
-                    return_type: DataType::None,
-                    visibility: Visibility::Public,
-                    is_method: false,
-                    attributes: Vec::new(),
-                },
-                Statement::Function {
-                    name: "main".to_string(),
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    params: vec![],
-                    body: vec![
-                        Statement::Let {
-                            name: "x".to_string(),
-                            data_type: DataType::I64,
-                            value: Some(Expression::Literal(Literal::Int(1))),
-                            is_constant: false,
-                            is_mutable: false,
-                            is_static: false,
-                            visibility: Visibility::Public,
-                            name_line: 1,
-                            name_column: 1,
-                        },
-                        Statement::Let {
-                            name: "shared".to_string(),
-                            data_type: DataType::Unknown,
-                            value: Some(Expression::Reference {
-                                expr: Box::new(Expression::Identifier(Identifier {
-                                    name: "x".to_string(),
-                                    data_type: DataType::Unknown,
-                                    line: 0,
-                                    column: 0,
-                                })),
-                                is_mutable: false,
-                                data_type: DataType::Unknown,
-                                referenced_type: DataType::Unknown,
-                            }),
-                            is_constant: false,
-                            is_mutable: false,
-                            is_static: false,
-                            visibility: Visibility::Public,
-                            name_line: 1,
-                            name_column: 1,
-                        },
-                        Statement::Expression(Expression::Call {
-                            name: "bump".to_string(),
-                            name_line: 0,
-                            name_column: 0,
-                            args: vec![Expression::Identifier(Identifier {
-                                name: "shared".to_string(),
-                                data_type: DataType::Unknown,
-                                line: 0,
-                                column: 0,
-                            })],
-                            type_args: Vec::new(),
-                            data_type: DataType::Unknown,
-                        }),
-                    ],
-                    return_type: DataType::None,
-                    visibility: Visibility::Public,
-                    is_method: false,
-                    attributes: Vec::new(),
-                },
-            ],
-        };
-
-        let err = check_program_types(&mut program, "")
-            .expect_err("shared ref should not satisfy &mut parameter");
-        assert!(
-            err.to_string()
-                .contains("Function 'bump' argument 1 expects")
-        );
-        assert!(err.to_string().contains("RefMut"));
-    }
-
-    #[test]
-    fn mutable_binding_reference_is_inferred_as_refmut() {
-        let source = "pub fn main: () {\n    set x = 1 :i64 mut\n    set r = &x\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source).expect("type check should pass");
-
-        let Statement::Function { body, .. } = &program.statements[0] else {
-            panic!("expected function");
-        };
-        let Statement::Let { data_type, .. } = &body[1] else {
-            panic!("expected second let");
-        };
-        assert!(matches!(data_type, DataType::RefMut { .. }));
-    }
-
-    #[test]
-    fn immutable_binding_reference_is_inferred_as_shared_ref() {
-        let source = "pub fn main: () {\n    set x = 1 :i64\n    set r = &x\n}\n";
-        let mut program = parse(source).expect("source should parse");
-
-        check_program_types(&mut program, source).expect("type check should pass");
-
-        let Statement::Function { body, .. } = &program.statements[0] else {
-            panic!("expected function");
-        };
-        let Statement::Let { data_type, .. } = &body[1] else {
-            panic!("expected second let");
-        };
-        assert!(matches!(data_type, DataType::Ref { .. }));
-    }
-
-    #[test]
-    fn explicit_mut_reference_rejected_for_immutable_binding() {
-        let source = "pub fn main: () {\n    set x = 1 :i64\n    set r = &mut x\n}\n";
-        let mut program = parse(source).expect("source should parse");
-        let err = check_program_types(&mut program, source)
-            .expect_err("immutable binding cannot produce mutable reference");
-        assert!(
-            err.to_string()
-                .contains("Cannot take mutable reference from immutable target")
-        );
-    }
-
-    #[test]
-    fn type_checker_source_context_does_not_leak_between_runs() {
-        let source_a = "pub fn main: () {\n    use dasu(missing_a)\n}\n";
-        let mut program_a = parse(source_a).expect("source A should parse");
-        let err_a = check_program_types(&mut program_a, source_a).expect_err("A must fail");
-        assert_eq!(err_a.source(), Some(&source_a.to_string()));
-
-        let source_b = "pub fn main: () {\n    use dasu(missing_b)\n}\n";
-        let mut program_b = parse(source_b).expect("source B should parse");
-        let err_b = check_program_types(&mut program_b, source_b).expect_err("B must fail");
-        assert_eq!(err_b.source(), Some(&source_b.to_string()));
-        assert_ne!(err_a.source(), err_b.source());
-    }
-
-    #[test]
-    fn type_checker_uses_file_source_from_origins_without_global_state() {
-        let source = "pub fn main: () {\n    use dasu(missing_file)\n}\n";
-        let mut program = parse(source).expect("source should parse");
-        let file = PathBuf::from("prototype_typeck_context.mire");
-        let origins = vec![file.clone()];
-        let mut sources = HashMap::new();
-        sources.insert(file.clone(), source.to_string());
-
-        let err = check_program_types_with_origins(&mut program, "", &origins, &sources)
-            .expect_err("must fail and attach origin source");
-        assert_eq!(
-            err.filename().map(String::as_str),
-            Some("prototype_typeck_context.mire")
-        );
-        assert_eq!(err.source(), Some(&source.to_string()));
-    }
 }

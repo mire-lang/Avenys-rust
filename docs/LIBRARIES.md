@@ -13,18 +13,29 @@ via `load`.
 ## Quick Reference
 
 ```mire
-# Load a library — all modules available with prefixes
+// Load the mire stdlib (vec, map, str modules)
+load mire
+
+// Load kioto (extended stdlib: net, async, json, etc.)
 load kioto
 
-# Load a specific module
+// Load a specific module
 load kioto::net
-load kioto::ws
 
-# Call functions with module prefix
-set r = net::http_get("https://example.com")
-set fd = ws::connect("ws://127.0.0.1:9877/")
+// Call functions with module prefix
+set v = [10 20 30] : vec[i64]
+set len = vec::len(v)
+set s = strings::trim("  hello  ")
+set m = map::set::i64({} :map[str i64] "key" 42)
 
-# use executes a function for side effects (discards result):
+// Remove a single file/symlink/empty dir (capability-based, never follows symlinks)
+set ok = fs::remove("/tmp/stale.txt")
+// Recursively remove a directory tree (symlink-safe)
+set ok2 = fs::remove_all("/tmp/stale-tree")
+// On failure, query the PAL error code (11 = PAL_ERR_NOT_EMPTY)
+set code = fs::last_error()
+
+// use executes a function for side effects (discards result):
 use dasu("hello")
 use proc::exit(1)
 ```
@@ -49,19 +60,19 @@ Avenys looks for libraries in these locations (in order):
 ### Step 2: Read the library's `owl.toml`
 
 ```toml
-# kioto/owl.toml
+// kioto/owl.toml
 [project]
 name = "kioto"
-version = "3.11.12"
+version = "2.4.3"
 entry = "mod.mire"
+
+[dependencies]
+mire = { path = "../mire" }
 
 [exports]
 strings = "core/strings"
-lists = "core/lists"
-dicts = "core/dicts"
 net = "core/net"
-ws = "ext/ws"
-# ...
+// ...
 ```
 
 ### Step 3: Load the entry point
@@ -73,13 +84,13 @@ Avenys opens `mod.mire` (the `entry` file). This is the library's root module.
 `mod.mire` typically contains `load` statements for all sub-modules:
 
 ```mire
-# kioto/mod.mire
+// kioto/mod.mire
 module kioto
 load kioto::strings
-load kioto::lists
+load mire::vec
 load kioto::net
 load kioto::ws
-# ...
+// ...
 ```
 
 Each `load kioto::<name>` is resolved via the `[exports]` table:
@@ -131,7 +142,7 @@ namespace prefix. All `pub fn` in that file become `net::<fn_name>`.
 Projects declare their dependencies in `owl.toml`:
 
 ```toml
-# mire-owl/owl.toml
+// mire-owl/owl.toml
 [project]
 name = "owl"
 version = "0.14.0"
@@ -187,10 +198,10 @@ functions with their module prefix.
 Kioto modules call C functions via `extern fn`:
 
 ```mire
-# kioto/core/net/mod.mire
-extern fn pal_tls_connect: (host :str, port :i64) :i64 lib "c"
-extern fn pal_tls_send: (fd :i64, data :str) lib "c"
-# ...
+// A Kioto module declares only the PAL primitives it uses.
+extern fn pal_time_now_ms: () :i64 lib "c"
+extern fn pal_file_size: (file :i64) :i64 lib "c"
+// ...
 ```
 
 The `lib "c"` tells Avenys: "this is an external C function, generate an
@@ -199,24 +210,35 @@ LLVM `declare` and link against the C runtime."
 ### The Full Chain
 
 ```
-kioto/core/net/mod.mire ← extern fn pal_tls_connect: (...) :i64 lib "c"
+kioto/core/fs/mod.mire ← extern fn pal_file_size: (...) :i64 lib "c"
  │
  ▼
-Avenys → src/compiler/mir/codegen/builtins.rs ← declare i64 @pal_tls_connect(ptr, i64)
+Avenys → MIR codegen ← declare i64 @pal_file_size(...)
  │
  ▼
-LLVM IR → clang linker ← looks for symbol pal_tls_connect
+LLVM IR → clang linker ← looks for the PAL symbol
  │
  ▼
-pal/linux/pal_tls.c ← int64_t pal_tls_connect(const char *host, int64_t port)
+src/pal/core/pal_dispatch.c
  │
  ▼
-OpenSSL ← SSL_connect, SSL_read, SSL_write
+src/pal/linux/pal_linux.c ← host implementation
 ```
 
-The PAL C files are compiled into `.o` files by clang and linked with the
-LLVM-generated object file. The symbol `pal_tls_connect` must match exactly
-between the LLVM IR `declare` and the C function name.
+The PAL C sources are compiled and linked by Avenys. New symbols must be added
+to `src/pal/pal.h`, the Core dispatch/backend operation table, and — if the
+compiler *emits* them (a `declare` in `src/compiler/mir/codegen/builtins.rs`) —
+the authoritative `docs/abi_map.toml`. Do not copy declarations from historical
+PAL documents or add shell/convenience functions to PAL; those belong in
+Kioto when they can be composed from primitives.
+
+> **Two kinds of `pal_*` symbols.** Symbols the compiler emits as builtins
+> (e.g. `pal_time_now_ms`, `pal_file_size`) are catalogued in
+> `docs/abi_map.toml` and checked by `tests/abi_consistency.rs`. Symbols kioto
+> declares directly as `extern fn ... lib "c"` (e.g. `pal_root_remove`,
+> `pal_fs_remove`, `pal_last_error`) are **not** catalogued — adding them to
+> the map creates a stale entry and fails the ABI test. The header
+> `src/pal/pal.h` is authoritative for both.
 
 ---
 
@@ -311,4 +333,4 @@ If no `owl.toml` is found, only the file being compiled is processed.
 | `pub fn` | Any module that loads this module | `pub fn http_get: (...) :str` |
 | `fn` | Only within the same module file | `fn extract_host: (url :str) :str` |
 | `pub struct` | Any module that loads this module | `pub struct Point { x: i64, y: i64 }` |
-| `extern fn` | Any module that loads this module (if in `pub` scope) | `extern fn pal_tls_connect: (...) :i64 lib "c"` |
+| `extern fn` | Any module that loads this module (if in `pub` scope) | `extern fn pal_time_now_ms: () :i64 lib "c"` |
