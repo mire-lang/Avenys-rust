@@ -1,0 +1,28 @@
+// Module family: load, use, export, and namespace access
+load mire::vec
+load! /tests/Modules/LoadBang/helper
+
+@[test]
+pub fn module_family_active: () :bool {
+    set prefix = "modules"
+
+    // Tests module family tag is set
+    return prefix == "modules"
+}
+
+@[test]
+pub fn namespace_load_vec: () :bool {
+    set v = [] :vec[i64] mut
+    set len = vec::len(v)
+
+    // Tests load mire::vec produces working vector
+    return len == 0
+}
+
+@[test]
+pub fn namespace_use_bang_loads: () :bool {
+    set answer = use! helper::answer()
+
+    // Tests load! followed by use! brings in external symbol
+    return answer == 42
+}

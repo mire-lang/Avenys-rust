@@ -1,8 +1,7 @@
 use crate::error::Result;
 use crate::lexer::{Token, TokenType};
 use crate::parser::ast::{
-    Attribute, AttributeArg, DataType, EnumVariantDef, Expression, Literal, Statement,
-    Visibility,
+    Attribute, AttributeArg, DataType, EnumVariantDef, Expression, Literal, Statement, Visibility,
 };
 
 use super::Parser;
@@ -309,7 +308,8 @@ impl Parser {
         let crate::parser::ast::AssignmentTarget::Variable(target_name) = &target else {
             unreachable!("non-variable assignment target handled above");
         };
-        let already_declared = self.is_declared(target_name);
+        let already_declared =
+            self.is_declared(target_name) && !self.function_names.contains(target_name);
         if declared_type.is_none() && !is_constant && already_declared {
             return Ok(Statement::Assignment {
                 target,
@@ -497,7 +497,12 @@ impl Parser {
         } else {
             name.clone()
         };
-        Ok(Statement::ExternLib { name, path, line: lib_token.line, column: lib_token.column })
+        Ok(Statement::ExternLib {
+            name,
+            path,
+            line: lib_token.line,
+            column: lib_token.column,
+        })
     }
 
     fn parse_extern_fn_statement(&mut self, visibility: Visibility) -> Result<Statement> {
@@ -590,7 +595,14 @@ impl Parser {
                 .join(" ")
                 .trim()
                 .to_string();
-            instructions.push((opcode, Expression::Literal { lit: Literal::Str(operand_text), line: 0, column: 0 }));
+            instructions.push((
+                opcode,
+                Expression::Literal {
+                    lit: Literal::Str(operand_text),
+                    line: 0,
+                    column: 0,
+                },
+            ));
         }
 
         self.expect_block_close()?;
@@ -667,11 +679,15 @@ impl Parser {
         Ok(Statement::Return(Some(expr)))
     }
 
-    fn parse_module_statement(&mut self) -> Result<Statement> {
-        self.expect(TokenType::Module)?;
-        let name = self.expect_ident()?;
-        Ok(Statement::Module { name })
-    }
+      fn parse_module_statement(&mut self) -> Result<Statement> {
+          self.expect(TokenType::Module)?;
+          // A module name is a name, not an expression, so it takes the wider
+          // path-segment rule: the standard library's stdin module is called
+          // `in`, and `module in` has to be legal for `load mire::std::in` to
+          // resolve to anything.
+          let name = self.expect_path_segment()?;
+          Ok(Statement::Module { name })
+      }
 
     pub(super) fn parse_block(&mut self) -> Result<Vec<Statement>> {
         let mut statements = Vec::new();

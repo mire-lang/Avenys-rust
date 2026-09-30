@@ -10,11 +10,70 @@ use crate::parser::ast::{AssignmentTarget, DataType, Expression, Statement};
 /// would corrupt non-numeric values such as structs or pointers.
 pub(crate) fn needs_convert(from: &DataType, to: &DataType) -> bool {
     use DataType::*;
-    let numeric = |t: &DataType| matches!(
-        t,
-        I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128 | Char | F32 | F64
-    );
+    let numeric = |t: &DataType| {
+        matches!(
+            t,
+            I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128 | Char | F32 | F64
+        )
+    };
     from != to && *to != DataType::Unknown && numeric(from) && numeric(to)
+}
+
+/// Heap-owned pointer types whose slot assignment transfers ownership of the
+/// pointer (the slot is responsible for releasing the old value). Arrays are
+/// inline value types and references are borrowed, so neither is included.
+pub(crate) fn is_owned_ptr_type(ty: &DataType) -> bool {
+    matches!(
+        ty,
+        DataType::Str
+            | DataType::Vector { .. }
+            | DataType::Map { .. }
+            | DataType::Dict
+            | DataType::List
+            | DataType::Slice { .. }
+            | DataType::Set
+            | DataType::Box
+            | DataType::Result { .. }
+    )
+}
+
+/// True when evaluating `expr` yields a pointer *owned by something else* (a
+/// variable or a struct field). Assigning a borrow into a slot must retain it,
+/// otherwise releasing the source would leave the destination dangling.
+fn is_borrow_expression(expr: &Expression) -> bool {
+    match expr {
+        Expression::Identifier(_) | Expression::MemberAccess { .. } => true,
+        Expression::Ascription { expr, .. } => is_borrow_expression(expr),
+        _ => false,
+    }
+}
+
+/// The variable name a borrowed read ultimately aliases (for globals, which are
+/// never released, no retain is needed).
+fn borrow_source_name(expr: &Expression) -> Option<&str> {
+    match expr {
+        Expression::Identifier(id) => Some(id.name.as_str()),
+        Expression::Ascription { expr, .. } => borrow_source_name(expr),
+        _ => None,
+    }
+}
+
+impl MirLower {
+    /// Emit `rt_managed_retain(value)` (a no-op for non-managed pointers).
+    pub(crate) fn emit_retain(&mut self, value: MirValue, loc: (usize, usize)) {
+        let last = self.current_block;
+        self.func.blocks[last].push(
+            None,
+            MirOp::Call(
+                MirValue::Global("rt_managed_retain".to_string()),
+                vec![value],
+                MirType {
+                    data_type: DataType::None,
+                },
+            ),
+            loc,
+        );
+    }
 }
 
 impl MirLower {
@@ -92,28 +151,77 @@ impl MirLower {
                     if needs_convert(&val_ty, data_type) {
                         v = self.emit_convert(v, &val_ty, data_type, loc);
                     }
+                    // `set b = a` aliases the source variable's value; retain it
+                    // so the slot owns an independent reference.
+                    if is_owned_ptr_type(data_type)
+                        && is_borrow_expression(val)
+                        && borrow_source_name(val)
+                            .map(|n| !self.globals.contains_key(n))
+                            .unwrap_or(true)
+                    {
+                        self.emit_retain(v.clone(), loc);
+                    }
                     let last = self.current_block;
                     self.func.blocks[last].push(None, MirOp::Store(MirValue::temp(ptr), v), loc);
                 }
             }
             Statement::Assignment { target, value, .. } => {
+                // Evaluate the right-hand side *before* releasing the old value:
+                // the RHS may borrow the variable being reassigned (`set s = s +
+                // "x"`), so dropping first would use freed memory.
                 let val_ty = extract_data_type(value);
                 let mut v = self.lower_expression(value);
-                let last = self.current_block;
                 match target {
                     AssignmentTarget::Variable(name) => {
-                        if let Some(target_ty) = self.var_types.get(name).cloned()
-                            && needs_convert(&val_ty, &target_ty)
-                        {
+                        let target_ty = self
+                            .var_types
+                            .get(name)
+                            .cloned()
+                            .unwrap_or(DataType::Unknown);
+                        if needs_convert(&val_ty, &target_ty) {
                             v = self.emit_convert(v, &val_ty, &target_ty, loc);
                         }
                         if self.globals.contains_key(name) {
+                            let last = self.current_block;
                             self.func.blocks[last].push(
                                 None,
                                 MirOp::Store(MirValue::Global(name.clone()), v),
                                 loc,
                             );
                         } else if let Some(&ptr) = self.vars.get(name) {
+                            // `set y = x` aliases another slot's value: retain it
+                            // so releasing the old y (and possibly x) is safe.
+                            if is_owned_ptr_type(&target_ty)
+                                && is_borrow_expression(value)
+                                && borrow_source_name(value)
+                                    .map(|n| !self.globals.contains_key(n))
+                                    .unwrap_or(true)
+                            {
+                                self.emit_retain(v.clone(), loc);
+                            }
+                            // Release the value the slot currently holds (only
+                            // for owned pointer types).
+                            if is_owned_ptr_type(&target_ty) {
+                                let loaded = self.new_temp();
+                                let last = self.current_block;
+                                self.func.blocks[last].push(
+                                    Some(loaded),
+                                    MirOp::Load(
+                                        MirValue::temp(ptr),
+                                        MirType {
+                                            data_type: target_ty.clone(),
+                                        },
+                                    ),
+                                    loc,
+                                );
+                                let last = self.current_block;
+                                self.func.blocks[last].push(
+                                    None,
+                                    MirOp::Drop(MirValue::temp(loaded)),
+                                    loc,
+                                );
+                            }
+                            let last = self.current_block;
                             self.func.blocks[last].push(
                                 None,
                                 MirOp::Store(MirValue::temp(ptr), v),
@@ -123,7 +231,10 @@ impl MirLower {
                     }
                     AssignmentTarget::Index { target, index } => {
                         let target_type = if let Expression::Identifier(id) = target.as_ref() {
-                            self.var_types.get(&id.name).cloned().unwrap_or(DataType::Unknown)
+                            self.var_types
+                                .get(&id.name)
+                                .cloned()
+                                .unwrap_or(DataType::Unknown)
                         } else {
                             extract_data_type(target)
                         };
@@ -192,25 +303,23 @@ impl MirLower {
 
                         let gep = self.new_temp();
                         let elem_ty = self.get_target_elem_type(target);
-                        let adjusted_index = if matches!(
-                            target_type,
-                            DataType::Vector { .. } | DataType::List
-                        ) {
-                            let elem_size = llvm_type_byte_size(&elem_ty);
-                            let header_offset = 8 / elem_size;
-                            let adj = self.new_temp();
-                            self.func.blocks[last].push(
-                                Some(adj),
-                                MirOp::Add(
-                                    index_val.clone(),
-                                    MirValue::Const(MirConst::Int(header_offset)),
-                                ),
-                                loc,
-                            );
-                            MirValue::temp(adj)
-                        } else {
-                            index_val.clone()
-                        };
+                        let adjusted_index =
+                            if matches!(target_type, DataType::Vector { .. } | DataType::List) {
+                                let elem_size = llvm_type_byte_size(&elem_ty);
+                                let header_offset = 8 / elem_size;
+                                let adj = self.new_temp();
+                                self.func.blocks[last].push(
+                                    Some(adj),
+                                    MirOp::Add(
+                                        index_val.clone(),
+                                        MirValue::Const(MirConst::Int(header_offset)),
+                                    ),
+                                    loc,
+                                );
+                                MirValue::temp(adj)
+                            } else {
+                                index_val.clone()
+                            };
                         self.func.blocks[last].push(
                             Some(gep),
                             MirOp::Gep(target_val, vec![adjusted_index], elem_ty),
@@ -223,6 +332,7 @@ impl MirLower {
                         );
                     }
                     AssignmentTarget::Field(path) => {
+                        let last = self.current_block;
                         let parts: Vec<&str> = path.splitn(2, '.').collect();
                         if parts.len() == 2 {
                             let var_name = parts[0].to_string();
@@ -277,6 +387,57 @@ impl MirLower {
                 }
             }
             Statement::Expression(expr) => {
+                // `do { body } while cond` is parsed as a call to a synthetic
+                // `__do_while` name with two closures: (body statements) and
+                // (cond as a `return` expression). Lower it to real control
+                // flow instead of emitting an undefined external call.
+                if let Expression::Call { name, args, .. } = expr
+                    && name == "__do_while"
+                    && args.len() == 2
+                {
+                    let body_stmts: Option<&Vec<Statement>> = match &args[0] {
+                        Expression::Closure { body, .. } => Some(body),
+                        _ => None,
+                    };
+                    let cond_expr: Option<&Expression> = match &args[1] {
+                        Expression::Closure { body, .. } => match body.first() {
+                            Some(Statement::Return(Some(inner))) => Some(inner),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let (Some(body_stmts), Some(cond_expr)) = (body_stmts, cond_expr) {
+                        let pre_do_block = self.current_block;
+
+                        let body_block = self.new_block("dowhile_body");
+                        let cond_block = self.new_block("dowhile_cond");
+                        let end_block = self.new_block("dowhile_end");
+
+                        self.loop_stack.push((cond_block, end_block));
+                        self.current_block = body_block;
+
+                        for stmt in body_stmts {
+                            self.lower_statement(stmt);
+                        }
+                        self.loop_stack.pop();
+                        if matches!(
+                            self.func.blocks[self.current_block].terminator,
+                            MirTerminator::Unreachable
+                        ) {
+                            self.func.blocks[self.current_block].terminator =
+                                MirTerminator::Br(cond_block);
+                        }
+
+                        self.current_block = cond_block;
+                        let cond = self.lower_expression(cond_expr);
+                        let cond_branch_block = self.current_block;
+                        self.func.blocks[cond_branch_block].terminator =
+                            MirTerminator::BrCond(cond, body_block, end_block);
+                        self.func.blocks[pre_do_block].terminator = MirTerminator::Br(body_block);
+                        self.current_block = end_block;
+                        return;
+                    }
+                }
                 let _ = self.lower_expression(expr);
             }
             Statement::Return(val) => {
@@ -339,6 +500,9 @@ impl MirLower {
                 self.current_block = cond_block;
 
                 let cond = self.lower_expression(condition);
+                // The condition expression may have created intermediate blocks
+                // (e.g. division inline). Use the final block as the condition branch source.
+                let cond_branch_block = self.current_block;
 
                 let body_block = self.new_block("while_body");
                 let end_block = self.new_block("while_end");
@@ -357,7 +521,7 @@ impl MirLower {
                     self.func.blocks[self.current_block].terminator = MirTerminator::Br(cond_block);
                 }
 
-                self.func.blocks[cond_block].terminator =
+                self.func.blocks[cond_branch_block].terminator =
                     MirTerminator::BrCond(cond, body_block, end_block);
                 self.func.blocks[pre_while_block].terminator = MirTerminator::Br(cond_block);
                 self.current_block = end_block;

@@ -2,6 +2,11 @@ use super::*;
 use std::fs;
 
 pub fn cache_file_path(source_path: &Path) -> PathBuf {
+    if let Ok(path) = std::env::var("MIRE_CACHE_DIR")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
+    }
     let base = if let Some(project_root) =
         find_project_root(source_path.parent().unwrap_or_else(|| Path::new(".")))
     {
@@ -10,7 +15,7 @@ pub fn cache_file_path(source_path: &Path) -> PathBuf {
         source_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .to_path_buf()
+            .join("bin")
     };
     base.join(CACHE_DIR_NAME)
 }
@@ -109,7 +114,11 @@ pub fn dependency_fingerprint(files: &HashMap<PathBuf, LoadedFile>) -> u64 {
     hasher.finish()
 }
 
-pub(crate) fn analysis_cache_key(source_path: &Path, source_hash: u64, dep_fingerprint: u64) -> String {
+pub(crate) fn analysis_cache_key(
+    source_path: &Path,
+    source_hash: u64,
+    dep_fingerprint: u64,
+) -> String {
     format!(
         "{}::analysis::{:#x}::{:#x}",
         normalize_path_key(source_path),
@@ -164,8 +173,7 @@ pub fn statement_export_name(statement: &Statement) -> Option<&str> {
                 None
             }
         }
-        Statement::Module { name, .. }
-        | Statement::ExternLib { name, .. } => Some(name.as_str()),
+        Statement::Module { name, .. } | Statement::ExternLib { name, .. } => Some(name.as_str()),
         Statement::ExternFunction {
             name, visibility, ..
         } => {

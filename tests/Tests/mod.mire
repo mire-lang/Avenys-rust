@@ -1,0 +1,8 @@
+@[test]
+@[section("harness")]
+pub fn harness_test_returns_observed_value: () :bool {
+    set factors = [6 7] :arr[i64 2]
+    set observed = (factors at 0) * (factors at 1)
+    if observed != 42 { return false }
+    return observed / (factors at 0) == factors at 1
+}

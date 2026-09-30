@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set count = 0 :i64 mut
-    while count < 3 {
-        set count += 1
-    }
-    use dasu("count = {count}")
-}

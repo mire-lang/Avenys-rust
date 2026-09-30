@@ -44,12 +44,12 @@ impl Parser {
             }
             | Expression::Call {
                 name_line: 0,
-            name_column: 0,
-            data_type: slot, ..
-            }
-            | Expression::List {
+                name_column: 0,
                 data_type: slot,
                 ..
+            }
+            | Expression::List {
+                data_type: slot, ..
             }
             | Expression::Dict {
                 data_type: slot, ..
@@ -144,13 +144,13 @@ impl Parser {
         loop {
             if self.check(TokenType::Bang) {
                 let (name, name_line, name_column) = match &expr {
-                    Expression::Identifier(Identifier { name, line, column, .. }) => {
-                        (name.clone(), *line, *column)
-                    }
+                    Expression::Identifier(Identifier {
+                        name, line, column, ..
+                    }) => (name.clone(), *line, *column),
                     _ => {
-                        return Err(self.error(
-                            "macro invocation requires a function name before '!'",
-                        ))
+                        return Err(
+                            self.error("macro invocation requires a function name before '!'")
+                        );
                     }
                 };
                 self.advance(); // !
@@ -191,8 +191,8 @@ impl Parser {
                         args,
                         type_args,
                         name_line: 0,
-            name_column: 0,
-            data_type: DataType::Unknown,
+                        name_column: 0,
+                        data_type: DataType::Unknown,
                     };
                     continue;
                 }
@@ -245,7 +245,11 @@ impl Parser {
                     if name == "ok" || name == "err" || name == "some" {
                         let args = self.parse_call_arguments()?;
                         let value = if args.is_empty() {
-                            Expression::Literal { lit: Literal::None, line: 0, column: 0 }
+                            Expression::Literal {
+                                lit: Literal::None,
+                                line: 0,
+                                column: 0,
+                            }
                         } else if args.len() == 1 {
                             args.into_iter().next().unwrap()
                         } else {
@@ -331,8 +335,8 @@ impl Parser {
                 args: Vec::new(),
                 type_args: Vec::new(),
                 name_line: 0,
-            name_column: 0,
-            data_type: DataType::Unknown,
+                name_column: 0,
+                data_type: DataType::Unknown,
             }
         } else {
             expr
@@ -512,7 +516,10 @@ impl Parser {
     }
 
     fn normalize_io_argument(&self, expr: &mut Expression) -> Result<()> {
-        if let Expression::Literal { lit: Literal::Str(value), .. } = expr
+        if let Expression::Literal {
+            lit: Literal::Str(value),
+            ..
+        } = expr
             && value.contains('{')
         {
             *expr = super::helpers::concat_expressions(self.parse_string_template_parts(value)?);
@@ -611,8 +618,8 @@ impl Parser {
                 args: vec![expr, string_expr(&spec)],
                 type_args: Vec::new(),
                 name_line: 0,
-            name_column: 0,
-            data_type: DataType::Str,
+                name_column: 0,
+                data_type: DataType::Str,
             });
         }
 

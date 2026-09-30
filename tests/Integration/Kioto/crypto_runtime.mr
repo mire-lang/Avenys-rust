@@ -1,0 +1,15 @@
+load kioto
+
+@[test]
+pub fn runtime_crypto_uses_pal_and_sodium: () :bool {
+    set digest = crypto::hash::sha256("abc")
+    set secret = crypto::sign::ed25519::secret::new()
+    set public = crypto::sign::ed25519::secret::public(secret)
+    set signature = crypto::sign::ed25519::secret::sign(secret "runtime")
+    set verified = crypto::sign::ed25519::public::verify(public "runtime" signature)
+    set rejected = crypto::sign::ed25519::public::verify(public "tampered" signature)
+    crypto::sign::ed25519::secret::close(secret)
+    crypto::sign::ed25519::public::close(public)
+    return digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" &&
+        verified && !rejected
+}

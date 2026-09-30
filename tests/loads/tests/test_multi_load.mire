@@ -1,8 +1,0 @@
-load kioto::math::basic
-load kioto::strings
-
-pub fn main: () {
-    set a = math.basic.add(3 4)
-    set b = math.basic.mul(a a)
-    use dasu(a + b)
-}

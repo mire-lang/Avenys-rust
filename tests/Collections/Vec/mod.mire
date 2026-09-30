@@ -1,0 +1,15 @@
+// Vector construction and indexed access with full operations
+load mire::vec
+
+@[test]
+pub fn vector_push_get_and_len: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 7)
+    set values = vec::push::i64(values 3)
+    set first_val = vec::get::i64(values 0)
+    set second_val = vec::get::i64(values 1)
+    set current_len = vec::len(values)
+
+    // Verifies push, get, and len all work correctly
+    return current_len == 2 && first_val == 7 && second_val == 3
+}

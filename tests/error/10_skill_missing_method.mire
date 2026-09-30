@@ -1,8 +1,0 @@
-load kioto
-
-pub skill Printable {
-}
-
-pub fn main: () {
-    use dasu("test")
-}

@@ -1,9 +1,0 @@
-enum Status {
-    Ok
-    Err
-}
-
-pub fn main: () {
-    set test = Status.Ok
-    use dasu("enum test ok")
-}

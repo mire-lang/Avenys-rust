@@ -3,8 +3,8 @@ pub mod location;
 pub mod mir;
 pub mod semantic;
 pub mod typeck;
-pub mod warnings;
 mod warning_diagnostics;
+pub mod warnings;
 
 use crate::error::Result;
 use crate::error::diagnostic::{Diagnostic, DiagnosticCode, WarningFilter};

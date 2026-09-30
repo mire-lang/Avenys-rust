@@ -143,10 +143,16 @@ fn replace_value_in_op(op: &mut MirOp, copies: &HashMap<usize, MirValue>) -> usi
         | MirOp::Trunc(v, _)
         | MirOp::Sitofp(v, _)
         | MirOp::Fptosi(v, _)
-            | MirOp::SExt(v, _)
-            | MirOp::Fptrunc(v, _)
-            | MirOp::Fpext(v, _)
-        | MirOp::Copy(v) => replace(v, copies, &mut count),
+        | MirOp::SExt(v, _)
+        | MirOp::Fptrunc(v, _)
+        | MirOp::Fpext(v, _)
+        | MirOp::Drop(v) => replace(v, copies, &mut count),
+        MirOp::Concat(vals) => {
+            for v in vals {
+                replace(v, copies, &mut count);
+            }
+        }
+        MirOp::Copy(v) => replace(v, copies, &mut count),
         MirOp::Store(dst, src) => {
             replace(dst, copies, &mut count);
             replace(src, copies, &mut count);
@@ -156,7 +162,7 @@ fn replace_value_in_op(op: &mut MirOp, copies: &HashMap<usize, MirValue>) -> usi
         | MirOp::Mul(l, r)
         | MirOp::SDiv(l, r)
         | MirOp::SRem(l, r)
-        |         MirOp::Shl(l, r)
+        | MirOp::Shl(l, r)
         | MirOp::Shr(l, r)
         | MirOp::And(l, r)
         | MirOp::Or(l, r)
@@ -188,6 +194,14 @@ fn replace_value_in_op(op: &mut MirOp, copies: &HashMap<usize, MirValue>) -> usi
             replace(c, copies, &mut count);
             replace(t, copies, &mut count);
             replace(f, copies, &mut count);
+        }
+        MirOp::ExtractValue(agg, val, _) => {
+            replace(agg, copies, &mut count);
+            replace(val, copies, &mut count);
+        }
+        MirOp::InsertValue(agg, val, _) => {
+            replace(agg, copies, &mut count);
+            replace(val, copies, &mut count);
         }
         MirOp::Alloca(_) => {}
     }

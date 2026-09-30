@@ -1,0 +1,34 @@
+// Result type: ok/err construction and payload inspection
+load mire::result
+
+@[test]
+pub fn result_ok_constructs: () :bool {
+    set ok_box = result::ok::i64(42)
+
+    // An ok container unwraps to its original integer payload
+    return result::unwrap::i64(ok_box) == 42
+}
+
+@[test]
+pub fn result_ok_reports_ok: () :bool {
+    set ok_box = result::ok::i64(7)
+
+    // An ok container reports itself as ok after construction
+    return result::is::ok(ok_box)
+}
+
+@[test]
+pub fn result_err_constructs: () :bool {
+    set err_box = result::err::i64(9)
+
+    // An err container identifies itself as err after construction
+    return result::is::err(err_box)
+}
+
+@[test]
+pub fn result_unwrap_or_uses_fallback: () :bool {
+    set err_box = result::err::i64(9)
+
+    // unwrap_or returns the fallback instead of a missing payload
+    return result::unwrap::i64::or(err_box, -1) == -1
+}

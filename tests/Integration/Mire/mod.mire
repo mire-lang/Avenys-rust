@@ -1,0 +1,8 @@
+load mire::vec
+
+@[test]
+pub fn mire_stdlib_is_runtime_backed: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 42)
+    return vec::get::i64(values 0) == 42
+}

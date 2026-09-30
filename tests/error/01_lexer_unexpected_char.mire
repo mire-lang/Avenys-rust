@@ -1,5 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = @#$%
-}

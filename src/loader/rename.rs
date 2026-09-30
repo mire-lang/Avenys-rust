@@ -294,6 +294,8 @@ impl<'a> ModuleRenamer<'a> {
                 type_param_bounds,
                 parent,
                 fields,
+                attributes,
+                ..
             } => {
                 let name = self.rename_decl_name(name, scope_stack, top_level);
                 let mut fields_scope = scope_stack.clone();
@@ -321,9 +323,19 @@ impl<'a> ModuleRenamer<'a> {
                     type_param_bounds,
                     parent,
                     fields,
+                    attributes,
+                    line: 0,
+                    column: 0,
+                    end_line: 0,
+                    end_column: 0,
                 }
             }
-            Statement::Skill { name, visibility, parent, methods } => Statement::Skill {
+            Statement::Skill {
+                name,
+                visibility,
+                parent,
+                methods,
+            } => Statement::Skill {
                 name: self.rename_decl_name(name, scope_stack, top_level),
                 visibility,
                 parent,
@@ -376,7 +388,12 @@ impl<'a> ModuleRenamer<'a> {
                     methods,
                 }
             }
-            Statement::ExternLib { name, path, line, column } => Statement::ExternLib {
+            Statement::ExternLib {
+                name,
+                path,
+                line,
+                column,
+            } => Statement::ExternLib {
                 name: self.rename_decl_name(name, scope_stack, top_level),
                 path,
                 line,
@@ -417,7 +434,19 @@ impl<'a> ModuleRenamer<'a> {
                     .map(|(name, expr)| (name, self.rename_expression(expr, scope_stack)))
                     .collect(),
             },
-            Statement::Load { path, alias, items, line, column } => Statement::Load { path, alias, items, line, column },
+            Statement::Load {
+                path,
+                alias,
+                items,
+                line,
+                column,
+            } => Statement::Load {
+                path,
+                alias,
+                items,
+                line,
+                column,
+            },
             Statement::LoadLocal { .. } => statement,
             Statement::Module { name } => Statement::Module {
                 name: self.rename_decl_name(name, scope_stack, top_level),
@@ -549,7 +578,11 @@ impl<'a> ModuleRenamer<'a> {
         self.module_symbols.contains(name) && !is_shadowed(scope_stack, name) && !name.contains('.')
     }
 
-    pub(super) fn rename_data_type(&self, data_type: DataType, scope_stack: &[HashSet<String>]) -> DataType {
+    pub(super) fn rename_data_type(
+        &self,
+        data_type: DataType,
+        scope_stack: &[HashSet<String>],
+    ) -> DataType {
         match data_type {
             DataType::StructNamed(name) => {
                 DataType::StructNamed(self.rename_type_name(name, scope_stack))
@@ -683,7 +716,6 @@ impl<'a> ModuleRenamer<'a> {
             other => self.rename_expression(other, scope_stack),
         }
     }
-
 }
 
 fn is_shadowed(scope_stack: &[HashSet<String>], name: &str) -> bool {

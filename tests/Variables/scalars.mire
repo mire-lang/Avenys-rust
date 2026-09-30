@@ -1,0 +1,65 @@
+// Scalar type annotations verify parser preserves exact widths
+
+@[test]
+pub fn scalar_i8_annotation: () :bool {
+    set value = 8 :i8
+
+    // Tests i8 type annotation preserves width
+    return value == 8
+}
+
+@[test]
+pub fn scalar_i16_annotation: () :bool {
+    set value = 16 :i16
+
+    // Tests i16 type annotation preserves width
+    return value == 16
+}
+
+@[test]
+pub fn scalar_i32_annotation: () :bool {
+    set value = 32 :i32
+
+    // Tests i32 type annotation preserves width
+    return value == 32
+}
+
+@[test]
+pub fn scalar_u8_annotation: () :bool {
+    set value = 8 :u8
+
+    // Tests u8 type annotation preserves width
+    return value == 8
+}
+
+@[test]
+pub fn scalar_u16_annotation: () :bool {
+    set value = 16 :u16
+
+    // Tests u16 type annotation preserves width
+    return value == 16
+}
+
+@[test]
+pub fn scalar_u32_annotation: () :bool {
+    set value = 32 :u32
+
+    // Tests u32 type annotation preserves width
+    return value == 32
+}
+
+@[test]
+pub fn scalar_f32_annotation: () :bool {
+    set value = 1.25 :f32
+
+    // Tests f32 type annotation and comparison
+    return value > 1.0
+}
+
+@[test]
+pub fn scalar_f64_annotation: () :bool {
+    set value = 2.5 :f64
+
+    // Tests f64 type annotation and comparison
+    return value > 2.0
+}

@@ -123,7 +123,7 @@ impl DataType {
                 key_type: Box::new(DataType::Unknown),
                 value_type: Box::new(DataType::Unknown),
             },
-            "anything" => DataType::Anything,
+            "any" | "anything" => DataType::Anything,
             "function" => DataType::Function,
             "db" => DataType::Db,
             "tuple" => DataType::Tuple,
@@ -132,6 +132,20 @@ impl DataType {
             "box" => DataType::Box,
             _ => DataType::Unknown,
         }
+    }
+
+    /// Width in bits for the scalar types a `bits::<T>(x)` reinterpretation can
+    /// target. Returns `None` for anything that is not a plain scalar, because
+    /// those have no fixed bit-level reinterpretation.
+    pub fn bit_width(&self) -> Option<u32> {
+        Some(match self {
+            DataType::I8 | DataType::U8 => 8,
+            DataType::I16 | DataType::U16 => 16,
+            DataType::I32 | DataType::U32 | DataType::F32 => 32,
+            DataType::I64 | DataType::U64 | DataType::F64 => 64,
+            DataType::I128 | DataType::U128 => 128,
+            _ => return None,
+        })
     }
 
     pub fn is_struct_like(&self) -> bool {
@@ -176,13 +190,13 @@ impl DataType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AttributeArg {
     pub name: Option<String>,
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Attribute {
     pub name: String,
     pub args: Vec<AttributeArg>,
@@ -641,6 +655,16 @@ pub enum Statement {
         type_param_bounds: Vec<(String, Vec<String>)>,
         parent: Option<String>,
         fields: Vec<Statement>,
+        #[serde(default)]
+        attributes: Vec<Attribute>,
+        #[serde(default)]
+        line: usize,
+        #[serde(default)]
+        column: usize,
+        #[serde(default)]
+        end_line: usize,
+        #[serde(default)]
+        end_column: usize,
     },
     Skill {
         name: String,

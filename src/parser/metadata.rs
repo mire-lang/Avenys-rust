@@ -19,8 +19,10 @@ impl Parser {
                     if brace_depth == 0 && index + 2 < tokens.len() =>
                 {
                     let keyword = tokens[index + 1].ttype;
-                    if matches!(keyword, TokenType::Enum | TokenType::Struct | TokenType::Type)
-                        && tokens[index + 2].ttype == TokenType::Ident
+                    if matches!(
+                        keyword,
+                        TokenType::Enum | TokenType::Struct | TokenType::Type
+                    ) && tokens[index + 2].ttype == TokenType::Ident
                         && let Some(name) = tokens[index + 2].value.as_ref()
                     {
                         match keyword {
@@ -48,7 +50,10 @@ impl Parser {
                 }
                 ttype
                     if brace_depth == 0
-                        && matches!(ttype, TokenType::Enum | TokenType::Struct | TokenType::Type) =>
+                        && matches!(
+                            ttype,
+                            TokenType::Enum | TokenType::Struct | TokenType::Type
+                        ) =>
                 {
                     if index + 1 < tokens.len()
                         && tokens[index + 1].ttype == TokenType::Ident

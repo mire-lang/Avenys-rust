@@ -1,0 +1,83 @@
+// Arithmetic operators: + - * / % with proper operand types
+
+@[test]
+pub fn add_positive_integers: () :bool {
+    set a = 12
+    set b = 5
+    set sum = a + b
+
+    // Tests addition of two integers
+    return sum == 17
+}
+
+@[test]
+pub fn subtract_small_from_large: () :bool {
+    set a = 12
+    set b = 5
+    set diff = a - b
+
+    // Tests subtraction
+    return diff == 7
+}
+
+@[test]
+pub fn multiply_two_integers: () :bool {
+    set a = 12
+    set b = 5
+    set product = a * b
+
+    // Tests multiplication
+    return product == 60
+}
+
+@[test]
+pub fn divide_integer_result: () :bool {
+    set a = 60
+    set b = 5
+    set quotient = a / b
+
+    // Tests integer division
+    return quotient == 12
+}
+
+@[test]
+pub fn modulo_operation: () :bool {
+    set a = 60
+    set b = 7
+    set remainder = a % b
+
+    // Tests modulo
+    return remainder == 4
+}
+
+@[test]
+pub fn negative_addition_works: () :bool {
+    set a = -4
+    set b = 9
+    set result = a + b
+
+    // Tests negative number addition
+    return result == 5
+}
+
+@[test]
+pub fn arithmetic_chain_evaluates: () :bool {
+    set a = 2
+    set b = 3
+    set c = 4
+    set d = 5
+    set chain = a + b * c - d
+
+    // Tests operator precedence in chain: 2 + 3*4 - 5 = 9
+    return chain == 9
+}
+
+@[test]
+pub fn arithmetic_with_variables: () :bool {
+    set left = 6
+    set right = 7
+    set product = left * right
+
+    // Tests arithmetic with variable bindings
+    return product == 42
+}

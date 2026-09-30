@@ -1,4 +1,5 @@
 #include "../pal.h"
+#include "../pal_crypto.h"
 #include "../core/pal_abi.h"
 #include "../core/pal_core.h"
 #include <stdlib.h>
@@ -19,6 +20,12 @@
 #include <sys/resource.h>
 #include <time.h>
 
+#if defined(__has_include)
+#if __has_include(<linux/openat2.h>)
+#include <linux/openat2.h>
+#endif
+#endif
+
 // ── openat2 sandbox helpers ─────────────────────────────
 // openat2(2) was added in Linux 5.10. It allows RESOLVE_BENEATH
 // which prevents path traversal outside the root directory.
@@ -27,18 +34,18 @@
 // ENOSYS on kernels that don't support it, and we fall back
 // to openat (which is why PAL_ALLOW_UNSANDBOXED exists).
 
-#ifndef RESOLVE_BENEATH
-#define RESOLVE_BENEATH    0x00000001
-#define RESOLVE_NO_XDEV    0x00000002
+#ifndef _LINUX_OPENAT2_H
+#define RESOLVE_NO_XDEV     0x00000001
+#define RESOLVE_NO_MAGICLINKS 0x00000002
 #define RESOLVE_NO_SYMLINKS 0x00000004
-#define RESOLVE_IN_ROOT    0x00000008
-#endif
-
+#define RESOLVE_BENEATH     0x00000008
+#define RESOLVE_IN_ROOT     0x00000010
 struct open_how {
     uint64_t flags;
     uint64_t mode;
     uint64_t resolve;
 };
+#endif
 
 // openat2 at dirfd with a caller-chosen set of resolve flags.
 // RESOLVE_NO_SYMLINKS alone rejects symlinks in intermediate components but
@@ -107,6 +114,9 @@ typedef struct {
 
 typedef struct {
     int fd;
+    struct sockaddr_storage peer;
+    socklen_t peer_len;
+    bool has_peer;
 } linux_listener_t;
 
 typedef struct {
@@ -255,7 +265,10 @@ static int64_t linux_file_read(int64_t internal, void *buf, int64_t capacity) {
 
 static int64_t linux_file_write(int64_t internal, const void *buf, int64_t length) {
     linux_file_t *file = (linux_file_t *)internal;
-    if (!file || !buf || length <= 0) return -1;
+    // A zero length is a valid no-op that POSIX reports as 0 bytes written,
+    // not as a failure, so only a negative length is rejected here. Rejecting
+    // 0 would make writing an empty string look like a write that failed.
+    if (!file || !buf || length < 0) return -1;
     ssize_t n = write(file->fd, buf, (size_t)length);
     if (n < 0) return -1;
     return (int64_t)n;
@@ -545,7 +558,10 @@ static int64_t linux_socket_connect(const char *host, uint16_t port, pal_socket_
 static int64_t linux_listener_bind(uint16_t port, pal_socket_flags flags) {
     if (flags != PAL_SOCKET_TCP && flags != PAL_SOCKET_UDP) return -1;
     struct addrinfo hints = {0};
-    hints.ai_family = AF_UNSPEC;
+    // Bind one deterministic IPv4 endpoint. Connectors still support IPv4
+    // and IPv6 through AF_UNSPEC; a future listener API can add an explicit
+    // address/family without changing this stable port-only function.
+    hints.ai_family = AF_INET;
     hints.ai_socktype = flags == PAL_SOCKET_TCP ? SOCK_STREAM : SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE;
     char service[6];
@@ -571,6 +587,8 @@ static int64_t linux_listener_bind(uint16_t port, pal_socket_flags flags) {
         return -1;
     }
     listener->fd = fd;
+    listener->peer_len = 0;
+    listener->has_peer = false;
     return (int64_t)listener;
 }
 
@@ -606,6 +624,24 @@ static int64_t linux_socket_recv(int64_t internal, void *buf, int64_t capacity) 
     ssize_t n = recv(sock->fd, buf, (size_t)capacity, 0);
     if (n < 0) return -1;
     return (int64_t)n;
+}
+
+static int64_t linux_listener_send(int64_t internal, const void *buf, int64_t length) {
+    linux_listener_t *listener = (linux_listener_t *)internal;
+    if (!listener || !buf || length <= 0 || !listener->has_peer) return -1;
+    ssize_t n = sendto(listener->fd, buf, (size_t)length, 0,
+                       (const struct sockaddr *)&listener->peer, listener->peer_len);
+    return n < 0 ? -1 : (int64_t)n;
+}
+
+static int64_t linux_listener_recv(int64_t internal, void *buf, int64_t capacity) {
+    linux_listener_t *listener = (linux_listener_t *)internal;
+    if (!listener || !buf || capacity <= 0) return -1;
+    listener->peer_len = sizeof(listener->peer);
+    ssize_t n = recvfrom(listener->fd, buf, (size_t)capacity, 0,
+                         (struct sockaddr *)&listener->peer, &listener->peer_len);
+    if (n >= 0) listener->has_peer = true;
+    return n < 0 ? -1 : (int64_t)n;
 }
 
 static void linux_socket_close(int64_t internal) {
@@ -665,6 +701,56 @@ static void linux_channel_close(int64_t internal) {
 }
 
 // ── Crypto ──────────────────────────────────────────────────
+
+pal_error_code_t pal_crypto_sha256(const unsigned char *input, size_t len,
+                                   unsigned char *output) {
+    if (!input || !output || sodium_init() < 0) return PAL_ERR_INVALID;
+    return crypto_hash_sha256(output, input, (unsigned long long)len) == 0
+        ? PAL_ERR_OK : PAL_ERR_IO;
+}
+
+pal_error_code_t pal_crypto_sha512(const unsigned char *input, size_t len,
+                                   unsigned char *output) {
+    if (!input || !output || sodium_init() < 0) return PAL_ERR_INVALID;
+    return crypto_hash_sha512(output, input, (unsigned long long)len) == 0
+        ? PAL_ERR_OK : PAL_ERR_IO;
+}
+
+pal_error_code_t pal_crypto_random_bytes(void *buf, size_t len) {
+    if (!buf) return PAL_ERR_INVALID;
+    if (sodium_init() < 0) return PAL_ERR_IO;
+    randombytes_buf(buf, len);
+    return PAL_ERR_OK;
+}
+
+pal_error_code_t pal_crypto_ed25519_keypair(unsigned char *public_key,
+                                            unsigned char *secret_key) {
+    if (!public_key || !secret_key || sodium_init() < 0) return PAL_ERR_INVALID;
+    return crypto_sign_keypair(public_key, secret_key) == 0 ? PAL_ERR_OK : PAL_ERR_IO;
+}
+
+pal_error_code_t pal_crypto_ed25519_sign(unsigned char *signature,
+                                         const unsigned char *msg,
+                                         unsigned long long msg_len,
+                                         const unsigned char *secret_key) {
+    unsigned long long signature_len = 0;
+    if (!signature || (!msg && msg_len != 0) || !secret_key || sodium_init() < 0)
+        return PAL_ERR_INVALID;
+    return crypto_sign_detached(signature, &signature_len, msg, msg_len, secret_key) == 0 &&
+            signature_len == PAL_CRYPTO_ED25519_BYTES ? PAL_ERR_OK : PAL_ERR_IO;
+}
+
+pal_error_code_t pal_crypto_ed25519_verify(const unsigned char *msg,
+                                           unsigned long long msg_len,
+                                           const unsigned char *signature,
+                                           unsigned long long sig_len,
+                                           const unsigned char *public_key) {
+    if ((!msg && msg_len != 0) || !signature || sig_len != PAL_CRYPTO_ED25519_BYTES ||
+        !public_key || sodium_init() < 0)
+        return PAL_ERR_INVALID;
+    return crypto_sign_verify_detached(signature, msg, msg_len, public_key) == 0
+        ? PAL_ERR_OK : PAL_ERR_PERMISSION;
+}
 
 static int64_t linux_secret_create(pal_crypto_algorithm_t algorithm) {
     if (algorithm != PAL_CRYPTO_ED25519 || sodium_init() < 0) return -1;
@@ -788,6 +874,34 @@ static bool linux_random_fill(void *buf, int64_t length) {
 }
 
 /* ─── Path / filesystem utility functions (PAL_ALLOW_UNSANDBOXED) ─── */
+
+static bool linux_fs_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+static bool linux_fs_mkdir(const char *path) {
+    return mkdir(path, 0755) == 0;
+}
+
+static bool linux_fs_rmdir(const char *path) {
+    return rmdir(path) == 0;
+}
+
+static bool linux_fs_chmod(const char *path, const char *mode) {
+    return chmod(path, strtol(mode, NULL, 8)) == 0;
+}
+
+static bool linux_fs_unlink(const char *path) {
+    return unlink(path) == 0;
+}
+
+static bool linux_fs_remove(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return false;
+    if (S_ISDIR(st.st_mode)) return rmdir(path) == 0;
+    return unlink(path) == 0;
+}
 
 static const char *linux_fs_ext(const char *path) {
     const char *dot = strrchr(path, '.');
@@ -1005,6 +1119,8 @@ static const pal_ops_t linux_ops = {
     .listener_accept = linux_listener_accept,
     .socket_send = linux_socket_send,
     .socket_recv = linux_socket_recv,
+    .listener_send = linux_listener_send,
+    .listener_recv = linux_listener_recv,
     .socket_close = linux_socket_close,
     .listener_close = linux_listener_close,
     .channel_create = linux_channel_create,
@@ -1024,12 +1140,18 @@ static const pal_ops_t linux_ops = {
     .mem_available = linux_mem_available,
     .mem_process = linux_mem_process,
     .random_fill = linux_random_fill,
+    .fs_exists = linux_fs_exists,
+    .fs_mkdir = linux_fs_mkdir,
+    .fs_rmdir = linux_fs_rmdir,
+    .fs_unlink = linux_fs_unlink,
+    .fs_remove = linux_fs_remove,
     .fs_ext = linux_fs_ext,
     .fs_dir = linux_fs_dir,
     .fs_name = linux_fs_name,
     .fs_is_file = linux_fs_is_file,
     .fs_copy = linux_fs_copy,
     .fs_move = linux_fs_move,
+    .fs_chmod = linux_fs_chmod,
     .cpu_time_ms = linux_cpu_time_ms,
     .cpu_snapshot = linux_cpu_snapshot,
     .mem_format = linux_mem_format,

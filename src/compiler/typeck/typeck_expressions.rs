@@ -604,7 +604,13 @@ impl TypeChecker {
             }
         }
 
-        let has_default = !matches!(default, Expression::Literal { lit: Literal::None, .. });
+        let has_default = !matches!(
+            default,
+            Expression::Literal {
+                lit: Literal::None,
+                ..
+            }
+        );
         if has_default {
             return Ok(());
         }
@@ -633,10 +639,7 @@ impl TypeChecker {
     /// namespaced target name. `method` is the bare method name (no receiver).
     /// Type-directed: the element/value type selects the `::i64`/`:str` variant
     /// of overloaded stdlib functions (e.g. `vec::contains::i64`).
-    pub(super) fn builtin_method_target(
-        receiver: &DataType,
-        method: &str,
-    ) -> Option<String> {
+    pub(super) fn builtin_method_target(receiver: &DataType, method: &str) -> Option<String> {
         let receiver = match receiver {
             DataType::Ref { inner } | DataType::RefMut { inner } => inner.as_ref(),
             other => other,
@@ -684,28 +687,42 @@ impl TypeChecker {
                 };
                 Some(name)
             }
-            DataType::Str => Some(match method {
-                "len" => "str.len",
-                "contains" => "str.contains",
-                "index" => "str.index",
-                "replace" => "str.replace",
-                "replace_first" => "str.replace.first",
-                "starts_with" => "str.starts.with",
-                "ends_with" => "str.ends.with",
-                "trim" => "str.trim",
-                "strip" => "str.strip",
-                "to_upper" => "str.upper",
-                "to_lower" => "str.lower",
-                "pad_left" => "str.pad.left",
-                "pad_right" => "str.pad.right",
-                "split" => "str.split",
-                "substr" => "str.substr",
-                "repeat" => "str.repeat",
-                "copy" => "str.copy",
-                "is_empty" => "str.is.empty",
-                "concat" => "str.concat",
-                _ => return None,
-            }.to_string()),
+            DataType::Str => Some(
+                match method {
+                    "len" => "str.len",
+                    "contains" => "str.contains",
+                    "index" => "str.index",
+                    "replace" => "str.replace",
+                    "replace_first" => "str.replace.first",
+                    "starts_with" => "str.starts.with",
+                    "ends_with" => "str.ends.with",
+                    "trim" => "str.trim",
+                    "strip" => "str.strip",
+                    "to_upper" => "str.upper",
+                    "to_lower" => "str.lower",
+                    "pad_left" => "str.pad.left",
+                    "pad_right" => "str.pad.right",
+                    "split" => "str.split",
+                    "substr" => "str.substr",
+                    "repeat" => "str.repeat",
+                    "copy" => "str.copy",
+                    "is_empty" => "str.is.empty",
+                    "concat" => "str.concat",
+                    _ => return None,
+                }
+                .to_string(),
+            ),
+            DataType::Maybe { inner } => {
+                let e = type_suffix(inner);
+                let name = match method {
+                    "is_some" => return Some("maybe.is_some".to_string()),
+                    "is_none" => return Some("maybe.is_none".to_string()),
+                    "unwrap" => format!("maybe.unwrap.{e}"),
+                    "unwrap_or" => format!("maybe.unwrap_or.{e}"),
+                    _ => return None,
+                };
+                Some(name)
+            }
             _ => None,
         }
     }
@@ -713,7 +730,12 @@ impl TypeChecker {
 
 fn type_suffix(t: &DataType) -> &'static str {
     match t {
-        DataType::I64 | DataType::I32 | DataType::I16 | DataType::I8 | DataType::U64 | DataType::U32 => "i64",
+        DataType::I64
+        | DataType::I32
+        | DataType::I16
+        | DataType::I8
+        | DataType::U64
+        | DataType::U32 => "i64",
         DataType::Str => "str",
         DataType::Bool => "bool",
         DataType::F64 => "f64",

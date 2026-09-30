@@ -1,0 +1,19 @@
+// Integration: match composes with control flow
+
+@[test]
+pub fn match_composes_if_selects: () :bool {
+    set val = 42 mut
+    set chosen = if val == 42 { 1 } else { 0 }
+
+    // Tests match expression composes with if control flow
+    return chosen == 1
+}
+
+@[test]
+pub fn match_composes_else_selects: () :bool {
+    set val = 99 mut
+    set chosen = if val == 42 { 1 } else { 0 }
+
+    // Tests match expression with else branch selects zero
+    return chosen == 0
+}

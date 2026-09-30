@@ -84,12 +84,30 @@ fn not_assignable_with_loss() {
 #[test]
 fn promote_numeric_keeps_widest() {
     use crate::types::unify::promote_numeric;
-    assert_eq!(promote_numeric(&DataType::I8, &DataType::I64), DataType::I64);
-    assert_eq!(promote_numeric(&DataType::U8, &DataType::U32), DataType::U32);
-    assert_eq!(promote_numeric(&DataType::F32, &DataType::I64), DataType::F32);
-    assert_eq!(promote_numeric(&DataType::I32, &DataType::F64), DataType::F64);
-    assert_eq!(promote_numeric(&DataType::F64, &DataType::F32), DataType::F64);
-    assert_eq!(promote_numeric(&DataType::I128, &DataType::I32), DataType::I128);
+    assert_eq!(
+        promote_numeric(&DataType::I8, &DataType::I64),
+        DataType::I64
+    );
+    assert_eq!(
+        promote_numeric(&DataType::U8, &DataType::U32),
+        DataType::U32
+    );
+    assert_eq!(
+        promote_numeric(&DataType::F32, &DataType::I64),
+        DataType::F32
+    );
+    assert_eq!(
+        promote_numeric(&DataType::I32, &DataType::F64),
+        DataType::F64
+    );
+    assert_eq!(
+        promote_numeric(&DataType::F64, &DataType::F32),
+        DataType::F64
+    );
+    assert_eq!(
+        promote_numeric(&DataType::I128, &DataType::I32),
+        DataType::I128
+    );
 }
 
 #[test]
@@ -104,4 +122,52 @@ fn unify_distinct_numerics_promotes_without_error() {
         unify_types(&DataType::F32, &DataType::I64).unwrap(),
         DataType::F32
     );
+}
+
+/// Regression: `i64 == str` used to typecheck and then reach codegen as an
+/// `inttoptr` + `strcmp`, dereferencing an integer as a string pointer (SIGSEGV).
+/// Comparisons must require both operands to be of the same class.
+#[test]
+fn comparison_rejects_incompatible_operands() {
+    use crate::types::unify::resolve_binary_type;
+    for op in ["==", "!=", "<", "<=", ">", ">="] {
+        assert!(
+            resolve_binary_type(op, &DataType::I64, &DataType::Str).is_err(),
+            "{op} must reject i64 vs str"
+        );
+        assert!(
+            resolve_binary_type(op, &DataType::Str, &DataType::I64).is_err(),
+            "{op} must reject str vs i64"
+        );
+        // `dasu` and friends are typed None (void) — they carry no value.
+        assert!(
+            resolve_binary_type(op, &DataType::None, &DataType::Str).is_err(),
+            "{op} must reject void vs str"
+        );
+        assert!(
+            resolve_binary_type(op, &DataType::Bool, &DataType::I64).is_err(),
+            "{op} must reject bool vs i64"
+        );
+    }
+}
+
+#[test]
+fn comparison_still_accepts_same_class_operands() {
+    use crate::types::unify::resolve_binary_type;
+    let ok = [
+        (DataType::I64, DataType::I64),
+        (DataType::I64, DataType::F64),
+        (DataType::Str, DataType::Str),
+        (DataType::Bool, DataType::Bool),
+        (DataType::Str, DataType::Unknown),
+        (DataType::Anything, DataType::Str),
+        (DataType::Unknown, DataType::I64),
+    ];
+    for (left, right) in ok {
+        assert_eq!(
+            resolve_binary_type("==", &left, &right).unwrap(),
+            DataType::Bool,
+            "== must accept {left:?} vs {right:?}"
+        );
+    }
 }

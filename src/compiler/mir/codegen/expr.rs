@@ -1,7 +1,7 @@
 use super::builtins::{builtin_to_pal, compile_pal_builtin};
 use super::resolve::{coerce_to, coerce_to_bool, resolve_named_call, resolve_typed};
 use super::types::{llvm_type_str, render_struct_llvm_type};
-use super::{const_str, sanitize_fn_name, LlvmCtx, tmp_extra, tmp_result};
+use super::{LlvmCtx, sanitize_fn_name, tmp_extra, tmp_result};
 use crate::compiler::mir::{DataType, MirCmp, MirConst, MirInst, MirOp, MirValue};
 
 /// Resolves the common floating-point result type for a binary operation.
@@ -23,7 +23,6 @@ fn float_result_ty(lt: &str, rt: &str) -> Option<&'static str> {
 
 pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
     let mut extra = Vec::new();
-    let mut after = Vec::new();
     let line = match &inst.op {
         MirOp::Alloca(ty) => {
             let llty = llvm_type_str(&ty.data_type);
@@ -43,44 +42,36 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let result = tmp_result(ctx, &llty, inst.result);
             format!("%t{} = load {}, ptr {}", result, llty, src_s)
         }
-        MirOp::Store(dst, src) => {
-            match src {
-                MirValue::FunctionRef { name, env } => {
-                    let (dst_s, _) = resolve_typed(dst, ctx);
-                    let fn_name = format!("@fn_{}", sanitize_fn_name(name));
-                    let (env_str, env_ty) = resolve_typed(env, ctx);
-                    let fn_gep = tmp_extra(ctx, "ptr");
-                    let env_gep = tmp_extra(ctx, "ptr");
-                    extra.push(format!("{fn_gep} = getelementptr {{ ptr, ptr }}, ptr {dst_s}, i32 0, i32 0"));
-                    extra.push(format!("{env_gep} = getelementptr {{ ptr, ptr }}, ptr {dst_s}, i32 0, i32 1"));
-                    extra.push(format!("store ptr {fn_name}, ptr {fn_gep}"));
-                    let env_casted = if env_ty != "ptr" {
-                        let tmp = tmp_extra(ctx, "ptr");
-                        extra.push(format!("{tmp} = inttoptr {env_ty} {env_str} to ptr"));
-                        tmp
-                    } else {
-                        env_str
-                    };
-                    extra.push(format!("store ptr {env_casted}, ptr {env_gep}"));
-                    String::new()
-                }
-                _ => {
-                    let (src_s, src_ty) = resolve_typed(src, ctx);
-                    let (dst_s, _) = resolve_typed(dst, ctx);
-                    if src_ty == "ptr" && !matches!(dst, MirValue::Global(_)) {
-                        let old_ptr = tmp_extra(ctx, "ptr");
-                        extra.push(format!("{} = load ptr, ptr {}", old_ptr, dst_s));
-                        extra.push(format!("call void @rt_managed_free(ptr {})", old_ptr));
-                    }
-                    if src_ty == "ptr"
-                        && let MirValue::Temp(s_id) = src
-                    {
-                        ctx.owned_string_temps.remove(s_id);
-                    }
-                    format!("store {} {}, ptr {}", src_ty, src_s, dst_s)
-                }
+        MirOp::Store(dst, src) => match src {
+            MirValue::FunctionRef { name, env } => {
+                let (dst_s, _) = resolve_typed(dst, ctx);
+                let fn_name = format!("@fn_{}", sanitize_fn_name(name));
+                let (env_str, env_ty) = resolve_typed(env, ctx);
+                let fn_gep = tmp_extra(ctx, "ptr");
+                let env_gep = tmp_extra(ctx, "ptr");
+                extra.push(format!(
+                    "{fn_gep} = getelementptr {{ ptr, ptr }}, ptr {dst_s}, i32 0, i32 0"
+                ));
+                extra.push(format!(
+                    "{env_gep} = getelementptr {{ ptr, ptr }}, ptr {dst_s}, i32 0, i32 1"
+                ));
+                extra.push(format!("store ptr {fn_name}, ptr {fn_gep}"));
+                let env_casted = if env_ty != "ptr" {
+                    let tmp = tmp_extra(ctx, "ptr");
+                    extra.push(format!("{tmp} = inttoptr {env_ty} {env_str} to ptr"));
+                    tmp
+                } else {
+                    env_str
+                };
+                extra.push(format!("store ptr {env_casted}, ptr {env_gep}"));
+                String::new()
             }
-        }
+            _ => {
+                let (src_s, src_ty) = resolve_typed(src, ctx);
+                let (dst_s, _) = resolve_typed(dst, ctx);
+                format!("store {} {}, ptr {}", src_ty, src_s, dst_s)
+            }
+        },
         MirOp::Add(l, r) => {
             let (l_str, lt) = resolve_typed(l, ctx);
             let (r_str, rt) = resolve_typed(r, ctx);
@@ -101,24 +92,19 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 } else {
                     r_str.clone()
                 };
-                // Free owned operand temps AFTER the concat call (must be alive when concat reads them)
-                if let MirValue::Temp(l_id) = l
-                    && ctx.owned_string_temps.remove(l_id)
-                {
-                    after.push(format!("call void @rt_managed_free(ptr {})", l_str));
-                }
-                if let MirValue::Temp(r_id) = r
-                    && ctx.owned_string_temps.remove(r_id)
-                {
-                    after.push(format!("call void @rt_managed_free(ptr {})", r_str));
-                }
-                if let Some(id) = inst.result {
-                    ctx.owned_string_temps.insert(id);
-                }
-                format!(
+                // Emit the concat call
+                let concat_call = format!(
                     "%t{} = call ptr @rt_string_concat(ptr {}, ptr {})",
                     result, lhs, rhs
-                )
+                );
+                // If left operand is a temporary, it's likely an intermediate in a concat chain
+                // and can be freed after use
+                let free_lhs = if lt == "ptr" && l_str.starts_with('%') {
+                    format!("\n  call void @rt_managed_free(ptr {})", lhs)
+                } else {
+                    String::new()
+                };
+                format!("{}{}", concat_call, free_lhs)
             } else {
                 let ty = float_result_ty(&lt, &rt).unwrap_or("i64");
                 let result = tmp_result(ctx, ty, inst.result);
@@ -171,13 +157,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             if is_float {
                 format!("%t{} = fdiv double {}, {}", result, l_final, r_final)
             } else {
-                let line = inst.loc.0 as i64;
-                let col = inst.loc.1 as i64;
-                let file = const_str(&MirConst::Str(ctx.source_filename.clone()), ctx);
-                format!(
-                    "%t{} = call i64 @rt_div_i64(i64 {}, i64 {}, i64 {}, i64 {}, ptr {})",
-                    result, l_final, r_final, line, col, file
-                )
+                format!("%t{} = sdiv i64 {}, {}", result, l_final, r_final)
             }
         }
         MirOp::SRem(l, r) => {
@@ -191,14 +171,35 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             if is_float {
                 format!("%t{} = frem double {}, {}", result, l_final, r_final)
             } else {
-                let line = inst.loc.0 as i64;
-                let col = inst.loc.1 as i64;
-                let file = const_str(&MirConst::Str(ctx.source_filename.clone()), ctx);
-                format!(
-                    "%t{} = call i64 @rt_rem_i64(i64 {}, i64 {}, i64 {}, i64 {}, ptr {})",
-                    result, l_final, r_final, line, col, file
-                )
+                format!("%t{} = srem i64 {}, {}", result, l_final, r_final)
             }
+        }
+        MirOp::Concat(vals) => {
+            let result = tmp_result(ctx, "ptr", inst.result);
+            // Build array of pointers for rt_string_concat_n
+            let array_ptr = tmp_extra(ctx, "ptr");
+            let array_type = format!("[{} x ptr]", vals.len());
+            extra.push(format!("{} = alloca {}, align 8", array_ptr, array_type));
+            for (i, val) in vals.iter().enumerate() {
+                let (v_str, v_ty) = resolve_typed(val, ctx);
+                let elem_ptr = tmp_extra(ctx, "ptr");
+                extra.push(format!(
+                    "{} = getelementptr inbounds {}, ptr {}, i32 0, i64 {}",
+                    elem_ptr, array_type, array_ptr, i
+                ));
+                if v_ty != "ptr" {
+                    let conv = tmp_extra(ctx, "i64");
+                    extra.push(format!("{} = inttoptr i64 {} to ptr", conv, v_str));
+                    extra.push(format!("store ptr {}, ptr {}", conv, elem_ptr));
+                } else {
+                    extra.push(format!("store ptr {}, ptr {}", v_str, elem_ptr));
+                }
+            }
+            let count = vals.len();
+            format!(
+                "%t{} = call ptr @rt_string_concat_n(i64 {}, ptr {})",
+                result, count, array_ptr
+            )
         }
         MirOp::Shl(l, r) => {
             let (l, _lt) = resolve_typed(l, ctx);
@@ -436,10 +437,25 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     }
                 };
                 let result = tmp_result(ctx, "ptr", inst.result);
+                // Order matters here, and it is the opposite of what the `extra`
+                // convention suggests. compile_inst emits everything in `extra`
+                // *before* the line this arm returns, because `extra` normally
+                // holds setup (allocas, coercions) that the operation depends on.
+                // A flush is not setup, it is the last step: flushing first would
+                // push the *previous* line out and leave this one sitting in the
+                // buffer. So the printf, the dummy result and the flush all go
+                // into `extra`, in that order, and the returned line is empty.
+                //
+                // The bug this fixes is only visible when stdout is not a
+                // terminal. dasu() writing into a fully buffered stdout while
+                // stderr stays unbuffered meant a program alternating the two
+                // had its stdout output arrive after the stderr that followed it,
+                // and stdout was not pushed out at all until exit.
+                extra.push(line);
                 extra.push(format!("%t{} = inttoptr i64 0 to ptr", result));
                 extra.push("call i32 @fflush(ptr null)".to_string());
-                line
                 // result is the ptr returned by dasu (dummy null pointer)
+                String::new()
             } else if name_opt == Some("ireru") {
                 let prompt_ptr = if args.is_empty() {
                     "null".to_string()
@@ -448,8 +464,12 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                     v
                 };
                 let result = tmp_result(ctx, "ptr", inst.result);
+                // Same ordering fix as dasu: write the prompt first, then flush,
+                // otherwise the prompt is still sitting in the buffer when the
+                // flush runs and the reader sees nothing.
+                extra.push(format!("%t{} = call ptr @ireru(ptr {})", result, prompt_ptr));
                 extra.push("call i32 @fflush(ptr null)".to_string());
-                format!("%t{} = call ptr @ireru(ptr {})", result, prompt_ptr)
+                String::new()
             } else if name_opt == Some("env_args") {
                 // env_args() builtin — delegate to runtime
                 let result = tmp_result(ctx, "ptr", inst.result);
@@ -472,7 +492,10 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                             let (env_str, env_ty) = resolve_typed(env, ctx);
                             let env_cast = if env_ty != "ptr" {
                                 let tmp = tmp_extra(ctx, "ptr");
-                                extra.push(format!("{} = inttoptr {} {} to ptr", tmp, env_ty, env_str));
+                                extra.push(format!(
+                                    "{} = inttoptr {} {} to ptr",
+                                    tmp, env_ty, env_str
+                                ));
                                 tmp
                             } else {
                                 env_str
@@ -487,8 +510,12 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                             if ty == "{ ptr, ptr }" {
                                 let fn_ptr = tmp_extra(ctx, "ptr");
                                 let env_ptr = tmp_extra(ctx, "ptr");
-                                extra.push(format!("{fn_ptr} = extractvalue {{ ptr, ptr }} {val}, 0"));
-                                extra.push(format!("{env_ptr} = extractvalue {{ ptr, ptr }} {val}, 1"));
+                                extra.push(format!(
+                                    "{fn_ptr} = extractvalue {{ ptr, ptr }} {val}, 0"
+                                ));
+                                extra.push(format!(
+                                    "{env_ptr} = extractvalue {{ ptr, ptr }} {val}, 1"
+                                ));
                                 format!(
                                     "%t{} = call i64 @rt_thread_spawn_closure(ptr {}, ptr {})",
                                     result, fn_ptr, env_ptr
@@ -649,13 +676,18 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                         )
                     }
                     MirValue::Temp(callee_id) => {
-                        let (callee_val, callee_ty) = resolve_typed(&MirValue::Temp(*callee_id), ctx);
+                        let (callee_val, callee_ty) =
+                            resolve_typed(&MirValue::Temp(*callee_id), ctx);
                         if callee_ty == "{ ptr, ptr }" {
                             // Loaded closure value — extract fn_ptr + env_ptr via extractvalue
                             let fn_ptr = tmp_extra(ctx, "ptr");
                             let env_ptr = tmp_extra(ctx, "ptr");
-                            extra.push(format!("{fn_ptr} = extractvalue {{ ptr, ptr }} {callee_val}, 0"));
-                            extra.push(format!("{env_ptr} = extractvalue {{ ptr, ptr }} {callee_val}, 1"));
+                            extra.push(format!(
+                                "{fn_ptr} = extractvalue {{ ptr, ptr }} {callee_val}, 0"
+                            ));
+                            extra.push(format!(
+                                "{env_ptr} = extractvalue {{ ptr, ptr }} {callee_val}, 1"
+                            ));
                             let mut param_tys: Vec<String> = vec!["ptr".to_string()];
                             arg_strs.insert(0, format!("ptr {env_ptr}"));
                             for a in args {
@@ -669,7 +701,10 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                                 format!("call void {}({})", fn_cast, arg_strs.join(", "))
                             } else {
                                 let r = tmp_result(ctx, &ll_ret, inst.result);
-                                format!("%t{r} = call {ll_ret} {fn_cast}({args_str})", args_str = arg_strs.join(", "))
+                                format!(
+                                    "%t{r} = call {ll_ret} {fn_cast}({args_str})",
+                                    args_str = arg_strs.join(", ")
+                                )
                             }
                         } else {
                             // Alloca pointer — GEP into { ptr, ptr } struct to load fn_ptr + env_ptr
@@ -702,10 +737,16 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                                 "{fn_cast} = bitcast ptr {fn_ptr_loaded} to {fn_sig}"
                             ));
                             if is_void {
-                                format!("call void {fn_cast}({args_str})", args_str = arg_strs.join(", "))
+                                format!(
+                                    "call void {fn_cast}({args_str})",
+                                    args_str = arg_strs.join(", ")
+                                )
                             } else {
                                 let r = tmp_result(ctx, &ll_ret, inst.result);
-                                format!("%t{r} = call {ll_ret} {fn_cast}({args_str})", args_str = arg_strs.join(", "))
+                                format!(
+                                    "%t{r} = call {ll_ret} {fn_cast}({args_str})",
+                                    args_str = arg_strs.join(", ")
+                                )
                             }
                         }
                     }
@@ -833,6 +874,32 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
             let result = tmp_result(ctx, &dst_t, inst.result);
             format!("%t{} = bitcast {} {} to {}", result, src_t, v, dst_t)
         }
+        MirOp::ExtractValue(agg, val, indices) => {
+            let (a, at) = resolve_typed(agg, ctx);
+            let (_v, _) = resolve_typed(val, ctx);
+            // indices is a vec of field indices
+            let idx_str = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let result = tmp_result(ctx, &at, inst.result);
+            format!("%t{} = extractvalue {} {}, {}", result, at, a, idx_str)
+        }
+        MirOp::InsertValue(agg, val, indices) => {
+            let (a, at) = resolve_typed(agg, ctx);
+            let (v, vt) = resolve_typed(val, ctx);
+            let idx_str = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let result = tmp_result(ctx, &at, inst.result);
+            format!(
+                "%t{} = insertvalue {} {}, {} {}, {}",
+                result, at, a, vt, v, idx_str
+            )
+        }
         MirOp::Select(cond, t, f) => {
             let (c, _) = resolve_typed(cond, ctx);
             let (tv, tt) = resolve_typed(t, ctx);
@@ -843,23 +910,21 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> Vec<String> {
                 result, c, tt, tv, ft, fv
             )
         }
-        MirOp::Phi(pairs, ty) => {
-            let ll_ty = llvm_type_str(&ty.data_type);
-            let result = tmp_result(ctx, &ll_ty, inst.result);
-            let incoming: Vec<String> = pairs
-                .iter()
-                .map(|(val, block_id)| {
-                    let (v, t) = resolve_typed(val, ctx);
-                    let coerced = coerce_to(&v, &t, &ll_ty, ctx, &mut extra);
-                    format!("[{} %bb_{}]", coerced, block_id)
-                })
-                .collect();
-            format!("%t{} = phi {} {}", result, ll_ty, incoming.join(", "))
+        MirOp::Drop(val) => {
+            // Materialize the Drop: tier-aware lowering
+            let (v, t) = resolve_typed(val, ctx);
+            if t == "ptr" {
+                // String/vec/map/closure — needs runtime free in minimal, no-op in full, free in none
+                format!("call void @rt_managed_free(ptr {})", v)
+            } else {
+                // Primitive types (i64, f64, bool, etc.) — no runtime action needed
+                String::new()
+            }
         }
+        MirOp::Phi(_, _) => String::new(),
     };
-    let mut result = Vec::with_capacity(extra.len() + 1 + after.len());
+    let mut result = Vec::with_capacity(extra.len() + 1);
     result.extend(extra);
     result.push(line);
-    result.extend(after);
     result
 }

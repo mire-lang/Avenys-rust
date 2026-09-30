@@ -1,7 +1,0 @@
-pub fn from_nested: () :str {
-    return "nested_ok"
-}
-
-pub fn deep_value: () :i64 {
-    return 42
-}

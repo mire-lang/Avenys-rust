@@ -2,11 +2,12 @@ use super::*;
 use crate::canonical_fn_name;
 use std::collections::{HashMap, HashSet};
 
-use self::builtins::pal_extern_decls;
 use self::expr::compile_inst;
 use self::resolve::resolve_typed;
 use self::types::llvm_type_str;
 use self::wrapper::{collect_used_extern_wrappers, generate_extern_wrapper};
+
+use crate::avens::{collect_used_symbols, filter_pal_decls};
 
 pub(crate) mod builtins;
 pub(crate) mod expr;
@@ -30,17 +31,17 @@ pub(crate) struct LlvmCtx<'a> {
     /// Maps extern function name -> its mire-wrapper LLVM name (e.g. "abs" -> "@fn_abs_wrapper").
     extern_wrapper_names: HashMap<String, String>,
     struct_types: &'a HashMap<String, Vec<(String, DataType)>>,
-    /// Temp IDs that own heap-allocated strings (results of rt_string_concat, pal calls, etc.).
-    /// Freed when consumed by another concat or stored to a variable.
-    pub(crate) owned_string_temps: HashSet<usize>,
-    pub(crate) source_filename: String,
+    pub(crate) _source_filename: String,
 }
 
 pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
     mir_to_llvm_with_filename(program, "")
 }
 
-pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) -> (String, Vec<(String, String)>) {
+pub fn mir_to_llvm_with_filename(
+    program: &MirProgram,
+    source_filename: &str,
+) -> (String, Vec<(String, String)>) {
     let mut extern_decls = Vec::new();
     let mut declared = std::collections::HashSet::new();
     for ext in &program.extern_functions {
@@ -88,8 +89,7 @@ pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) ->
         extern_fn_names,
         extern_wrapper_names,
         struct_types: &program.struct_types,
-        owned_string_temps: HashSet::new(),
-        source_filename: source_filename.to_string(),
+        _source_filename: source_filename.to_string(),
     };
     for func in &program.functions {
         let func_ir = compile_function_to_llvm(func, &mut ctx);
@@ -109,17 +109,28 @@ pub fn mir_to_llvm_with_filename(program: &MirProgram, source_filename: &str) ->
     let strings = ctx.strings;
 
     let mut out = Vec::new();
-    out.push("target triple = \"x86_64-unknown-linux-gnu\"".to_string());
+    let target_triple = crate::avens::build_support::c_defs()
+        .target
+        .clone()
+        .unwrap_or_else(|| "x86_64-unknown-linux-gnu".to_string());
+    out.push(format!("target triple = \"{}\"", target_triple));
     out.push(String::new());
     out.extend(extern_decls);
-    out.extend(pal_extern_decls());
+    // Unified dependency collector: scan IR for used symbols, emit only needed declarations.
+    // In `full` mode we still emit everything for backward-compatibility.
+    let used = collect_used_symbols(&out.join("\n"));
+    let runtime_tier = crate::avens::build_support::c_defs().runtime;
+    out.extend(filter_pal_decls(&used.pal, runtime_tier));
     out.push(String::new());
     for (name, ty) in &program.globals {
-        out.push(format!("@{} = global {} zeroinitializer", name, llvm_type_str(ty)));
+        out.push(format!(
+            "@{} = global {} zeroinitializer",
+            name,
+            llvm_type_str(ty)
+        ));
     }
     out.push(String::new());
     out.extend(strings);
-    out.push(String::new());
     out.extend(function_irs);
 
     (out.join("\n"), program.extern_libs.clone())
@@ -141,10 +152,13 @@ fn sanitize_fn_name(name: &str) -> String {
 
 pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) -> String {
     let llvm_name = format!("@fn_{}", sanitize_fn_name(&func.name));
-    let ret_type = llvm_type_str(&func.ret_type);
+    let ret_type = if matches!(func.ret_type, DataType::None) {
+        "void".to_string()
+    } else {
+        llvm_type_str(&func.ret_type)
+    };
     let saved_vars = std::mem::take(&mut ctx.vars);
     let saved_temp_types = std::mem::take(&mut ctx.temp_types);
-    let saved_owned_string_temps = std::mem::take(&mut ctx.owned_string_temps);
     let saved_next_tmp = ctx.next_tmp;
     let saved_next_extra = ctx.next_extra;
 
@@ -171,13 +185,36 @@ pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) ->
         noinline_attr
     ));
 
+    // LLVM re-executes `alloca` at runtime, so allocas inside loops allocate
+    // stack every iteration and are never freed until the function returns.
+    // Hoist every alloca to the entry block so loop-local locals allocate once.
+    let mut hoisted_allocas: Vec<String> = Vec::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if matches!(inst.op, MirOp::Alloca(_)) {
+                for line in compile_inst(inst, ctx) {
+                    if !line.is_empty() {
+                        hoisted_allocas.push(format!("  {}", line));
+                    }
+                }
+            }
+        }
+    }
+
     for block in &func.blocks {
         if block.id > 0 {
             parts.push(String::new());
         }
         parts.push(format!("bb_{}:", block.id));
 
+        if block.id == 0 {
+            parts.extend(hoisted_allocas.iter().cloned());
+        }
+
         for inst in &block.insts {
+            if matches!(inst.op, MirOp::Alloca(_)) {
+                continue;
+            }
             for line in compile_inst(inst, ctx) {
                 if !line.is_empty() {
                     parts.push(format!("  {}", line));
@@ -202,7 +239,6 @@ pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) ->
     parts.push("}".to_string());
     ctx.vars = saved_vars;
     ctx.temp_types = saved_temp_types;
-    ctx.owned_string_temps = saved_owned_string_temps;
     ctx.next_tmp = saved_next_tmp;
     ctx.next_extra = saved_next_extra;
     ctx.param_types.clear();
@@ -250,7 +286,13 @@ fn const_str(c: &MirConst, ctx: &mut LlvmCtx) -> String {
                     '"' => "\\22".chars().collect(),
                     '\0' => "\\00".chars().collect(),
                     c if c.is_ascii_graphic() || c == ' ' => vec![c],
-                    _ => format!("\\{:02X}", c as u8).chars().collect(),
+                    _ => {
+                        let mut buf = [0u8; 4];
+                        c.encode_utf8(&mut buf)
+                            .bytes()
+                            .flat_map(|b| format!("\\{:02X}", b).chars().collect::<Vec<char>>())
+                            .collect()
+                    }
                 })
                 .collect::<String>();
             let len = s.len() + 1;
@@ -261,11 +303,14 @@ fn const_str(c: &MirConst, ctx: &mut LlvmCtx) -> String {
             format!("@.str_{}", id)
         }
         MirConst::None => "0".to_string(),
+        MirConst::Struct { .. } => "zeroinitializer".to_string(),
+        MirConst::Zero { .. } => "zeroinitializer".to_string(),
     }
 }
 
 fn default_return_for_type(ret_type: &str) -> String {
     match ret_type {
+        "void" => "ret void".to_string(),
         "ptr" => "ret ptr null".to_string(),
         "double" => "ret double 0.0".to_string(),
         "float" => "ret float 0.0".to_string(),
@@ -290,7 +335,99 @@ fn compile_terminator(term: &MirTerminator, ctx: &mut LlvmCtx, ret_type: &str) -
             let (v, t) = resolve_typed(val, ctx);
             format!("ret {} {}", t, v)
         }
-        MirTerminator::Ret(None) => default_return_for_type(ret_type),
+        MirTerminator::Ret(None) => "ret void".to_string(),
         MirTerminator::Unreachable => "unreachable".to_string(),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod flush_order_tests {
+    use super::mir_to_llvm;
+    use crate::compiler::mir::{
+        DataType, MirBlock, MirConst, MirFunction, MirInst, MirOp, MirProgram, MirTerminator,
+        MirType, MirValue,
+    };
+    use std::collections::HashMap;
+
+    /// Builds a one-function program whose body is a single call to `name` with
+    /// one i64 constant argument, and returns the generated LLVM IR.
+    fn ir_for_call(name: &str) -> String {
+        let program = MirProgram {
+            functions: vec![MirFunction {
+                name: "main".to_string(),
+                params: Vec::new(),
+                ret_type: DataType::None,
+                body_hash: 0,
+                noinline: false,
+                blocks: vec![MirBlock {
+                    id: 0,
+                    label: "entry".to_string(),
+                    insts: vec![MirInst {
+                        result: Some(0),
+                        op: MirOp::Call(
+                            MirValue::Global(name.to_string()),
+                            vec![MirValue::Const(MirConst::Int(7))],
+                            MirType {
+                                data_type: DataType::I64,
+                            },
+                        ),
+                        loc: (1, 1),
+                    }],
+                    terminator: MirTerminator::Ret(None),
+                }],
+            }],
+            entry_point: Some("main".to_string()),
+            extern_functions: Vec::new(),
+            extern_libs: Vec::new(),
+            struct_types: HashMap::new(),
+            globals: HashMap::new(),
+        };
+        let (ir, _strings) = mir_to_llvm(&program);
+        ir
+    }
+
+    /// Index of the first `needle` in `haystack`.
+    fn at(haystack: &str, needle: &str) -> usize {
+        haystack
+            .find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` missing from the generated IR"))
+    }
+
+    #[test]
+    fn dasu_flushes_after_printing() {
+        let ir = ir_for_call("dasu");
+        let printf = at(&ir, "@printf");
+        let flush = at(&ir, "@fflush");
+        assert!(
+            printf < flush,
+            "dasu must printf before it flushes, otherwise the flush only pushes \
+             out the previous line and this one waits in the buffer.\n{ir}"
+        );
+    }
+
+    #[test]
+    fn ireru_flushes_after_writing_the_prompt() {
+        let ir = ir_for_call("ireru");
+        let prompt = at(&ir, "@ireru");
+        let flush = at(&ir, "@fflush");
+        assert!(
+            prompt < flush,
+            "ireru must write the prompt before it flushes, otherwise the reader \
+             is prompted by a flush that had nothing to send yet.\n{ir}"
+        );
+    }
+
+    #[test]
+    fn dasu_still_emits_exactly_one_flush_per_call() {
+        // The fix moved the flush from the returned line into `extra`, which is
+        // emitted first. A second flush would mean the sequence got emitted twice
+        // rather than reordered.
+        let ir = ir_for_call("dasu");
+        assert_eq!(
+            ir.matches("@fflush").count(),
+            1,
+            "one dasu call must produce one flush:\n{ir}"
+        );
     }
 }

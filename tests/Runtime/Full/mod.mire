@@ -1,0 +1,9 @@
+// Full runtime smoke scenario.
+
+@[test]
+pub fn runtime_value: () :bool {
+    set value = 40 + 2
+    if value != 42 { return false }
+    set transformed = value / 2
+    return transformed == 21
+}

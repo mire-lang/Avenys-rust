@@ -1,0 +1,65 @@
+// Mutable binding mutations: increment, decrement, multiply, divide
+
+@[test]
+pub fn mutation_increment: () :bool {
+    set value = 1 mut
+    set value = value + 1
+
+    // Tests mutable binding increment from 1 to 2
+    return value == 2
+}
+
+@[test]
+pub fn mutation_decrement: () :bool {
+    set value = 4 mut
+    set value = value - 1
+
+    // Tests mutable binding decrement from 4 to 3
+    return value == 3
+}
+
+@[test]
+pub fn mutation_multiply: () :bool {
+    set value = 3 mut
+    set value = value * 2
+
+    // Tests mutable binding multiply from 3 to 6
+    return value == 6
+}
+
+@[test]
+pub fn mutation_divide: () :bool {
+    set value = 8 mut
+    set value = value / 2
+
+    // Tests mutable binding divide from 8 to 4
+    return value == 4
+}
+
+@[test]
+pub fn mutation_boolean_reassign: () :bool {
+    set value = false mut
+    set value = true
+
+    // Tests mutable binding boolean reassignment
+    return value == true
+}
+
+@[test]
+pub fn mutation_string_reassign: () :bool {
+    set value = "old" mut
+    set value = "new"
+
+    // Tests mutable binding string reassignment
+    return value == "new"
+}
+
+@[test]
+pub fn mutation_chained_reassign: () :bool {
+    set value = 0 mut
+    set value = value + 1
+    set value = value + 1
+
+    // Tests two chained mutable reassignment operations
+    return value == 2
+}

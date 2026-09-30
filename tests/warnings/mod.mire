@@ -1,4 +1,0 @@
-pub fn main: () {
-    set _unused = "this triggers W0001"
-    use dasu("ok")
-}

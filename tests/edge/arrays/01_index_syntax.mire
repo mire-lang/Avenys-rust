@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set arr = [0 0 0 0 0 0 0 0 0 0] :arr[i64 10]
-    set v0 = arr at 0
-    set v5 = arr at 5
-    set v9 = arr at 9
-    use dasu("arr[0]={v0} arr[5]={v5} arr[9]={v9}")
-}

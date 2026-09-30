@@ -1,0 +1,79 @@
+// Logical operator cases with explicit bindings
+
+@[test]
+pub fn and_true_true_case: () :bool {
+    set a = true
+    set b = true
+    set result = a && b
+
+    // Tests true && true
+    return result == true
+}
+
+@[test]
+pub fn and_false_true_case: () :bool {
+    set a = false
+    set b = true
+    set result = a && b
+
+    // Tests false && true
+    return result == false
+}
+
+@[test]
+pub fn and_true_false_case: () :bool {
+    set a = true
+    set b = false
+    set result = a && b
+
+    // Tests true && false
+    return result == false
+}
+
+@[test]
+pub fn or_true_false_case: () :bool {
+    set a = true
+    set b = false
+    set result = a || b
+
+    // Tests true || false
+    return result == true
+}
+
+@[test]
+pub fn or_false_true_case: () :bool {
+    set a = false
+    set b = true
+    set result = a || b
+
+    // Tests false || true
+    return result == true
+}
+
+@[test]
+pub fn or_false_false_case: () :bool {
+    set a = false
+    set b = false
+    set result = a || b
+
+    // Tests false || false
+    return result == false
+}
+
+@[test]
+pub fn combined_logic_case: () :bool {
+    set cond1 = 3 > 2
+    set cond2 = 2 < 3
+    set result = cond1 && cond2
+
+    // Tests (3 > 2) && (2 < 3)
+    return result == true
+}
+
+@[test]
+pub fn negated_comparison_case: () :bool {
+    set result = !(3 < 2)
+
+    // Tests !(3 < 2)
+    return result == true
+}

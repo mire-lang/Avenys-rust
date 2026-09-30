@@ -1,7 +1,0 @@
-load kioto
-
-pub fn main: () {
-    for i in range(5) {
-        use dasu("i: {i}")
-    }
-}

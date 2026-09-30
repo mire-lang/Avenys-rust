@@ -1,0 +1,16 @@
+// Enum variants are constructed and matched in one transparent test.
+
+enum State {
+    Ready
+    Done
+}
+
+@[test]
+pub fn state_variant: () :bool {
+    set state = State.Done
+    match state {
+        State.Ready { return false }
+        State.Done { return true }
+    }
+    return false
+}

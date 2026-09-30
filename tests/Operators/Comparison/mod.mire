@@ -1,0 +1,71 @@
+// Comparison operators: equality, inequality, and ordering
+
+@[test]
+pub fn equality_same_values: () :bool {
+    set a = 9
+    set b = 9
+    set is_equal = a == b
+
+    // Tests equality of same values
+    return is_equal == true
+}
+
+@[test]
+pub fn inequality_different_values: () :bool {
+    set a = 9
+    set b = 8
+    set is_neq = a != b
+
+    // Tests inequality of different values
+    return is_neq == true
+}
+
+@[test]
+pub fn less_than_operator: () :bool {
+    set a = 3
+    set b = 4
+    set is_lt = a < b
+
+    // Tests less-than operator
+    return is_lt == true
+}
+
+@[test]
+pub fn greater_than_operator: () :bool {
+    set a = 4
+    set b = 3
+    set is_gt = a > b
+
+    // Tests greater-than operator
+    return is_gt == true
+}
+
+@[test]
+pub fn less_or_equal_operator: () :bool {
+    set a = 4
+    set b = 4
+    set is_le = a <= b
+
+    // Tests less-or-equal operator
+    return is_le == true
+}
+
+@[test]
+pub fn greater_or_equal_operator: () :bool {
+    set a = 4
+    set b = 4
+    set is_ge = a >= b
+
+    // Tests greater-or-equal operator
+    return is_ge == true
+}
+
+@[test]
+pub fn comparison_with_expression: () :bool {
+    set a = 2
+    set b = 2
+    set result = (a + a) >= 4
+
+    // Tests comparison with arithmetic expression
+    return result == true
+}

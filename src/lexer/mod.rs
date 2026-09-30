@@ -595,10 +595,8 @@ impl<'a> Lexer<'a> {
                         Token::new(TokenType::MinusAssign, start_line, start_col)
                     } else if self.peek(0).is_some_and(|ch| ch.is_ascii_digit()) {
                         let num = if self.peek(0) == Some('0')
-                            && matches!(
-                                self.peek(1),
-                                Some('b' | 'B' | 'o' | 'O' | 'x' | 'X')
-                            ) {
+                            && matches!(self.peek(1), Some('b' | 'B' | 'o' | 'O' | 'x' | 'X'))
+                        {
                             self.read_based_integer()?
                         } else {
                             self.read_number()

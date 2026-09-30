@@ -1,9 +1,21 @@
 use super::*;
+use crate::avens::config::CDefs;
 use crate::parser::ast::DataType;
 use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static C_PRECOMPILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+static C_EXTRA: OnceLock<CDefs> = OnceLock::new();
+
+pub(super) fn set_c_defs(d: CDefs) {
+    let _ = C_EXTRA.set(d);
+}
+
+pub(crate) fn c_defs() -> &'static CDefs {
+    C_EXTRA.get_or_init(CDefs::default)
+}
 
 pub(super) fn runtime_base() -> PathBuf {
     if let Ok(dir) = std::env::var("MIRE_RUNTIME_DIR") {
@@ -140,6 +152,14 @@ pub(super) fn generate_runtime_declarations(ir: &str) -> String {
             "declare ptr @rt_math_range_i64(i64)",
         ),
         (
+            "declare ptr @rt_math_range_between_i64(",
+            "declare ptr @rt_math_range_between_i64(i64, i64)",
+        ),
+        (
+            "declare ptr @rt_math_range_step_i64(",
+            "declare ptr @rt_math_range_step_i64(i64, i64, i64)",
+        ),
+        (
             "@.fmt_str =",
             "@.fmt_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"",
         ),
@@ -191,8 +211,16 @@ pub(super) fn generate_runtime_declarations(ir: &str) -> String {
             "declare void @rt_managed_free(ptr)",
         ),
         (
+            "call void @rt_managed_retain(",
+            "declare void @rt_managed_retain(ptr)",
+        ),
+        (
             "declare ptr @rt_string_concat(",
             "declare ptr @rt_string_concat(ptr, ptr)",
+        ),
+        (
+            "declare ptr @rt_string_concat_n(",
+            "declare ptr @rt_string_concat_n(i64, ptr)",
         ),
         (
             "declare void @pal_proc_on(",
@@ -408,20 +436,32 @@ pub(super) fn dedup_llvm_declarations(ir: &str) -> String {
     out.join("\n")
 }
 
-pub(super) fn c_object_hash(content: &str) -> u64 {
+pub(super) fn c_object_hash(content: &str, position_independent: bool, cflags: &[String]) -> u64 {
     let mut hasher = crate::incremental::FxHasher::new();
     content.hash(&mut hasher);
+    // The same C source must not share an object between executable and shared
+    // artifact builds: shared objects require PIC while normal objects do not.
+    // Include flags as well so a changed ABI/compiler option cannot reuse an
+    // incompatible cached object.
+    position_independent.hash(&mut hasher);
+    cflags.hash(&mut hasher);
     hasher.finish()
 }
 
-pub(super) fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: &Path) -> Result<String> {
+pub(super) fn precompile_c_object(
+    c_path: &str,
+    cache_dir: &Path,
+    runtime_base: &Path,
+) -> Result<String> {
     let content = fs::read_to_string(c_path).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::new(1, 1),
             message: format!("Could not read C source '{}': {}", c_path, err),
         })
     })?;
-    let hash = c_object_hash(&content);
+    let extra = c_defs();
+    let is_shared = matches!(extra.artifact, super::config::LibType::Shared);
+    let hash = c_object_hash(&content, is_shared, &extra.cflags);
     fs::create_dir_all(cache_dir).map_err(|err| {
         MireError::new(ErrorKind::Runtime {
             span: crate::error::Span::unknown(),
@@ -444,21 +484,25 @@ pub(super) fn precompile_c_object(c_path: &str, cache_dir: &Path, runtime_base: 
         .wrapping_mul(0x9E3779B97F4A7C15)
         .wrapping_add(C_PRECOMPILE_SEQ.fetch_add(1, Ordering::Relaxed));
     let tmp_path = cache_dir.join(format!("{:x}.{:016x}.o", hash, unique));
-    let status = std::process::Command::new("clang")
-        .args(["-c", "-O0", "-o"])
-        .arg(&tmp_path)
-        .arg(c_path)
-        .arg("-I")
-        .arg(runtime_base.join("runtime"))
-        .arg("-I")
-        .arg(runtime_base.join("pal"))
-        .status()
-        .map_err(|err| {
-            MireError::new(ErrorKind::Runtime {
-                span: crate::error::Span::unknown(),
-                message: format!("Failed to run clang for '{}': {}", c_path, err),
-            })
-        })?;
+    let mut cmd = std::process::Command::new("clang");
+    cmd.args(["-c", "-O0", "-o"]).arg(&tmp_path).arg(c_path);
+    if is_shared {
+        cmd.arg("-fPIC");
+    }
+    cmd.arg("-I").arg(runtime_base.join("runtime"));
+    cmd.arg("-I").arg(runtime_base.join("pal"));
+    for inc in &extra.include {
+        cmd.arg("-I").arg(inc);
+    }
+    for flag in &extra.cflags {
+        cmd.arg(flag);
+    }
+    let status = cmd.status().map_err(|err| {
+        MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!("Failed to run clang for '{}': {}", c_path, err),
+        })
+    })?;
     if !status.success() {
         let _ = fs::remove_file(&tmp_path);
         return Err(MireError::new(ErrorKind::Runtime {
@@ -514,6 +558,73 @@ pub(super) fn apply_cfg_filter(program: &mut crate::parser::ast::Program) {
     });
 }
 
+/// Replace the body of every `@[test, ignore]` function with a trivial one.
+///
+/// `ignore` is how a test is quarantined without deleting it, and the harness
+/// already skips calling it. Its *body*, though, still reached the type checker
+/// and the backend, because analysis runs before the harness is injected. A test
+/// quarantined for a compile failure therefore took its whole file down with it:
+/// `tests/advanced.mire` holds one ignored closure test and lost all thirteen of
+/// its cases, reported as a single type error in a function nobody runs. An
+/// ignored test has to stop being compiled as well as stop being run.
+///
+/// The signature is kept so the function still type-checks and still satisfies
+/// anything that references it; only the body is replaced, by a `return` of a
+/// default for the declared return type. A `bool` test returns `true`, which is
+/// also what a quarantined test would report if the harness ever did call it.
+pub(super) fn neutralise_ignored_tests(program: &mut crate::parser::ast::Program) {
+    use crate::parser::ast::{Expression, Statement};
+
+    for stmt in &mut program.statements {
+        let Statement::Function {
+            attributes,
+            body,
+            return_type,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        let is_test = attributes.iter().any(|a| a.name == "test");
+        let is_ignored = attributes.iter().any(|a| a.name == "ignore");
+        if !is_test || !is_ignored {
+            continue;
+        }
+        body.clear();
+        if let Some(value) = default_literal_for(return_type) {
+            body.push(Statement::Return(Some(Expression::Literal {
+                lit: value,
+                line: 0,
+                column: 0,
+            })));
+        }
+    }
+}
+
+/// A literal of the right kind for `ty`, used to give a bodyless function a
+/// valid return. `None` means the type has no sensible literal, in which case the
+/// body stays empty and the function falls off its end as it would anyway.
+fn default_literal_for(ty: &crate::parser::ast::DataType) -> Option<crate::parser::ast::Literal> {
+    use crate::parser::ast::{DataType, Literal};
+    Some(match ty {
+        DataType::Bool => Literal::Bool(true),
+        DataType::I8
+        | DataType::I16
+        | DataType::I32
+        | DataType::I64
+        | DataType::I128
+        | DataType::U8
+        | DataType::U16
+        | DataType::U32
+        | DataType::U64
+        | DataType::U128
+        | DataType::Char => Literal::Int(0),
+        DataType::F32 | DataType::F64 => Literal::Float(0.0),
+        DataType::Str => Literal::Str(String::new()),
+        _ => return None,
+    })
+}
+
 pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
     use crate::parser::ast::{DataType, Expression, Identifier, Literal, Statement, Visibility};
 
@@ -556,28 +667,30 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
             if !current_section.is_empty() {
                 body.push(Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal { lit: Literal::Str(format!(
-                        "\n  [{}]",
-                        current_section
-                    )), line: 0, column: 0 }],
+                    args: vec![Expression::Literal {
+                        lit: Literal::Str(format!("\n  [{}]", current_section)),
+                        line: 0,
+                        column: 0,
+                    }],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
+                    name_column: 0,
+                    data_type: DataType::None,
                 }));
             }
         }
         if test.ignored {
             body.push(Statement::Expression(Expression::Call {
                 name: "dasu".to_string(),
-                args: vec![Expression::Literal { lit: Literal::Str(format!(
-                    "  [SKIP] {}",
-                    test.name
-                )), line: 0, column: 0 }],
+                args: vec![Expression::Literal {
+                    lit: Literal::Str(format!("  [SKIP] {}", test.name)),
+                    line: 0,
+                    column: 0,
+                }],
                 type_args: Vec::new(),
                 name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
+                name_column: 0,
+                data_type: DataType::None,
             }));
         } else {
             body.push(Statement::Let {
@@ -588,8 +701,8 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
                     args: Vec::new(),
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::Bool,
+                    name_column: 0,
+                    data_type: DataType::Bool,
                 }),
                 is_constant: false,
                 is_mutable: false,
@@ -608,25 +721,27 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
                 }),
                 then_branch: vec![Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal { lit: Literal::Str(format!(
-                        "  [PASS] {}",
-                        test.name
-                    )), line: 0, column: 0 }],
+                    args: vec![Expression::Literal {
+                        lit: Literal::Str(format!("  [PASS] {}", test.name)),
+                        line: 0,
+                        column: 0,
+                    }],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
+                    name_column: 0,
+                    data_type: DataType::None,
                 })],
                 else_branch: Some(vec![Statement::Expression(Expression::Call {
                     name: "dasu".to_string(),
-                    args: vec![Expression::Literal { lit: Literal::Str(format!(
-                        "  [FAIL] {}",
-                        test.name
-                    )), line: 0, column: 0 }],
+                    args: vec![Expression::Literal {
+                        lit: Literal::Str(format!("  [FAIL] {}", test.name)),
+                        line: 0,
+                        column: 0,
+                    }],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::None,
+                    name_column: 0,
+                    data_type: DataType::None,
                 })]),
             });
         }
@@ -662,10 +777,13 @@ pub(super) fn inject_test_harness(program: &mut crate::parser::ast::Program) {
 ///
 /// In strict security mode, macros from dependencies are only injected when
 /// the dependency's trust tier is `macros` or `ffi`.
-pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_path: &std::path::Path) {
+pub(super) fn inject_macros(
+    program: &mut crate::parser::ast::Program,
+    source_path: &std::path::Path,
+) {
     use crate::loader::resolve_dependency_root;
-    use crate::parser::parse_with_recovery;
     use crate::parser::ast::Statement;
+    use crate::parser::parse_with_recovery;
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -703,7 +821,7 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
         .collect();
 
     let mut inject_from = |macros: &MireMacros, root: &Path, _source_label: &str| {
-        for (_name, rel_path) in macros.entries.iter() {
+        for rel_path in macros.entries.values() {
             let Some(file) = resolve_macro_file(root, rel_path) else {
                 continue;
             };
@@ -725,14 +843,15 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
                         }
                     }
                     Statement::Function {
-                        name: fname, attributes, ..
-                    } => {
+                        name: fname,
+                        attributes,
+                        ..
+                    }
                         if attributes.iter().any(|a| a.name == "macro!")
                             && existing_fns.insert(fname.clone())
-                        {
+                        => {
                             program.statements.push(stmt);
                         }
-                    }
                     _ => {}
                 }
             }
@@ -774,7 +893,7 @@ pub(super) fn inject_macros(program: &mut crate::parser::ast::Program, source_pa
 
 fn load_security_config() -> Option<SecurityConfig> {
     let cwd = std::env::current_dir().ok()?;
-    let manifest = crate::load_project_manifest(&cwd).ok()??;
+    let manifest = crate::avens::load_project_manifest(&cwd).ok()??;
     manifest.security
 }
 
@@ -796,6 +915,260 @@ fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::pat
     if let Some(file) = check(&with_ext) {
         return Some(file);
     }
+    let with_mr_ext = candidate.with_extension("mr");
+    if let Some(file) = check(&with_mr_ext) {
+        return Some(file);
+    }
     let mod_file = candidate.join("mod.mire");
-    check(&mod_file)
+    if let Some(file) = check(&mod_file) {
+        return Some(file);
+    }
+    check(&candidate.join("mod.mr"))
+}
+
+// ── Dependency Collector ──────────────────────────────────────────────────────
+// Unified dependency collector: scans the generated LLVM IR and returns the set
+// of PAL and runtime symbols that are actually called by the program.
+//
+// This replaces the two previous mechanisms:
+//   pal_extern_decls()        → emitted ALL ~150 PAL/runtime declarations
+//   generate_runtime_declarations() → emitted only used rt_* declarations
+//
+// The collector is a single-pass scan over the IR text looking for `call @pal_*`
+// and `call @rt_*` patterns.  The results are used to:
+//   1. Filter pal_extern_decls() to emit only used PAL declarations
+//   2. Determine which C source files to compile (tier-aware)
+//   3. Enforce the tier contract (none = no rt_* calls allowed)
+//
+// Runtime and PAL are separate concerns:
+//   Runtime = language features (rt_div_i64, rt_string_concat, rt_bounds_fail, ...)
+//   PAL     = host interaction (pal_file_open, pal_proc_create, pal_channel_send, ...)
+// A program can use PAL without the runtime, or the runtime without PAL.
+
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, Default)]
+pub struct UsedSymbols {
+    pub runtime: HashSet<String>,
+    pub pal: HashSet<String>,
+}
+
+/// Scan the IR for `call @sym_name(...)` patterns and collect all used symbols.
+/// Returns a set of (runtime, pal) symbol names that are actually invoked.
+pub(crate) fn collect_used_symbols(ir: &str) -> UsedSymbols {
+    let mut used = UsedSymbols::default();
+    for line in ir.lines() {
+        let trimmed = line.trim();
+        // Match call instructions: `... call ... @sym_name(`
+        // This handles both tail-call form (`call ... @sym(`) and
+        // assignment form (`%r = call ptr @sym(...)`).
+        if let Some(call_pos) = trimmed.find(" call ") {
+            let rest = &trimmed[call_pos + 6..]; // skip " call "
+            if let Some(at_pos) = rest.find('@') {
+                let after_at = &rest[at_pos + 1..];
+                if let Some(paren_pos) = after_at.find('(') {
+                    let sym = &after_at[..paren_pos];
+                    if sym.starts_with("pal_") {
+                        used.pal.insert(sym.to_string());
+                    } else if sym.starts_with("rt_") {
+                        used.runtime.insert(sym.to_string());
+                    }
+                }
+            }
+        }
+    }
+    used
+}
+
+/// Filter `pal_extern_decls()` to emit only declarations for symbols that appear
+/// in the `used_pal` set.  When `runtime_tier` is `Minimal` or `None`, this is
+/// the only source of PAL declarations.  When `Full`, all declarations are emitted
+/// regardless (backward-compatible).
+pub(crate) fn filter_pal_decls(
+    used_pal: &HashSet<String>,
+    runtime_tier: crate::avens::config::RuntimeTier,
+) -> Vec<String> {
+    use crate::avens::config::RuntimeTier;
+    let all = crate::compiler::mir::codegen::builtins::pal_extern_decls();
+    if matches!(runtime_tier, RuntimeTier::Full) {
+        return all;
+    }
+    all.into_iter()
+        .filter(|decl| {
+            // Extract the symbol name from `declare ... @sym_name(...)`
+            if let Some(at_pos) = decl.find('@') {
+                let rest = &decl[at_pos + 1..];
+                if let Some(paren_pos) = rest.find('(') {
+                    let sym = &rest[..paren_pos];
+                    // Include the symbol if it's used, or if it's a runtime helper
+                    // (runtime helpers are always needed when the program uses rt_* functions)
+                    return used_pal.contains(sym) || sym.starts_with("rt_");
+                }
+            }
+            false
+        })
+        .collect()
+}
+
+/// Strip unused PAL and runtime declarations from the IR.
+/// This is used post-generation to remove dead declarations that were emitted
+/// before the dependency collector ran (e.g., from the old `pal_extern_decls()` call).
+#[allow(dead_code)]
+pub(super) fn strip_unused_decls(ir: &str, used: &UsedSymbols) -> String {
+    ir.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // Keep non-declaration lines
+            if !trimmed.starts_with("declare") {
+                return true;
+            }
+            // Extract the symbol name from `declare ... @sym_name(...)`
+            if let Some(at_pos) = trimmed.find('@') {
+                let rest = &trimmed[at_pos + 1..];
+                if let Some(paren_pos) = rest.find('(') {
+                    let sym = &rest[..paren_pos];
+                    // Keep the declaration if the symbol is used
+                    return used.runtime.contains(sym) || used.pal.contains(sym);
+                }
+            }
+            // Keep unknown declarations (safety net)
+            true
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Map a runtime symbol name to the C source file that provides it.
+/// Returns the filename (relative to `runtime/`) or `None` if unknown.
+fn runtime_symbol_to_c_file(sym: &str) -> Option<&'static str> {
+    // Order matters: more specific prefixes first.
+    if sym.starts_with("rt_math_random") {
+        Some("random.c")
+    } else if sym.starts_with("rt_math_") {
+        Some("math.c")
+    } else if sym.starts_with("rt_maybe_")
+        || sym.starts_with("rt_result_")
+        || sym.starts_with("rt_arr_")
+    {
+        Some("mire_types.c")
+    } else if sym.starts_with("rt_managed_") || sym.starts_with("rt_panic") {
+        Some("managed.c")
+      } else if sym.starts_with("rt_check_bounds") {
+          Some("safety.c")
+      } else if sym.starts_with("rt_io_") {
+          // Standard streams: stdin/stdout/stderr via the C stdio FILE*s.
+          // Before the rt_read_/rt_write_ arms below, which are byte helpers.
+          Some("mire_io.c")
+      } else if sym.starts_with("rt_list_")
+        || sym.starts_with("rt_lists_")
+        || sym.starts_with("rt_vecs_")
+    {
+        Some("vecs.c")
+    } else if sym.starts_with("rt_dict_")
+        || sym.starts_with("rt_dicts_")
+        || sym.starts_with("rt_maps_")
+    {
+        Some("maps.c")
+    } else if sym.starts_with("rt_string_")
+        || sym.starts_with("rt_strings_")
+        || sym.starts_with("rt_i64_to_string")
+        || sym.starts_with("rt_i128_to_string")
+        || sym.starts_with("rt_u128_to_string")
+        || sym.starts_with("rt_f64_to_string")
+        || sym.starts_with("rt_f32_to_string")
+        || sym.starts_with("rt_bool_to_string")
+        || sym.starts_with("rt_unicode_")
+        || sym.starts_with("rt_managed_from")
+        || sym.starts_with("rt_managed_ensure")
+    {
+        Some("strings.c")
+    } else if sym.starts_with("rt_closure_env") {
+        Some("safety.c")
+    } else if sym.starts_with("rt_read_bytes") || sym.starts_with("rt_read_tty") {
+        // File/tty readers (need POSIX; stay in helpers.c)
+        Some("helpers.c")
+    } else if sym.starts_with("rt_crypto_")
+        || sym.starts_with("rt_hex_to_file")
+        || sym.starts_with("rt_proc_")
+        || sym.starts_with("rt_channel_recv")
+        || sym.starts_with("rt_fs_")
+        || sym.starts_with("rt_font_")
+        || sym.starts_with("rt_web_")
+        || sym.starts_with("rt_websocket_")
+    {
+        Some("helpers.c")
+    } else if sym.starts_with("rt_alloc_raw")
+        || sym.starts_with("rt_free_raw")
+        || sym.starts_with("rt_blend_")
+        || sym.starts_with("rt_read_")
+        || sym.starts_with("rt_write_")
+    {
+        // Pure byte-access helpers (PAL-free; math.c, FFI bindings)
+        Some("bytes.c")
+    } else if sym.starts_with("rt_thread_") {
+        Some("thread.c")
+    } else if sym.starts_with("rt_get_args") || sym.starts_with("rt_free_argv") {
+        Some("helpers.c")
+    } else {
+        None
+    }
+}
+
+/// Given a set of used runtime symbols, return the minimal set of C source files
+/// needed to satisfy them.  Always includes `managed.c` (memory management) and
+/// `safety.c` (panic) as safety baselines.  Transitive C→C dependencies are
+/// resolved (e.g. `strings.c` needs `vecs.c` which needs `strings.c`).
+pub(crate) fn minimal_runtime_c_files(used_runtime: &HashSet<String>) -> Vec<String> {
+    // Map a symbol to its C file (order: more specific prefixes first).
+    fn sym_to_file(sym: &str) -> Option<&'static str> {
+        runtime_symbol_to_c_file(sym)
+    }
+
+    // C→C transitive dependency graph (directed, has a cycle: strings ↔ vecs).
+    // A file listed here needs all the files it points to.
+    fn c_deps(file: &str) -> &'static [&'static str] {
+        match file {
+            "strings.c" => &["vecs.c", "managed.c"],
+            "vecs.c" => &["strings.c", "managed.c", "safety.c"],
+            // maps.c delegates hashing, storage sizing and growth to the
+            // internal implementation; keeping this edge explicit is
+            // required for minimal runtime builds and shared-library tests.
+            "maps.c" => &["maps_internal.c", "vecs.c", "managed.c"],
+            "maps_internal.c" => &["managed.c"],
+            "math.c" => &["vecs.c", "bytes.c"],
+            "random.c" => &[],
+            "mire_types.c" => &["strings.c", "managed.c", "safety.c"],
+            "bytes.c" => &["strings.c"],
+            "helpers.c" => &["strings.c", "managed.c"],
+            "mire_io.c" => &["managed.c"],
+            "thread.c" => &[],
+            "safety.c" => &[],
+            "managed.c" => &[],
+            _ => &[],
+        }
+    }
+
+    let mut needed: HashSet<String> = HashSet::new();
+    // Always include managed and safety (core infrastructure)
+    needed.insert("managed.c".to_string());
+    needed.insert("safety.c".to_string());
+    // Add files directly needed by used symbols
+    for sym in used_runtime {
+        if let Some(file) = sym_to_file(sym) {
+            needed.insert(file.to_string());
+        }
+    }
+    // Resolve transitive C→C dependencies (fixed-point iteration, max 4 passes
+    // because the longest chain is managed→strings→vecs→strings, stabilizes fast).
+    for _ in 0..4 {
+        let current: Vec<String> = needed.iter().cloned().collect();
+        for file in &current {
+            for &dep in c_deps(file) {
+                needed.insert(dep.to_string());
+            }
+        }
+    }
+    let mut files: Vec<String> = needed.into_iter().collect();
+    files.sort();
+    files
 }

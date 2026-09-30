@@ -1,0 +1,9 @@
+// Ownership family: a borrow is used while the owner remains valid.
+
+@[test]
+pub fn borrowed_string_is_readable: () :bool {
+    set value = "ownership"
+    set view = &value
+    set same = value == "ownership"
+    return same
+}

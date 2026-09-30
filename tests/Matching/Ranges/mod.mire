@@ -1,0 +1,19 @@
+// Range boundary matching verifies value falls within inclusive limits
+
+@[test]
+pub fn range_lower_inclusive: () :bool {
+    set value = 3
+    set in_range = value >= 1
+
+    // Tests lower bound (inclusive) check
+    return in_range && value <= 5
+}
+
+@[test]
+pub fn range_upper_inclusive: () :bool {
+    set value = 3
+    set in_range = value <= 5
+
+    // Tests upper bound (inclusive) check
+    return in_range && value >= 1
+}

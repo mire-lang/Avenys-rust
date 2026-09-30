@@ -1,0 +1,11 @@
+// Native Mire fixture. The call below crosses the shared-library boundary;
+// it does not use the compiler's linked-in runtime implementation.
+extern lib "mire_fixture" "tests/libs/mire/mire.so"
+extern fn mire_hash_u64: (value :u64) :u64 lib "mire_fixture"
+
+@[test]
+pub fn mire_shared_library_executes: () :bool {
+    set hashed = mire_hash_u64(42)
+    if hashed == 42 { return false }
+    return hashed != 0
+}

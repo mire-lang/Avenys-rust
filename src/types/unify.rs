@@ -66,7 +66,21 @@ pub fn resolve_binary_type(operator: &str, left: &DataType, right: &DataType) ->
                 ),
             ))
         }
-        "==" | "!=" | "<" | "<=" | ">" | ">=" => Ok(DataType::Bool),
+        "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+            if is_comparable_pair(left, right) {
+                Ok(DataType::Bool)
+            } else {
+                Err(type_error(
+                    0,
+                    0,
+                    format!(
+                        "Cannot compare {:?} with {:?}: comparison requires both operands to be \
+                         the same kind (both numbers, both strings, both bools, or the same type)",
+                        left, right
+                    ),
+                ))
+            }
+        }
         "&&" | "||" => {
             if left == &DataType::Unknown || right == &DataType::Unknown {
                 return Ok(DataType::Bool);
@@ -309,14 +323,7 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
                 err: Box::new(DataType::Str),
             });
         }
-        (
-            DataType::Maybe {
-                inner: left_inner,
-            },
-            DataType::Maybe {
-                inner: right_inner,
-            },
-        ) => {
+        (DataType::Maybe { inner: left_inner }, DataType::Maybe { inner: right_inner }) => {
             let inner = unify_types(left_inner, right_inner)?;
             return Ok(DataType::Maybe {
                 inner: Box::new(inner),
@@ -444,7 +451,111 @@ pub fn is_numeric(dtype: &DataType) -> bool {
 }
 
 pub fn is_bool_like(dtype: &DataType) -> bool {
-    matches!(dtype, DataType::Bool | DataType::Anything | DataType::Unknown)
+    matches!(
+        dtype,
+        DataType::Bool | DataType::Anything | DataType::Unknown
+    )
+}
+
+/// Broad "is this a runtime container/reference class" test, used to decide
+/// whether two operands belong to the same comparison class.
+fn is_reference_class(dtype: &DataType) -> bool {
+    matches!(
+        dtype,
+        DataType::List
+            | DataType::Vector { .. }
+            | DataType::Dict
+            | DataType::Map { .. }
+            | DataType::Tuple
+            | DataType::Set
+            | DataType::Box
+            | DataType::Datetime
+            | DataType::Result { .. }
+            | DataType::Maybe { .. }
+            | DataType::DynTrait { .. }
+            | DataType::Array { .. }
+            | DataType::Slice { .. }
+            | DataType::Ref { .. }
+            | DataType::RefMut { .. }
+            | DataType::Function
+            | DataType::Closure { .. }
+    )
+}
+
+/// Are `left` and `right` mutually comparable with `==` / `!=` / `<` / …?
+///
+/// Without this check the typechecker accepted `i64 == str`, which reached
+/// codegen as an `inttoptr` + `strcmp` and dereferenced a small integer as a
+/// string pointer (SIGSEGV). The rule is "same class", not "identical type",
+/// so `str == str`, `i64 == f64` and `S == S` all stay legal.
+///
+/// `Unknown` / `Anything` are inference placeholders, so they defer the decision.
+/// `None` is the *void* marker of statement-only builtins (`dasu`, `fs::write`,
+/// `map::remove`, …) — it carries no value, so comparing one is always a bug.
+/// Strips borrow wrappers for a comparison check.
+///
+/// Borrow-vs-value is not a meaningful distinction when comparing: `&str == ""`
+/// and `"" == &str` compare the pointee, exactly as `unify_types` already
+/// assumes when it unifies `Ref{inner}` against a bare `inner` (see the
+/// `Ref { inner } | RefMut { inner }, other` arm above). Keeping the comparison
+/// rule consistent with unification is what lets existing code such as
+/// `if path == ""` on a `path :&str` parameter keep compiling.
+fn strip_borrow(dt: &DataType) -> &DataType {
+    match dt {
+        DataType::Ref { inner } | DataType::RefMut { inner } => strip_borrow(inner),
+        other => other,
+    }
+}
+
+pub fn is_comparable_pair(left: &DataType, right: &DataType) -> bool {
+    if matches!(left, DataType::Unknown | DataType::Anything)
+        || matches!(right, DataType::Unknown | DataType::Anything)
+    {
+        return true;
+    }
+    if matches!(left, DataType::None) || matches!(right, DataType::None) {
+        return false;
+    }
+    if is_numeric(left) && is_numeric(right) {
+        return true;
+    }
+    if is_bool_like(left) && is_bool_like(right) {
+        return true;
+    }
+    if left == right {
+        return true;
+    }
+    // Borrow-vs-value: compare the pointees. Only identical underlying types
+    // become comparable, so this widens `&str`/`&i64` against their own value
+    // type without making unrelated types comparable.
+    let l = strip_borrow(left);
+    let r = strip_borrow(right);
+    if l != left || r != right {
+        if l == r {
+            return true;
+        }
+        if is_numeric(l) && is_numeric(r) {
+            return true;
+        }
+        if is_bool_like(l) && is_bool_like(r) {
+            return true;
+        }
+    }
+    if left.is_struct_like() && right.is_struct_like() {
+        return left.struct_name() == right.struct_name();
+    }
+    if matches!(left, DataType::Enum | DataType::EnumNamed(_))
+        && matches!(right, DataType::Enum | DataType::EnumNamed(_))
+    {
+        return true;
+    }
+    if is_reference_class(left) && is_reference_class(right) {
+        return true;
+    }
+    if matches!(left, DataType::Generic(_)) || matches!(right, DataType::Generic(_)) {
+        return true;
+    }
+    false
 }
 
 /// Is the assignment of `actual` to `expected` valid?
@@ -537,7 +648,8 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
                 err: actual_err,
             },
         ) => {
-            return is_assignable(expected_ok, actual_ok) && is_assignable(expected_err, actual_err);
+            return is_assignable(expected_ok, actual_ok)
+                && is_assignable(expected_err, actual_err);
         }
         (
             DataType::Maybe {
@@ -604,11 +716,15 @@ fn float_to_int_preserves_sign(expected: &DataType, actual: &DataType) -> bool {
             numeric_bit_width(expected) >= numeric_bit_width(actual)
         }
         // signed -> unsigned of same width: valid (bitwise representation is the same).
-        (e, a) if is_unsigned(e) && is_signed(a) && numeric_bit_width(e) == numeric_bit_width(a) => {
+        (e, a)
+            if is_unsigned(e) && is_signed(a) && numeric_bit_width(e) == numeric_bit_width(a) =>
+        {
             true
         }
         // unsigned -> signed of same width: valid by width.
-        (e, a) if is_signed(e) && is_unsigned(a) && numeric_bit_width(e) == numeric_bit_width(a) => {
+        (e, a)
+            if is_signed(e) && is_unsigned(a) && numeric_bit_width(e) == numeric_bit_width(a) =>
+        {
             true
         }
         _ => true,

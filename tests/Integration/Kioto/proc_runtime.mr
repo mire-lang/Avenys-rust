@@ -1,0 +1,7 @@
+load kioto
+
+@[test]
+pub fn runtime_proc_is_argv_only: () :bool {
+    set output = proc::run::output("/bin/printf" ["proc-ok"] :vec[str])
+    return strings::trim(output) == "proc-ok"
+}

@@ -1,4 +1,0 @@
-pub fn main: () {
-    set s = str(3.14 :f64)
-    use dasu(s)
-}

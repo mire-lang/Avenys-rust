@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set a = 5 :i64
-    set b = 10 :i64
-    set c = a + b
-    use dasu("5 + 10 = {c}")
-}

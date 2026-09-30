@@ -1,0 +1,38 @@
+// These cases deliberately grow independent vectors to exercise allocator,
+// ownership and runtime collection paths with a measurable memory footprint.
+load mire::vec
+
+@[test]
+pub fn vector_grows_to_256: () :bool {
+    set values = [] :vec[i64] mut
+    set index = 0 mut
+    while index < 256 {
+        set values = vec::push::i64(values index)
+        set index = index + 1
+    }
+    return vec::len(values) == 256
+}
+
+@[test]
+pub fn vector_accumulates_128: () :bool {
+    set values = [] :vec[i64] mut
+    set index = 0 mut
+    while index < 128 {
+        set values = vec::push::i64(values index * 2)
+        set index = index + 1
+    }
+    return vec::get::i64(values 127) == 254
+}
+
+@[test]
+pub fn vector_two_independent_buffers: () :bool {
+    set first = [] :vec[i64] mut
+    set second = [] :vec[i64] mut
+    set index = 0 mut
+    while index < 96 {
+        set first = vec::push::i64(first index)
+        set second = vec::push::i64(second index + 1000)
+        set index = index + 1
+    }
+    return vec::len(first) == 96 && vec::get::i64(second 95) == 1095
+}

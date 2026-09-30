@@ -1,0 +1,30 @@
+// Basic pattern matching: matching enum variants by name
+
+enum State { Ready Done }
+
+@[test]
+pub fn pattern_matches_ready_variant: () :bool {
+    set state = State.Ready
+    set is_ready = if state == State.Ready { 1 } else { 0 }
+
+    // Tests pattern match on State.Ready
+    return is_ready == 1
+}
+
+@[test]
+pub fn pattern_matches_done_variant: () :bool {
+    set state = State.Done
+    set is_done = if state == State.Done { 1 } else { 0 }
+
+    // Tests pattern match on State.Done
+    return is_done == 1
+}
+
+@[test]
+pub fn pattern_neither_is_other: () :bool {
+    set state = State.Ready
+    set is_done = if state == State.Done { 1 } else { 0 }
+
+    // Tests Ready is not Done
+    return is_done == 0
+}

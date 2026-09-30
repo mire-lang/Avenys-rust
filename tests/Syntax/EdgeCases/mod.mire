@@ -1,0 +1,4 @@
+@[test]
+pub fn same_line_else: () :bool {
+    if true { return true } else { return false }
+}

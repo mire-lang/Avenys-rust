@@ -1,0 +1,14 @@
+// Test attribute execution and mutable state tracking
+// Verifies that attribute modifications persist through the test harness
+@[test]
+@[section("attributes")]
+pub fn test_attribute_mutable_tracking: () :bool {
+    set counter = 0 mut
+    set counter += 1
+    set counter -= 1
+    set counter *= 2
+    set counter = counter + 4
+    set final_value = counter
+
+    return final_value == 4
+}

@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 5 :i64
-    if x > 0 {
-        use dasu("yes")
-    }
-}

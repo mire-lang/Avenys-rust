@@ -22,7 +22,7 @@ pub(crate) fn walkdir(dir: &Path, _pattern: &str) -> Result<Vec<PathBuf>, MireEr
             if path.is_dir() {
                 stack.push(path);
             } else if let Some(ext) = path.extension()
-                && ext == "mire"
+                && matches!(ext.to_str(), Some("mire" | "mr"))
             {
                 results.push(path);
             }

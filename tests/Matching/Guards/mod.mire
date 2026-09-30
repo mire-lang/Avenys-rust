@@ -1,0 +1,6 @@
+@[test]
+pub fn guard_input_is_checked: () :bool {
+    set value = 42
+    if value > 40 { return true }
+    return false
+}

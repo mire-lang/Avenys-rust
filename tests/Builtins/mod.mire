@@ -1,0 +1,6 @@
+// Builtin smoke case with no external process dependency.
+
+@[test]
+pub fn builtin_arithmetic: () :bool {
+    return len([1 2 3]) == 3
+}

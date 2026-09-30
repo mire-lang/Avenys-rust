@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set s = "hello world"
-    use dasu(s)
-}

@@ -278,11 +278,8 @@ char *rt_arr_join(void *arr, int64_t count, const char *sep) {
     for (int64_t i = 1; i < count; i++) {
         char *num = rt_i64_to_string(data[i]);
         char *tmp = rt_string_concat(result, sep);
-        rt_managed_free(result);
         result = tmp;
         char *tmp2 = rt_string_concat(result, num);
-        rt_managed_free(result);
-        rt_managed_free(num);
         result = tmp2;
     }
     return result;

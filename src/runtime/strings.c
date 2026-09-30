@@ -37,6 +37,36 @@ char *rt_string_concat(const char *left, const char *right) {
     return out;
 }
 
+__attribute__((noinline)) char *rt_string_concat_n(size_t count, const char *const *parts) {
+    if (count == 0) return rt_managed_from_slice("", 0);
+    if (count == 1) {
+        if (parts[0] == NULL) return rt_managed_from_slice("", 0);
+        return rt_managed_from_slice(parts[0], str_byte_len(parts[0]));
+    }
+
+    // Calculate total length
+    size_t total_len = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (parts[i] != NULL) {
+            total_len += str_byte_len(parts[i]);
+        }
+    }
+
+    char *out = rt_managed_alloc(total_len);
+    if (out == NULL) return rt_managed_from_slice("", 0);
+
+    size_t pos = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (parts[i] != NULL) {
+            size_t len = str_byte_len(parts[i]);
+            memcpy(out + pos, parts[i], len);
+            pos += len;
+        }
+    }
+    out[pos] = '\0';
+    return out;
+}
+
 int64_t rt_strings_char_at(const char *s, int64_t index) {
     if (!s || index < 0) return 0;
     size_t len = str_byte_len(s);
@@ -65,31 +95,13 @@ char *rt_string_append_owned(char *value, const char *suffix) {
     if (suffix == NULL) return value;
     size_t vlen = str_byte_len(value);
     size_t slen = str_byte_len(suffix);
-    if (rt_managed_is_managed(value)) {
-        MireManagedString *hdr = rt_string_header(value);
-        size_t needed = vlen + slen;
-        if (hdr->cap >= needed) {
-            memcpy(value + vlen, suffix, slen);
-            value[needed] = '\0';
-            hdr->len = needed;
-            hdr->flags &= ~MIRE_STR_UTF8_KNOWN; // invalidate UTF-8 cache
-            return value;
-        }
-    }
     char *result = rt_managed_alloc(vlen + slen);
     if (result == NULL) {
-        char *fallback = rt_string_concat(value, suffix);
-        if (!rt_managed_is_managed(value)) free(value);
-        return fallback;
+        return rt_string_concat(value, suffix);
     }
     if (vlen > 0) memcpy(result, value, vlen);
     if (slen > 0) memcpy(result + vlen, suffix, slen);
     result[vlen + slen] = '\0';
-    if (rt_managed_is_managed(value)) {
-        rt_managed_free(value);
-    } else {
-        free(value);
-    }
     return result;
 }
 
@@ -372,6 +384,10 @@ int64_t rt_string_to_i64(const char *value) {
     return (int64_t)atoll(value);
 }
 
+int64_t rt_f64_to_i64(double value) {
+    return (int64_t)value;
+}
+
 void *rt_get_args(int argc, char **argv) {
     void *list = rt_list_create(argc > 0 ? argc : 4, 8);
     for (int i = 0; i < argc; i++) {
@@ -451,7 +467,7 @@ void *rt_strings_split(const char *s, const char *sep) {
     while (*p) {
         const char *found = strstr(p, sep);
         if (!found) {
-            list = rt_list_push_ptr(list, rt_managed_from_slice(p, str_byte_len(p)));
+            list = rt_list_push_ptr(list, rt_managed_from_slice(p, s_len - (p - s)));
             break;
         }
         list = rt_list_push_ptr(list, rt_managed_from_slice(p, found - p));

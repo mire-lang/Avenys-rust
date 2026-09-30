@@ -6,65 +6,191 @@ on:
       - "v*"
       - "B*"
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Avenys-rust
-        uses: actions/checkout@v4
+permissions:
+  contents: write
 
-      - name: Install dependencies
+# Produces, for every pushed release tag:
+#   mire-compiler-<triple>.tar.gz   compiler/{mire,runtime,pal} + .sha256
+#   owl-<triple>.tar.gz             owl/{owl,kioto,lib/libsodium.so.23*} + .sha256
+# for <triple> in x86_64-unknown-linux-gnu (amd64), aarch64-unknown-linux-gnu
+# (arm64). riscv64 is built under QEMU emulation and is experimental: the
+# riscv64 jobs use continue-on-error, so a riscv64 failure never blocks the
+# release (the containered release job simply has nothing to collect).
+#
+# The owl jobs synthesize native/mire-config.toml in-workflow: the owl fork's
+# checked-in copy carries local-only RPATH tweaks, so the release cannot rely
+# on the repo copy. The RPATH points owl at $ORIGIN/../lib/mire, which is where
+# the installer places the bundled libsodium.so.23.
+
+jobs:
+  compiler:
+    name: compiler (${{ matrix.triple }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - arch: aarch64
+            triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev libsodium-dev
-
-      - name: Checkout kioto (up-to-date Evelyne-Dev fork, v2.4.7)
-        uses: actions/checkout@v4
-        with:
-          repository: Evelyne-Dev/Kioto-1
-          path: kioto
-          ref: master
-
-      - name: Checkout mire stdlib (mire-lang/mire-lib)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/mire-lib
-          path: mire
-          ref: main
+          sudo apt-get install -y -qq wget ca-certificates pkg-config \
+            libsodium-dev zlib1g-dev libzstd-dev libarchive-dev
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y -qq llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Build mire binary
-        working-directory: Avenys-rust
+      - name: Build mire (${{ matrix.triple }})
+        env:
+          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo build --release
 
-      - name: Install mire so owl can use it
+      - name: Package compiler tarball (${{ matrix.triple }})
         run: |
-          sudo cp Avenys-rust/target/release/mire /usr/local/bin/mire
-          sudo chmod +x /usr/local/bin/mire
+          mkdir -p dist/compiler
+          cp target/release/mire dist/compiler/mire
+          cp -r src/runtime dist/compiler/runtime
+          cp -r src/pal dist/compiler/pal
+          cd dist
+          tar czf ../mire-compiler-${{ matrix.triple }}.tar.gz compiler/
+          cd ..
+          sha256sum mire-compiler-${{ matrix.triple }}.tar.gz > mire-compiler-${{ matrix.triple }}.sha256
+
+      - name: Upload compiler tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: mire-compiler-${{ matrix.triple }}
+          path: |
+            mire-compiler-${{ matrix.triple }}.tar.gz
+            mire-compiler-${{ matrix.triple }}.sha256
+
+  compiler-riscv64:
+    name: compiler (riscv64-unknown-linux-gnu, experimental)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable QEMU binfmt
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+
+      - name: Build mire in a riscv64 container (QEMU)
+        run: |
+          docker run --rm --platform linux/riscv64 \
+            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
+            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc compiler
+
+      - name: Package compiler tarball (riscv64)
+        run: |
+          mkdir -p dist/compiler
+          cp target/release/mire dist/compiler/mire
+          cp -r src/runtime dist/compiler/runtime
+          cp -r src/pal dist/compiler/pal
+          cd dist
+          tar czf ../mire-compiler-riscv64-unknown-linux-gnu.tar.gz compiler/
+          cd ..
+          sha256sum mire-compiler-riscv64-unknown-linux-gnu.tar.gz > mire-compiler-riscv64-unknown-linux-gnu.sha256
+
+      - name: Upload compiler tarball (riscv64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mire-compiler-riscv64-unknown-linux-gnu
+          path: |
+            mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+            mire-compiler-riscv64-unknown-linux-gnu.sha256
+
+  owl:
+    name: owl (${{ matrix.triple }})
+    needs: compiler
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - arch: aarch64
+            triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mire-compiler-${{ matrix.triple }}
+          path: compiler-artifacts
+
+      - name: Install mire
+        run: |
+          tar xzf compiler-artifacts/mire-compiler-${{ matrix.triple }}.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/compiler/mire /usr/local/bin/mire
+          sudo mkdir -p /usr/local/lib/mire
+          sudo cp -r /tmp/compiler/runtime /usr/local/lib/mire/runtime
+          sudo cp -r /tmp/compiler/pal /usr/local/lib/mire/pal
           mire --version
 
-      - name: Checkout owl source (up-to-date Evelyne-Dev fork, PR #14)
+      - name: Checkout kioto (active PR #3 branch, v2.5.0)
         uses: actions/checkout@v4
         with:
-          repository: Evelyne-Dev/owl
-          path: owl-src
-          ref: pr-0.27.0
+          repository: Evelynx-Dev/Kioto-1
+          path: kioto
+          ref: pr/2.5.0
 
-      - name: Setup owl dependencies
+      - name: Checkout owl source (active PR #16 branch, official repo)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/owl
+          path: owl-src
+          ref: pr/1.2.0
+
+      - name: Install build prerequisites + libsodium (for bundling)
         run: |
-          mkdir -p ~/.owl/modules
-          cp -r kioto ~/.owl/modules/kioto
-          # owl-src/owl.toml hardcodes a local kioto path; repoint to the
-          # sibling checkout so `load kioto` resolves. kioto owl.toml then
-          # resolves `mire` at its neighbor ../mire (the mire-lib checkout).
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libsodium23 libzstd-dev libarchive-dev zlib1g-dev
+
+      - name: Generate avenys config for the owl build
+        run: |
+          cat > owl-src/native/mire-config.toml <<'EOF'
+          [project]
+          name = "owl"
+          version = "1.1.1"
+          entry = "code/main.mire"
+
+          [build]
+          profile = "release"
+          opt-level = 3
+          artifact = "bin"
+          runtime = "minimal"
+          target = "${{ matrix.triple }}"
+
+          [paths]
+          bin = "${{ github.workspace }}/owl-src/bin"
+          cache = "/tmp/owl-archive-cache"
+
+          [cfg]
+          libs = ["archive"]
+          sources = ["native/archive.c"]
+          link-dirs = []
+          cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
+          EOF
+
+      - name: Setup owl dependency paths
+        run: |
           sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
 
       - name: Build owl
         working-directory: owl-src
-        run: mire build code/main.mire --release -O3 --no-analysis-cache
+        run: |
+          mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml
 
       - name: Verify owl
         working-directory: owl-src
@@ -72,29 +198,108 @@ jobs:
           chmod +x bin/release/main
           ./bin/release/main -V
 
-      - name: Prepare owl tarball
+      - name: Package owl tarball (${{ matrix.triple }})
         run: |
-          mkdir -p dist/owl
+          mkdir -p dist/owl/lib
           cp owl-src/bin/release/main dist/owl/owl
           cp -r kioto dist/owl/kioto
+          find /usr/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \;
           cd dist
-          tar czf ../owl-linux-x86_64.tar.gz owl/
+          tar czf ../owl-${{ matrix.triple }}.tar.gz owl/
+          cd ..
+          sha256sum owl-${{ matrix.triple }}.tar.gz > owl-${{ matrix.triple }}.sha256
 
-      - name: Prepare compiler tarball
+      - name: Upload owl tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: owl-${{ matrix.triple }}
+          path: |
+            owl-${{ matrix.triple }}.tar.gz
+            owl-${{ matrix.triple }}.sha256
+
+  owl-riscv64:
+    name: owl (riscv64-unknown-linux-gnu, experimental)
+    needs: compiler-riscv64
+    if: needs.compiler-riscv64.result == 'success'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mire-compiler-riscv64-unknown-linux-gnu
+          path: compiler-artifacts
+
+      - uses: actions/checkout@v4
+
+      - name: Enable QEMU binfmt
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+
+      - name: Checkout kioto (active PR #3 branch, v2.5.0)
+        uses: actions/checkout@v4
+        with:
+          repository: Evelynx-Dev/Kioto-1
+          path: kioto
+          ref: pr/2.5.0
+
+      - name: Checkout owl source (active PR #16 branch, official repo)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/owl
+          path: owl-src
+          ref: pr/1.2.0
+
+      - name: Build owl in a riscv64 container (QEMU)
+        env:
+          MIRE_TARBALL: /buildsrc/compiler-artifacts/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
         run: |
-          mkdir -p dist/compiler
-          cp Avenys-rust/target/release/mire dist/compiler/mire
-          cp -r Avenys-rust/src/runtime dist/compiler/runtime
-          cp -r Avenys-rust/src/pal dist/compiler/pal
+          docker run --rm --platform linux/riscv64 \
+            -e MIRE_TARBALL \
+            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
+            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc owl
+
+      - name: Package owl tarball (riscv64)
+        run: |
+          mkdir -p dist/owl/lib
+          cp owl-src/bin/release/main dist/owl/owl
+          cp -r kioto dist/owl/kioto
+          find owl-src/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \; 2>/dev/null || true
           cd dist
-          tar czf ../mire-compiler-linux-x86_64.tar.gz compiler/
+          tar czf ../owl-riscv64-unknown-linux-gnu.tar.gz owl/
+          cd ..
+          sha256sum owl-riscv64-unknown-linux-gnu.tar.gz > owl-riscv64-unknown-linux-gnu.sha256
+
+      - name: Upload owl tarball (riscv64)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owl-riscv64-unknown-linux-gnu
+          path: owl-riscv64-unknown-linux-gnu.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    name: Create Release
+    needs: [compiler, compiler-riscv64, owl]
+    if: >-
+      needs.compiler.result == 'success' ||
+      needs.compiler-riscv64.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect tarballs and checksums
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} dist/ \;
+          cd dist
+          cat *.sha256 2>/dev/null | sort > SHASUMS.txt
+          ls -la
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "Build ${{ github.ref_name }}"
-          body_path: docs/CHANGELOG.md
-          files: |
-            owl-linux-x86_64.tar.gz
-            mire-compiler-linux-x86_64.tar.gz
+          body_path: README.md
+          files: dist/*

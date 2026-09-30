@@ -1,0 +1,7 @@
+// String literals and ownership are checked without a host-side stub.
+
+@[test]
+pub fn string_value: () :bool {
+    set value = "mire"
+    return value == "mire"
+}

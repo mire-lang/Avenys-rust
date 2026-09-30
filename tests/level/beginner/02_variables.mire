@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set name = "Mire" :str
-    use dasu("Hello {name}")
-}

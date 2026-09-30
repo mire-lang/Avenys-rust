@@ -1,7 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 1 :i64
-    set y = x
-    use dasu("x = {x}, y = {y}")
-}

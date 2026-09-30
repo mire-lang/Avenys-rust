@@ -1,0 +1,27 @@
+// POO Skills: skill definition and method invocation
+
+pub skill Priced { fn total: (self) :i64 }
+
+struct Basket { units :i64 }
+
+impl Priced for Basket {
+    fn total: (self) :i64 { return self.units * 2 }
+}
+
+@[test]
+pub fn skill_total_method_exists: () :bool {
+    set basket = Basket(3)
+    set total = basket.total()
+
+    // A skill method dispatches to the impl attached to the struct
+    return total == 6
+}
+
+@[test]
+pub fn skill_method_scales_with_input: () :bool {
+    set basket = Basket(10)
+    set total = basket.total()
+
+    // The skill method reflects the struct field it reads
+    return total == 20
+}

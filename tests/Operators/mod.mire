@@ -1,0 +1,7 @@
+// Operator precedence and boolean composition.
+
+@[test]
+pub fn arithmetic_and_logic: () :bool {
+    set arithmetic = 6 * 7
+    return arithmetic == 42 && true || false
+}

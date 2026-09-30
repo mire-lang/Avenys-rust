@@ -1,0 +1,4 @@
+cons const_value = 42 :i64
+
+@[test]
+pub fn declaration_family_is_active: () :bool { return const_value == 42 }

@@ -1,0 +1,38 @@
+// Struct: construction, field access, and composition
+
+struct Point { x :i64, y :i64 }
+
+@[test]
+pub fn struct_constructs_with_two_fields: () :bool {
+    set point = Point(20 22)
+
+    // Tests struct can be created with two integer fields
+    return true
+}
+
+@[test]
+pub fn struct_field_access_x: () :bool {
+    set point = Point(20 22)
+    set x_val = point.x
+
+    // Tests accessing x field returns 20
+    return x_val == 20
+}
+
+@[test]
+pub fn struct_field_access_y: () :bool {
+    set point = Point(20 22)
+    set y_val = point.y
+
+    // Tests accessing y field returns 22
+    return y_val == 22
+}
+
+@[test]
+pub fn struct_field_addition_equals_42: () :bool {
+    set point = Point(20 22)
+    set sum = point.x + point.y
+
+    // Tests x + y = 20 + 22 = 42
+    return sum == 42
+}

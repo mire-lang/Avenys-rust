@@ -1,0 +1,9 @@
+// Entry point for the modular Mire test suite.
+// The suite is intentionally noisy: a test that lies is just a future bug with
+// better typography, so each family should exercise real compiler behaviour.
+load kioto::strings
+
+pub fn main: () {
+    set greeting = strings::concat("Welcome to the Avenys tests " "hell — now with fewer stubs.")
+    use dasu(greeting)
+}

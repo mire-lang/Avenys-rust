@@ -1,5 +1,0 @@
-set GREETING = "hi" :str
-
-pub fn main: () {
-    use dasu(GREETING)
-}

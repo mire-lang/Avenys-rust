@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set arr = [1 2 3 4 5] :arr[i64 5]
-    set total = math.sum(arr)
-    set avg = math.sum(arr) / 5
-    use dasu("sum={total} avg={avg}")
-}

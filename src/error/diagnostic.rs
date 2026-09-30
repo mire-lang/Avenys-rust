@@ -170,9 +170,7 @@ impl DiagnosticCode {
 
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
-            DiagnosticCode::W0001 | DiagnosticCode::W0002 => {
-                Some(WarningCategory::Unused)
-            }
+            DiagnosticCode::W0001 | DiagnosticCode::W0002 => Some(WarningCategory::Unused),
             DiagnosticCode::W0004 | DiagnosticCode::W0005 | DiagnosticCode::W0021 => {
                 Some(WarningCategory::Type)
             }
@@ -185,7 +183,9 @@ impl DiagnosticCode {
             | DiagnosticCode::W0014
             | DiagnosticCode::W0024 => Some(WarningCategory::Style),
             DiagnosticCode::W0011 | DiagnosticCode::W0018 => Some(WarningCategory::Complexity),
-            DiagnosticCode::W0017 | DiagnosticCode::W0019 | DiagnosticCode::W0036
+            DiagnosticCode::W0017
+            | DiagnosticCode::W0019
+            | DiagnosticCode::W0036
             | DiagnosticCode::W0038
             | DiagnosticCode::W0040 => Some(WarningCategory::Logic),
             DiagnosticCode::W0041

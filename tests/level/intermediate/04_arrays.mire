@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set arr = [1 2 3] :vec[i64]
-    set first = lists.get(arr 0)
-    set last = lists.get(arr 2)
-    use dasu("first={first} last={last}")
-}

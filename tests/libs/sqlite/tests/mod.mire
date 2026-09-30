@@ -1,0 +1,11 @@
+// SQLite fixture. The system library is linked directly, without requiring a
+// SQLite runtime dependency in the web server process itself.
+extern lib "sqlite_fixture" "tests/libs/sqlite/libsqlite3.so"
+extern fn sqlite3_libversion_number: () :i64 lib "sqlite_fixture"
+
+@[test]
+pub fn sqlite_shared_library_reports_version: () :bool {
+    set version = sqlite3_libversion_number()
+    if version < 3000000 { return false }
+    return version > 0
+}

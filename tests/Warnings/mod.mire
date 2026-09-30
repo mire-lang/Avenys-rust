@@ -1,0 +1,12 @@
+// Warning analyzer fixture: these declarations are intentionally meaningful
+// inputs for W0001, W0002 and W0044, while the test still validates behavior.
+
+fn warning_unused_function: () :i64 { return 7 }
+
+@[test]
+pub fn warning_analyzer_preserves_value: () :bool {
+    set observed = 4
+    set unused_value = 99
+    set unchanged = 3 mut
+    return observed == 4 && unchanged == 3
+}

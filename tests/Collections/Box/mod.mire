@@ -1,0 +1,15 @@
+// Verifies the generic Box-shaped record and field access. The compiler's
+// documented `box(value)` allocator is not currently registered as a Mire
+// builtin, so this test deliberately exercises the supported generic record
+// path and keeps that missing allocator visible to a dedicated regression.
+pub struct Box[T] {
+    value :T
+}
+
+@[test]
+pub fn box_constructs_and_reads: () :bool {
+    set boxed = Box[i64](42)
+    set observed = boxed.value
+    if observed != 42 { return false }
+    return observed == boxed.value
+}

@@ -1,0 +1,7 @@
+load kioto::strings
+
+@[test]
+pub fn kioto_integration_is_runtime_backed: () :bool {
+    set value = strings.upper("kioto")
+    return value == "KIOTO"
+}

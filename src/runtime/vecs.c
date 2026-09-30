@@ -132,11 +132,15 @@ void *rt_list_concat(void *left_ptr, void *right_ptr) {
     int64_t *out = result + 2;
     if (left_ptr) {
         int64_t *larr = (int64_t *)left_ptr + 1;
-        for (int64_t i = 0; i < llen; i++) out[i] = larr[i];
+        for (int64_t i = 0; i < llen; i++) {
+            out[i] = larr[i];
+        }
     }
     if (right_ptr) {
         int64_t *rarr = (int64_t *)right_ptr + 1;
-        for (int64_t i = 0; i < rlen; i++) out[llen + i] = rarr[i];
+        for (int64_t i = 0; i < rlen; i++) {
+            out[llen + i] = rarr[i];
+        }
     }
     // Return a pointer that conforms to the list layout:
     // list_ptr[-1] = cap, list_ptr[0] = len, list_ptr[1..] = data
@@ -158,7 +162,9 @@ void *rt_list_slice(void *list_ptr, int64_t start, int64_t end) {
     result[1] = new_len;  // length
     int64_t *out = result + 2;
     int64_t *arr = (int64_t *)list_ptr + 1;
-    for (int64_t i = 0; i < new_len; i++) out[i] = arr[start + i];
+    for (int64_t i = 0; i < new_len; i++) {
+        out[i] = arr[start + i];
+    }
     return result + 1;
 }
 
@@ -177,7 +183,9 @@ void rt_list_free(void *list_ptr) {
 }
 
 void *rt_list_clear(void *list_ptr) {
-    if (list_ptr) ((int64_t *)list_ptr)[0] = 0;
+    if (list_ptr) {
+        ((int64_t *)list_ptr)[0] = 0;
+    }
     return list_ptr;
 }
 
@@ -190,7 +198,8 @@ int64_t rt_list_get_i64(void *list_ptr, int64_t index) {
 void *rt_list_get_ptr(void *list_ptr, int64_t index) {
     int64_t len = rt_list_len(list_ptr);
     if (index < 0 || index >= len) return NULL;
-    return ((void **)list_ptr)[index + 1];
+    void *value = ((void **)list_ptr)[index + 1];
+    return value;
 }
 
 void rt_list_set_i64(void *list_ptr, int64_t index, int64_t value) {
@@ -203,7 +212,7 @@ void rt_lists_set_i64(void *list, int64_t index, int64_t value) { rt_list_set_i6
 int64_t rt_lists_len(void *list) { return rt_list_len(list); }
 int64_t rt_lists_get_i64(void *list, int64_t index) { return rt_list_get_i64(list, index); }
 void *rt_lists_get_ptr(void *list, int64_t index) { return rt_list_get_ptr(list, index); }
-char *rt_vec_get_str(void *list, int64_t index) { return (char *)rt_list_get_ptr(list, index); }
+char *rt_vec_get_str(void *list, int64_t index) { char *raw = (char *)rt_list_get_ptr(list, index); return rt_managed_ensure_managed(raw); }
 int64_t rt_vec_len(void *list) { return rt_list_len(list); }
 void *rt_lists_push_i64(void *list, int64_t value) { return rt_list_push_i64(list, value); }
 void *rt_lists_push_ptr(void *list, void *value) { return rt_list_push_ptr(list, value); }
@@ -328,3 +337,218 @@ int64_t rt_vecs_last(void *vec, int64_t line, int64_t col, const char *file) {
 }
 int64_t rt_vecs_contains_i64(void *vec, int64_t needle) { return rt_lists_contains_i64(vec, needle); }
 int64_t rt_vecs_index_of_i64(void *vec, int64_t needle) { return rt_lists_index_of_i64(vec, needle); }
+
+void *rt_vecs_clone(void *vec) {
+    if (!vec) return NULL;
+    int64_t len = rt_list_len(vec);
+    if (len == 0) return rt_list_create(0, 8);
+    int64_t cap = list_cap((void *)vec);
+    int64_t elem_size = 8;
+    void *new_vec = rt_list_create(len, 8);
+    if (!new_vec) return NULL;
+    memcpy(((char *)new_vec) + 16, ((char *)vec) + 16, (size_t)len * 8);
+    ((int64_t *)new_vec)[1] = len;
+    return new_vec;
+}
+
+// ── filter ───────────────────────────────────────────────────────
+void *rt_vecs_filter_i64(void *vec, int64_t (*pred)(int64_t)) {
+    if (!vec) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    void *result = rt_list_create(len, 8);
+    if (!result) return rt_list_create(4, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    int64_t *out = (int64_t *)result + 1;
+    int64_t out_len = 0;
+    for (int64_t i = 0; i < rt_list_len(vec); i++) {
+        if (pred(((int64_t *)vec)[i + 1])) {
+            ((int64_t *)result)[out_len + 1] = ((int64_t *)vec)[i + 1];
+            out_len++;
+        }
+    }
+    ((int64_t *)result)[0] = out_len;
+    return result;
+}
+
+void *rt_vecs_filter_ptr(void *vec, int64_t (*pred)(void *)) {
+    if (!vec) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    void *result = rt_list_create(len, 8);
+    if (!result) return rt_list_create(4, 8);
+    void **src = (void **)vec + 1;
+    void **out = (void **)result + 1;
+    int64_t out_len = 0;
+    for (int64_t i = 0; i < rt_list_len(vec); i++) {
+        if (pred(((void **)vec)[i + 1])) {
+            ((void **)result)[out_len + 1] = ((void **)vec)[i + 1];
+            out_len++;
+        }
+    }
+    ((int64_t *)result)[0] = out_len;
+    return result;
+}
+
+// ── map ──────────────────────────────────────────────────────────
+void *rt_vecs_map_i64_i64(void *vec, int64_t (*f)(int64_t)) {
+    if (!vec) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    void *result = rt_list_create(len, 8);
+    if (!result) return rt_list_create(4, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    int64_t *out = (int64_t *)result + 1;
+    for (int64_t i = 0; i < len; i++) {
+        out[i] = f(src[i]);
+    }
+    ((int64_t *)result)[0] = len;
+    return result;
+}
+
+void *rt_vecs_map_i64_ptr(void *vec, void *(*f)(int64_t)) {
+    if (!vec) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    void *result = rt_list_create(len, 8);
+    if (!result) return rt_list_create(4, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    void **out = (void **)result + 1;
+    for (int64_t i = 0; i < len; i++) {
+        out[i] = f(src[i]);
+    }
+    ((int64_t *)result)[0] = len;
+    return result;
+}
+
+void *rt_vecs_map_ptr_ptr(void *vec, void *(*f)(void *)) {
+    if (!vec) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    void *result = rt_list_create(len, 8);
+    if (!result) return rt_list_create(4, 8);
+    void **src = (void **)vec + 1;
+    void **out = (void **)result + 1;
+    for (int64_t i = 0; i < len; i++) {
+        out[i] = f(src[i]);
+    }
+    ((int64_t *)result)[0] = len;
+    return result;
+}
+
+// ── fold ─────────────────────────────────────────────────────────
+int64_t rt_vecs_fold_i64(void *vec, int64_t init, int64_t (*f)(int64_t, int64_t)) {
+    if (!vec) return 0;
+    int64_t acc = 0;
+    int64_t len = rt_list_len(vec);
+    int64_t *data = (int64_t *)vec + 1;
+    for (int64_t i = 0; i < len; i++) {
+        acc = f(acc, ((int64_t *)vec)[i + 1]);
+    }
+    return acc;
+}
+
+void *rt_vecs_fold_ptr(void *vec, void *init, void *(*f)(void *, void *)) {
+    if (!vec) return NULL;
+    void *acc = init;
+    int64_t len = rt_list_len(vec);
+    void **data = (void **)vec + 1;
+    for (int64_t i = 0; i < len; i++) {
+        acc = f(acc, ((void **)vec)[i + 1]);
+    }
+    return acc;
+}
+
+// ── find ─────────────────────────────────────────────────────────
+int64_t rt_vecs_find_i64(void *vec, int64_t (*pred)(int64_t)) {
+    if (!vec) return -1;
+    int64_t len = rt_list_len(vec);
+    int64_t *data = (int64_t *)vec + 1;
+    for (int64_t i = 0; i < len; i++) {
+        if (pred(data[i])) return i;
+    }
+    return -1;
+}
+
+int64_t rt_vecs_find_ptr(void *vec, int64_t (*pred)(void *)) {
+    if (!vec) return -1;
+    int64_t len = rt_list_len(vec);
+    void **data = (void **)vec + 1;
+    for (int64_t i = 0; i < len; i++) {
+        if (pred(((void **)vec)[i + 1])) return i;
+    }
+    return -1;
+}
+
+// ── partition ────────────────────────────────────────────────────
+void *rt_vecs_partition_i64(void *vec, int64_t (*pred)(int64_t)) {
+    if (!vec) {
+        void *true_list = rt_list_create(4, 8);
+        void *false_list = rt_list_create(4, 8);
+        return rt_list_concat(true_list, false_list);
+    }
+    int64_t len = rt_list_len(vec);
+    void *true_list = rt_list_create(len, 8);
+    void *false_list = rt_list_create(len, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    for (int64_t i = 0; i < rt_list_len(vec); i++) {
+        if (pred(((int64_t *)vec)[i + 1])) {
+            rt_list_push_i64(true_list, src[i]);
+        } else {
+            rt_list_push_i64(false_list, ((int64_t *)vec)[i + 1]);
+        }
+    }
+    // Return tuple as a pair (two vectors concatenated)
+    // For now, return concatenated: true elements followed by false elements
+    return rt_list_concat(true_list, false_list);
+}
+
+// ── chunk ────────────────────────────────────────────────────────
+void *rt_vecs_chunk(void *vec, int64_t size) {
+    if (!vec || size <= 0) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    int64_t num_chunks = (len + size - 1) / size;
+    void *result = rt_list_create(num_chunks, 8);
+    if (!result) return rt_list_create(4, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    for (int64_t i = 0; i < num_chunks; i++) {
+        int64_t start = i * 8;
+        int64_t end = start + size;
+        if (end > len) end = len;
+        void *chunk = rt_list_create(end - start, 8);
+        for (int64_t j = start; j < end; j++) {
+            rt_list_push_i64(chunk, ((int64_t *)vec)[j + 1]);
+        }
+        rt_list_push_ptr(result, chunk);
+    }
+    return result;
+}
+
+// ── window ───────────────────────────────────────────────────────
+void *rt_vecs_window(void *vec, int64_t size) {
+    if (!vec || size <= 0) return rt_list_create(4, 8);
+    int64_t len = rt_list_len(vec);
+    if (len < size) return rt_list_create(4, 8);
+    int64_t num_windows = len - size + 1;
+    void *result = rt_list_create(num_windows, 8);
+    if (!result) return rt_list_create(4, 8);
+    int64_t *src = (int64_t *)vec + 1;
+    for (int64_t i = 0; i < num_windows; i++) {
+        void *window = rt_list_create(size, 8);
+        for (int64_t j = 0; j < size; j++) {
+            rt_list_push_i64(window, ((int64_t *)vec)[i + j + 1]);
+        }
+        rt_list_push_ptr(result, window);
+    }
+    return result;
+}
+
+// ── binary_search ────────────────────────────────────────────────
+int64_t rt_vecs_binary_search(void *vec, int64_t value) {
+    if (!vec) return -1;
+    int64_t len = rt_list_len(vec);
+    int64_t *data = (int64_t *)vec + 1;
+    int64_t left = 0, right = rt_list_len(vec) - 1;
+    while (left <= right) {
+        int64_t mid = left + (right - left) / 2;
+        if (data[mid] == value) return mid;
+        if (data[mid] < value) left = mid + 1;
+        else right = mid - 1;
+    }
+    return -1;
+}

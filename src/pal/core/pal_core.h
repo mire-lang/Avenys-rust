@@ -78,6 +78,8 @@ typedef struct pal_ops {
     int64_t (*listener_accept)(int64_t listener_internal);
     int64_t (*socket_send)(int64_t internal, const void *buf, int64_t length);
     int64_t (*socket_recv)(int64_t internal, void *buf, int64_t capacity);
+    int64_t (*listener_send)(int64_t internal, const void *buf, int64_t length);
+    int64_t (*listener_recv)(int64_t internal, void *buf, int64_t capacity);
     void (*socket_close)(int64_t internal);
     void (*listener_close)(int64_t internal);
 
@@ -120,12 +122,18 @@ bool (*proc_exists)(int64_t pid);
 int64_t (*proc_run)(const char *cmd, const char **argv);
 
 // Extended filesystem (UNSANBOXED)
+bool (*fs_exists)(const char *path);
+bool (*fs_mkdir)(const char *path);
+bool (*fs_rmdir)(const char *path);
+bool (*fs_unlink)(const char *path);
+bool (*fs_remove)(const char *path);
 const char *(*fs_ext)(const char *path);
 const char *(*fs_dir)(const char *path);
 const char *(*fs_name)(const char *path);
 bool (*fs_is_file)(const char *path);
 bool (*fs_copy)(const char *src, const char *dst);
 bool (*fs_move)(const char *src, const char *dst);
+bool (*fs_chmod)(const char *path, const char *mode);
 
 // Extended environment
 const char *(*env_all)(void);

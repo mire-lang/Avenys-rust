@@ -1,0 +1,6 @@
+@[test]
+pub fn scalar_types: () :bool {
+    set integer = 42 :i64
+    set flag = true
+    return integer == 42 && flag
+}

@@ -1,0 +1,36 @@
+// The macros are auto-scoped from owl.toml [macros]; no load statement is
+// required (and mire has no `macros` package export to load).
+
+@[test]
+pub fn builtin_macro_family_is_active: () :bool {
+    set value = 40 + 2
+    assert!(value == 42 "macro assertion must observe the computed value")
+    assert_eq!(value 42 "assert_eq! must validate the computed value")
+    assert_ne!(value 0 "assert_ne! must reject only the unexpected value")
+    set traced = trace_i64!(value)
+
+    // Macros observe the computed value and trace_i64 echoes it back
+    return traced == value
+}
+
+@[test]
+pub fn builtin_debug_macro_preserves_value: () :bool {
+    set computed = 6 * 7
+    set observed = dbg!(computed)
+    assert_eq!(observed computed "dbg! must return the value it reports")
+
+    // dbg! returns the value it reports
+    return observed == 42
+}
+
+@[test]
+pub fn builtin_comparison_macros_reject_wrong_answers: () :bool {
+    set left = 9
+    set right = 3
+    assert_ne!(left right "different values must remain different")
+    set quotient = left / right
+    assert_eq!(quotient 3 "the comparison must inspect the computed quotient")
+
+    // The computed quotient satisfies the multiplication identity
+    return quotient * right == left
+}

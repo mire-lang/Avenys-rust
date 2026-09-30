@@ -1,0 +1,33 @@
+// POO Data: enum matching with variant discrimination
+
+enum Availability {
+    InStock
+    SoldOut
+}
+
+@[test]
+pub fn availability_instock_matches: () :bool {
+    set state = Availability.InStock
+    set is_instock = if state == Availability.InStock { 1 } else { 0 }
+
+    // Tests matching Availability.InStock variant
+    return is_instock == 1
+}
+
+@[test]
+pub fn availability_soldout_matches: () :bool {
+    set state = Availability.SoldOut
+    set is_soldout = if state == Availability.SoldOut { 1 } else { 0 }
+
+    // Tests matching Availability.SoldOut variant
+    return is_soldout == 1
+}
+
+@[test]
+pub fn availability_neither_is_other: () :bool {
+    set state = Availability.InStock
+    set is_soldout = if state == Availability.SoldOut { 1 } else { 0 }
+
+    // Tests InStock is not SoldOut
+    return is_soldout == 0
+}

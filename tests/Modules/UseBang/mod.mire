@@ -1,0 +1,16 @@
+// Module UseBang: load! + use! combination
+
+// `use!` is exercised against a local module; a plain `use` must not be able
+// to satisfy this call because the symbol came from `load!`.
+
+load! /tests/Modules/LoadBang/helper
+
+@[test]
+pub fn use_bang_invoke_local_symbol: () :bool {
+    set observed = use! helper::answer()
+// Verifies use! invokes loaded helper
+    set result = observed - 2
+
+    // Verifies result of subtraction after use!
+    return result == 40
+}

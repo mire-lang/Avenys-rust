@@ -1,11 +1,8 @@
-use crate::error::diagnostic::{
-    Diagnostic, DiagnosticCode, WarningFilter,
-};
+use crate::error::diagnostic::{Diagnostic, DiagnosticCode, WarningFilter};
 use crate::parser::Program;
 use crate::parser::ast::{DataType, Expression, Identifier, Literal, Statement};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-
 
 pub struct WarningAnalyzer {
     pub(super) diagnostics: Vec<Diagnostic>,
@@ -99,11 +96,11 @@ impl WarningAnalyzer {
         for (index, stmt) in program.statements.iter().enumerate() {
             if self.suppress_library_warnings {
                 let origin = self.statement_origins.get(index);
-                if let Some(entry) = &self.entry_path
-                    && let Some(origin) = origin
-                    && origin != entry
-                {
-                    continue;
+                match (&self.entry_path, origin) {
+                    (Some(entry), Some(origin)) if origin == entry => {}
+                    // Missing origins are generated/library statements too;
+                    // never attribute their warnings to the user's entry.
+                    _ => continue,
                 }
             }
             self.scan_defs(stmt);
@@ -111,11 +108,9 @@ impl WarningAnalyzer {
         for (index, stmt) in program.statements.iter().enumerate() {
             if self.suppress_library_warnings {
                 let origin = self.statement_origins.get(index);
-                if let Some(entry) = &self.entry_path
-                    && let Some(origin) = origin
-                    && origin != entry
-                {
-                    continue;
+                match (&self.entry_path, origin) {
+                    (Some(entry), Some(origin)) if origin == entry => {}
+                    _ => continue,
                 }
             }
             self.scan_usage(stmt);
@@ -471,7 +466,10 @@ impl WarningAnalyzer {
             Statement::While { condition, body } => {
                 self.loop_depth += 1;
                 self.scan_expr(condition);
-                if let Expression::Literal { lit: Literal::Bool(true), .. } = condition
+                if let Expression::Literal {
+                    lit: Literal::Bool(true),
+                    ..
+                } = condition
                     && !has_break(body)
                 {
                     self.push_warn(
@@ -484,7 +482,11 @@ impl WarningAnalyzer {
                         ),
                     );
                 }
-                if let Expression::Literal { lit: Literal::Bool(false), .. } = condition {
+                if let Expression::Literal {
+                    lit: Literal::Bool(false),
+                    ..
+                } = condition
+                {
                     self.push_warn(
                         DiagnosticCode::W0017,
                         "Unreachable Loop",
@@ -688,7 +690,11 @@ impl WarningAnalyzer {
                         Some("this comparison is always true or always false".to_string()),
                     );
                 }
-                if let Expression::Literal { lit: Literal::Int(n), .. } = right.as_ref() {
+                if let Expression::Literal {
+                    lit: Literal::Int(n),
+                    ..
+                } = right.as_ref()
+                {
                     match operator.as_str() {
                         "*" if *n == 0 => self.push_warn(
                             DiagnosticCode::W0007,
@@ -751,7 +757,10 @@ impl WarningAnalyzer {
             Expression::Index { target, index, .. } => {
                 self.scan_expr(target);
                 self.scan_expr(index);
-                if let Expression::Literal { lit: Literal::Int(n), .. } = index.as_ref()
+                if let Expression::Literal {
+                    lit: Literal::Int(n),
+                    ..
+                } = index.as_ref()
                     && *n < 0
                 {
                     self.push_warn(
@@ -804,7 +813,6 @@ impl WarningAnalyzer {
             _ => {}
         }
     }
-
 }
 
 fn contains_explicit_return(statements: &[Statement]) -> bool {
@@ -845,12 +853,29 @@ fn contains_explicit_return(statements: &[Statement]) -> bool {
 
 pub(super) fn literal_pattern_key(expr: &Expression) -> Option<String> {
     match expr {
-        Expression::Literal { lit: Literal::Int(v), .. } => Some(format!("int:{v}")),
-        Expression::Literal { lit: Literal::Float(v), .. } => Some(format!("float:{v}")),
-        Expression::Literal { lit: Literal::Bool(v), .. } => Some(format!("bool:{v}")),
-        Expression::Literal { lit: Literal::Str(v), .. } => Some(format!("str:{v}")),
-        Expression::Literal { lit: Literal::Char(v), .. } => Some(format!("char:{v}")),
-        Expression::Literal { lit: Literal::None, .. } => Some("mu".to_string()),
+        Expression::Literal {
+            lit: Literal::Int(v),
+            ..
+        } => Some(format!("int:{v}")),
+        Expression::Literal {
+            lit: Literal::Float(v),
+            ..
+        } => Some(format!("float:{v}")),
+        Expression::Literal {
+            lit: Literal::Bool(v),
+            ..
+        } => Some(format!("bool:{v}")),
+        Expression::Literal {
+            lit: Literal::Str(v),
+            ..
+        } => Some(format!("str:{v}")),
+        Expression::Literal {
+            lit: Literal::Char(v),
+            ..
+        } => Some(format!("char:{v}")),
+        Expression::Literal {
+            lit: Literal::None, ..
+        } => Some("mu".to_string()),
         _ => None,
     }
 }
@@ -858,12 +883,29 @@ pub(super) fn literal_pattern_key(expr: &Expression) -> Option<String> {
 fn expr_fingerprint(expr: &Expression) -> String {
     match expr {
         Expression::Identifier(id) => format!("id:{}", id.name),
-        Expression::Literal { lit: Literal::Int(v), .. } => format!("int:{v}"),
-        Expression::Literal { lit: Literal::Float(v), .. } => format!("float:{v}"),
-        Expression::Literal { lit: Literal::Bool(v), .. } => format!("bool:{v}"),
-        Expression::Literal { lit: Literal::Str(v), .. } => format!("str:{v}"),
-        Expression::Literal { lit: Literal::Char(v), .. } => format!("char:{v}"),
-        Expression::Literal { lit: Literal::None, .. } => "mu".to_string(),
+        Expression::Literal {
+            lit: Literal::Int(v),
+            ..
+        } => format!("int:{v}"),
+        Expression::Literal {
+            lit: Literal::Float(v),
+            ..
+        } => format!("float:{v}"),
+        Expression::Literal {
+            lit: Literal::Bool(v),
+            ..
+        } => format!("bool:{v}"),
+        Expression::Literal {
+            lit: Literal::Str(v),
+            ..
+        } => format!("str:{v}"),
+        Expression::Literal {
+            lit: Literal::Char(v),
+            ..
+        } => format!("char:{v}"),
+        Expression::Literal {
+            lit: Literal::None, ..
+        } => "mu".to_string(),
         Expression::MemberAccess { target, member, .. } => {
             format!("member:{}:{}", expr_fingerprint(target), member)
         }
@@ -910,7 +952,13 @@ fn has_break(statements: &[Statement]) -> bool {
 }
 
 fn is_bool_literal(expr: &Expression) -> bool {
-    matches!(expr, Expression::Literal { lit: Literal::Bool(_), .. })
+    matches!(
+        expr,
+        Expression::Literal {
+            lit: Literal::Bool(_),
+            ..
+        }
+    )
 }
 
 fn is_str_type(ident: &Identifier) -> bool {
@@ -964,7 +1012,10 @@ pub(super) fn find_unsafe_block_position(body: &[Statement]) -> Option<crate::er
 
 fn is_return_bool(statements: &[Statement], expected: bool) -> bool {
     if statements.len() == 1
-        && let Statement::Return(Some(Expression::Literal { lit: Literal::Bool(val), .. })) = &statements[0]
+        && let Statement::Return(Some(Expression::Literal {
+            lit: Literal::Bool(val),
+            ..
+        })) = &statements[0]
     {
         return *val == expected;
     }

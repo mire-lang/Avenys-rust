@@ -1,0 +1,27 @@
+// Pipeline operator: data flow through chain of operations
+
+@[test]
+pub fn pipeline_with_dasu: () :bool {
+    dasu("output")
+// dasu is a statement: it prints and yields no value, so it belongs in a
+// pipeline as a step and never on either side of a comparison. The original
+// version of this test compared dasu's result against the string it had
+// printed, and codegen answered that comparison with a dummy null pointer for
+// the print: the type checker used to bridge the mismatch with inttoptr plus
+// strcmp, read the integer as a pointer and segfaulted. It now rejects a
+// comparison of two value-less operands outright, so the bad shape cannot be
+// written at all. See CHANGELOG.md.
+    set start = 0
+    set value = start + 1
+    set result = value * 2
+    return result == 2
+}
+
+@[test]
+pub fn pipeline_chains_a_sequence_of_steps: () :bool {
+    set start = 2
+    set first = start + 3
+    set second = first * 4
+    set third = second - 8
+    return third == 12
+}

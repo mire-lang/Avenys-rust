@@ -1,0 +1,9 @@
+// End-to-end family: this is compiled and executed by the real test harness.
+
+@[test]
+pub fn compiler_pipeline_value: () :bool {
+    set source_stage = 1
+    set runtime_stage = source_stage + 41
+    if runtime_stage != 42 { return false }
+    return runtime_stage - source_stage == 41
+}

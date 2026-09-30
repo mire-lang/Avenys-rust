@@ -1,0 +1,15 @@
+pub skill Describable { fn code: (self) :i64 }
+
+struct Marker { value :i64 }
+
+impl Describable for Marker {
+    fn code: (self) :i64 { return self.value + 1 }
+}
+
+@[test]
+pub fn skill_implementation_is_callable: () :bool {
+    set marker = Marker(41)
+    set observed = marker.code()
+    if observed != 42 { return false }
+    return observed - marker.value == 1
+}

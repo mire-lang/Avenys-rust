@@ -1,0 +1,79 @@
+// Branch forms verified through final state, not early returns
+
+@[test]
+pub fn if_true_selected: () :bool {
+    set flag = false mut
+    set flag = if true { true } else { false }
+
+    // Tests if with true condition selects first branch
+    return flag == true
+}
+
+@[test]
+pub fn if_false_selected: () :bool {
+    set flag = false mut
+    set flag = if false { true } else { false }
+
+    // Tests if with false condition selects second branch
+    return flag == false
+}
+
+@[test]
+pub fn if_else_if_chain: () :bool {
+    set state = 2 mut
+    set result = 0 mut
+    if state == 1 {
+        set result = 1
+    }
+    if state == 2 {
+        set result = 2
+    }
+
+    // Tests nested if-else chain resolution
+    return result == 2
+}
+
+@[test]
+pub fn branch_with_comparison: () :bool {
+    set num = 7 mut
+    set picked = if num > 5 { 10 } else { 0 }
+
+    // Tests if with comparison condition
+    return picked == 10
+}
+
+@[test]
+pub fn branch_assignment_persists: () :bool {
+    set counter = 0 mut
+    if true {
+        set counter += 1
+    }
+    set final = counter
+
+    // Tests if block mutation persists after branch
+    return final == 1
+}
+
+@[test]
+pub fn nested_if_depth_two: () :bool {
+    set outer = true mut
+    set inner = 0 mut
+    if outer {
+        set inner = 1
+    }
+    if inner == 1 {
+        set inner = inner + 1
+    }
+
+    // Tests nested if statement depth
+    return inner == 2
+}
+
+@[test]
+pub fn branch_with_arithmetic: () :bool {
+    set val = 3 mut
+    set computed = if val + 2 == 5 { 100 } else { 99 }
+
+    // Tests if with arithmetic in condition
+    return computed == 100
+}

@@ -1,17 +1,35 @@
+use super::build_support::{
+    apply_cfg_filter, collect_used_symbols, dedup_llvm_declarations, generate_enum_constructors,
+    generate_runtime_declarations, generate_struct_constructors, inject_macros,
+    inject_test_harness, minimal_runtime_c_files, neutralise_ignored_tests, precompile_c_object,
+    progress_phase, runtime_base, set_c_defs,
+};
 use super::*;
 use crate::compiler::check_warnings_with_origins;
-use crate::compiler::mir::{codegen::mir_to_llvm_with_filename, lower::lower_program_with_filename, optimize::optimize};
+use crate::compiler::mir::{
+    codegen::mir_to_llvm_with_filename, lower::lower_program_with_filename, optimize::optimize,
+};
 use crate::error::diagnostic::Diagnostic;
 use crate::loader::load_program_with_cache;
 use crate::parser::ast::Statement;
-use super::build_support::{
-    apply_cfg_filter, dedup_llvm_declarations, generate_runtime_declarations,
-    generate_enum_constructors, generate_struct_constructors, inject_test_harness, precompile_c_object,
-    inject_macros, progress_phase,
-    runtime_base,
-};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+/// Map a target triple to the PAL platform directory name.
+/// Falls back to "linux" for unknown targets (backward-compatible).
+fn pal_platform_for_target(target: &str) -> &'static str {
+    if target.contains("linux") {
+        "pal/linux"
+    } else if target.contains("darwin") || target.contains("apple") {
+        "pal/darwin"
+    } else if target.contains("windows") || target.contains("mingw") {
+        "pal/windows"
+    } else if target.contains("freebsd") {
+        "pal/freebsd"
+    } else {
+        "pal/linux"
+    }
+}
 
 pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> Result<BuildResult> {
     let source = fs::read_to_string(source_path).map_err(|err| {
@@ -22,10 +40,45 @@ pub fn compile_file_with_avenys(source_path: &Path, options: &BuildOptions) -> R
         ))
     })?;
     let source_filename = source_path.display().to_string();
+    let normalized = normalize_test_build_options(options);
+    let options = normalized.as_ref().unwrap_or(options);
     match compile_file_inner(source_path, options, &source, &source_filename) {
         Ok(result) => Ok(result),
         Err(err) => Err(err.ensure_context(&source_filename, &source)),
     }
+}
+
+/// Enforce what a test build needs, independently of what the project builds.
+///
+/// A test always needs an executable, and always needs the runtime to run on.
+/// What a project publishes is irrelevant to both: a library configured as
+/// `shared` would otherwise build a shared object with no test entry point, and
+/// the runner would report every test file as ok having run no assertion. This
+/// runs once, at the entry point, before any consumer of `artifact` or `runtime`
+/// branches on them, so the test path cannot be steered by a manifest.
+///
+/// Returns `None` when the options already satisfy both, so the common case
+/// borrows rather than clones.
+fn normalize_test_build_options(options: &BuildOptions) -> Option<BuildOptions> {
+    if !options.test_mode {
+        return None;
+    }
+    let needs_artifact = !matches!(options.c_defs.artifact, LibType::Bin);
+    let needs_runtime = matches!(options.c_defs.runtime, RuntimeTier::None);
+    if !needs_artifact && !needs_runtime {
+        return None;
+    }
+    Some(BuildOptions {
+        c_defs: CDefs {
+            artifact: LibType::Bin,
+            runtime: match options.c_defs.runtime {
+                RuntimeTier::None => RuntimeTier::Minimal,
+                tier => tier,
+            },
+            ..options.c_defs.clone()
+        },
+        ..options.clone()
+    })
 }
 
 fn compile_file_inner(
@@ -51,10 +104,28 @@ fn compile_file_inner(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("main");
-    let binary_path = options
-        .output
-        .clone()
-        .unwrap_or_else(|| output_dir.join(stem));
+    // For libraries, use project name with proper prefix/suffix
+    let binary_path = if matches!(options.c_defs.artifact, LibType::Static | LibType::Shared) {
+        // Try to get project name from manifest
+        let project_name = find_project_root(source_path)
+            .and_then(|root| load_project_manifest(&root).ok().flatten())
+            .map(|m| m.project.name)
+            .unwrap_or_else(|| stem.to_string());
+        let (prefix, suffix) = match options.c_defs.artifact {
+            LibType::Static => ("lib", ".a"),
+            LibType::Shared => ("lib", ".so"),
+            _ => ("", ""),
+        };
+        options
+            .output
+            .clone()
+            .unwrap_or_else(|| output_dir.join(format!("{prefix}{project_name}{suffix}")))
+    } else {
+        options
+            .output
+            .clone()
+            .unwrap_or_else(|| output_dir.join(stem))
+    };
     let ir_path = options
         .persist_ir
         .then(|| output_dir.join(format!("{stem}.ll")));
@@ -62,16 +133,131 @@ fn compile_file_inner(
         .persist_ir
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let runtime_base = runtime_base();
-    let (c_source_files, c_sources_hash) = if options.emit_binary {
+    set_c_defs(options.c_defs.clone());
+    let (mut c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files = Vec::new();
-        for directory in ["runtime", "pal/core", "pal/linux"] {
-            super::toolchain::collect_c_files(&runtime_base.join(directory), &mut files)
-                .map_err(|err| {
-                    MireError::new(ErrorKind::Runtime {
-                        span: crate::error::Span::unknown(),
-                        message: format!("Could not collect C sources from {directory}: {err}"),
-                    })
-                })?;
+        // Tier-aware C file collection:
+        //   full:    compile all runtime + PAL C sources (backward-compatible)
+        //   minimal: compile PAL C sources only (runtime is demand-driven at IR level)
+        //   none:    compile no runtime/PAL C sources (freestanding; user provides their own)
+        let runtime_tier = options.c_defs.runtime;
+        if !matches!(runtime_tier, RuntimeTier::None) {
+            if matches!(runtime_tier, RuntimeTier::Full) {
+                // Full tier: compile all runtime and PAL sources (exclude _minimal.c variants)
+                let pal_platform = pal_platform_for_target(
+                    options
+                        .c_defs
+                        .target
+                        .as_deref()
+                        .unwrap_or("x86_64-unknown-linux-gnu"),
+                );
+                for directory in ["runtime", "pal/core"]
+                    .iter()
+                    .chain(std::iter::once(&pal_platform))
+                {
+                    let dir = runtime_base.join(directory);
+                    for entry in std::fs::read_dir(&dir)
+                        .map_err(|err| {
+                            MireError::new(ErrorKind::Runtime {
+                                span: crate::error::Span::unknown(),
+                                message: format!(
+                                    "Could not read C sources from {directory}: {err}"
+                                ),
+                            })
+                        })?
+                        .flatten()
+                    {
+                        let path = entry.path();
+                        if path.extension().is_some_and(|e| e == "c") {
+                            let fname = path.file_name().unwrap().to_string_lossy();
+                            // Skip _minimal.c variants in full tier (they're for minimal tier only)
+                            if !fname.ends_with("_minimal.c") {
+                                files.push(path.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Minimal tier: collect only runtime sources (PAL added on demand).
+                // After IR generation, R3.2 filters runtime .c to only needed files,
+                // and adds PAL .c files only if the program uses PAL symbols.
+                // The full hash is kept for conservative cache invalidation.
+                let dir = runtime_base.join("runtime");
+                for entry in std::fs::read_dir(&dir)
+                    .map_err(|err| {
+                        MireError::new(ErrorKind::Runtime {
+                            span: crate::error::Span::unknown(),
+                            message: format!("Could not read C sources from runtime: {err}"),
+                        })
+                    })?
+                    .flatten()
+                {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "c") {
+                        let fname = path.file_name().unwrap().to_string_lossy();
+                        // In minimal tier, prefer _minimal.c variants, but also include base files
+                        // that don't have a _minimal counterpart
+                        if fname.ends_with("_minimal.c")
+                            || !files
+                                .iter()
+                                .any(|f| f.contains(&fname.replace("_minimal", "")))
+                        {
+                            files.push(path.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+            // Also collect C sources from the compiler's runtime directory (standard library)
+            let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let compiler_runtime = manifest_dir.join("src/runtime");
+            if compiler_runtime.exists() {
+                for entry in std::fs::read_dir(&compiler_runtime)
+                    .map_err(|err| {
+                        MireError::new(ErrorKind::Runtime {
+                            span: crate::error::Span::unknown(),
+                            message: format!(
+                                "Could not read C sources from compiler runtime: {err}"
+                            ),
+                        })
+                    })?
+                    .flatten()
+                {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "c") {
+                        let fname = path.file_name().unwrap().to_string_lossy();
+                        if matches!(runtime_tier, RuntimeTier::Full) {
+                            if !fname.ends_with("_minimal.c") {
+                                files.push(path.to_string_lossy().into_owned());
+                            }
+                        } else {
+                            if fname.ends_with("_minimal.c")
+                                || !files
+                                    .iter()
+                                    .any(|f| f.contains(&fname.replace("_minimal", "")))
+                            {
+                                files.push(path.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for proj_src in &options.c_defs.sources {
+            let root = crate::avens::manifest::find_project_root(source_path)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let p = if std::path::Path::new(proj_src).is_absolute() {
+                std::path::PathBuf::from(proj_src)
+            } else {
+                root.join(proj_src)
+            };
+            if p.exists() {
+                files.push(p.to_string_lossy().into_owned());
+            } else {
+                return Err(MireError::new(ErrorKind::Runtime {
+                    span: crate::error::Span::unknown(),
+                    message: format!("C source '{}' declared in [c] was not found", p.display()),
+                }));
+            }
         }
         files.sort();
         files.dedup();
@@ -93,7 +279,15 @@ fn compile_file_inner(
     };
     let cache_settings = CacheSettings::resolve_for(source_path, options.cache)?;
     let mut cache = IncrementalCache::load_with_settings(source_path, cache_settings)?;
-    let loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
+    let mut loaded = load_program_with_cache(source_path, &mut cache, options.import_mode)?;
+    // An ignored test must not be compiled either, or a test quarantined for a
+    // compile error still fails the build through its own body. This has to
+    // happen here, before analysis, because the harness that skips the call is
+    // injected into the codegen copy further down. Gated on test mode so a
+    // normal build of the same file keeps the function intact.
+    if options.test_mode {
+        neutralise_ignored_tests(&mut loaded.program);
+    }
     let phase_load = build_start.elapsed().as_millis() as u64;
     progress_phase("load", source_filename, phase_load, phase_load);
     let source_file_hash = source_hash(source);
@@ -117,7 +311,17 @@ fn compile_file_inner(
         options.import_mode,
         options.opt_level,
         options.emit_binary,
-        &format!("{:x}", c_sources_hash),
+        &format!(
+            "{:x}|artifact={:?}|runtime={:?}|target={:?}|nostartfiles={}|nostdlib={}|cflags={:?}|libs={:?}",
+            c_sources_hash,
+            options.c_defs.artifact,
+            options.c_defs.runtime,
+            options.c_defs.target,
+            options.c_defs.nostartfiles,
+            options.c_defs.nostdlib,
+            options.c_defs.cflags,
+            options.c_defs.libs,
+        ),
     );
 
     if let Some(entry) = cache.build_entry(
@@ -165,10 +369,17 @@ fn compile_file_inner(
 
     let mut phase_analyse_time = phase_load;
     let mut phase_mir_time = phase_load;
-    let program = if let Some(cached) = cache.cached_analysis(source_path, source_file_hash, dep_fingerprint) {
+    let program = if let Some(cached) =
+        cache.cached_analysis(source_path, source_file_hash, dep_fingerprint)
+    {
         match cached {
             CachedAnalysis::Success(mut program) => {
                 apply_cfg_filter(&mut program);
+                // Macro injection is part of the effective program, not just
+                // a first-build preprocessing step. Reapply it after loading
+                // cached analysis so newly added or changed library macros
+                // cannot disappear from incremental builds.
+                inject_macros(&mut program, source_path);
                 program
             }
             CachedAnalysis::Error(error) => return Err(error),
@@ -218,7 +429,13 @@ fn compile_file_inner(
             } else {
                 err
             };
-            cache.store_analysis_error(source_path, source_file_hash, dep_fingerprint, &program, &err)?;
+            cache.store_analysis_error(
+                source_path,
+                source_file_hash,
+                dep_fingerprint,
+                &program,
+                &err,
+            )?;
             cache.save()?;
             return Err(err);
         }
@@ -257,7 +474,10 @@ fn compile_file_inner(
     for diagnostic in &warnings {
         warning_strs.push(format_diagnostic(diagnostic, true));
     }
-    if let Some(err_diag) = warnings.iter().find(|d| matches!(d.severity, Severity::Error)) {
+    if let Some(err_diag) = warnings
+        .iter()
+        .find(|d| matches!(d.severity, Severity::Error))
+    {
         return Err(MireError::from_diagnostic(err_diag));
     }
 
@@ -338,6 +558,100 @@ fn compile_file_inner(
             (ir, extern_libs)
         }
     };
+    // Scan IR for used symbols (used for both tier enforcement and selective .c compilation).
+    let used = collect_used_symbols(&ir);
+    // Enforce runtime tier contract: runtime="none" means no rt_* calls are allowed.
+    if matches!(options.c_defs.runtime, RuntimeTier::None) && !used.runtime.is_empty() {
+        let mut symbols: Vec<&str> = used.runtime.iter().map(|s| s.as_str()).collect();
+        symbols.sort();
+        return Err(MireError::new(ErrorKind::Runtime {
+            span: crate::error::Span::unknown(),
+            message: format!(
+                "runtime = \"none\" but program uses runtime symbols: {}. \
+                 Set [c] runtime = \"minimal\" or \"full\", or remove these dependencies.",
+                symbols.join(", ")
+            ),
+        }));
+    }
+    // R3.2 — Selective .c compilation for minimal tier:
+    // After IR generation, we know which runtime and PAL symbols are actually used.
+    // Filter runtime c_source_files to only needed files, and add PAL files on demand.
+    // The c_sources_hash was computed from ALL runtime files (conservative fingerprint).
+    if matches!(options.c_defs.runtime, RuntimeTier::Minimal) && !c_source_files.is_empty() {
+        let needed = minimal_runtime_c_files(&used.runtime);
+        let before = c_source_files.len();
+        // Filter: keep only runtime files that are needed
+        c_source_files.retain(|path| {
+            let fname = std::path::Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            needed.contains(&fname)
+        });
+        // Add PAL files on demand: when the program's IR uses PAL symbols OR a
+        // retained runtime .c file bridges into PAL at the C level (helpers.c,
+        // thread.c call pal_* directly, invisible to the IR symbol scan).
+        let runtime_needs_pal = c_source_files.iter().any(|path| {
+            let fname = std::path::Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
+            matches!(fname.as_ref(), "helpers.c" | "thread.c")
+        });
+        if !used.pal.is_empty() || runtime_needs_pal {
+            let pal_platform = pal_platform_for_target(
+                options
+                    .c_defs
+                    .target
+                    .as_deref()
+                    .unwrap_or("x86_64-unknown-linux-gnu"),
+            );
+            let pal_dirs: Vec<&str> = ["pal/core"]
+                .iter()
+                .chain(std::iter::once(&pal_platform))
+                .copied()
+                .collect();
+            for directory in &pal_dirs {
+                let dir = runtime_base.join(directory);
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.extension().is_some_and(|e| e == "c") {
+                            c_source_files.push(p.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+        }
+        // Always keep user-declared [c] sources
+        for proj_src in &options.c_defs.sources {
+            let root = crate::avens::manifest::find_project_root(source_path)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let p = if std::path::Path::new(proj_src).is_absolute() {
+                std::path::PathBuf::from(proj_src)
+            } else {
+                root.join(proj_src)
+            };
+            if p.exists() {
+                let path_str = p.to_string_lossy().into_owned();
+                if !c_source_files.contains(&path_str) {
+                    c_source_files.push(path_str);
+                }
+            }
+        }
+        c_source_files.sort();
+        c_source_files.dedup();
+        if options.debug_dump {
+            eprintln!(
+                "[R3.2] minimal tier: {} → {} .c files ({} used rt symbols, {} used pal symbols)",
+                before,
+                c_source_files.len(),
+                used.runtime.len(),
+                used.pal.len(),
+            );
+        }
+    }
     // Append runtime declarations and struct constructor functions (MIR codegen path)
     {
         let runtime_decls = generate_runtime_declarations(&ir);
@@ -380,12 +694,42 @@ fn compile_file_inner(
             }
         }
         // Add @main entry point wrapper if the program defines @fn_main
-        if ir.contains("define") && ir.contains("@fn_main") && !ir.contains("define i32 @main(") {
+        // Respect @[no_main] attribute to skip wrapper generation (freestanding mode)
+        let has_no_main = program.file_attributes.iter().any(|a| a.name == "no_main")
+            || program.statements.iter().any(|s| {
+                if let Statement::Function { attributes, .. } = s {
+                    attributes.iter().any(|a| a.name == "no_main")
+                } else {
+                    false
+                }
+            });
+        if !has_no_main
+            && ir.contains("define")
+            && ir.contains("@fn_main")
+            && !ir.contains("define i32 @main(")
+        {
+            // `fn_main` is `void` for a unit `main` and `i64` for one that
+            // returns a status. Reading a return value out of a `void` function
+            // is undefined behaviour: the wrapper used to do it unconditionally
+            // and the process then exited with whatever happened to be left in
+            // the return register, so a program whose last call was e.g.
+            // `proc::run_output` exited non-zero despite succeeding.
+            let main_returns_void = ir
+                .lines()
+                .find(|line| line.contains("define") && line.contains("@fn_main("))
+                .map(|line| line.split_whitespace().nth(1) == Some("void"))
+                .unwrap_or(false);
             ir.push_str("\n\ndefine i32 @main(i32 %argc, ptr %argv) {\n");
             ir.push_str("  store i32 %argc, ptr @.argc\n");
             ir.push_str("  store ptr %argv, ptr @.argv\n");
-            ir.push_str("  %call_main = call i64 @fn_main(ptr null)\n");
-            ir.push_str("  ret i32 0\n");
+            if main_returns_void {
+                ir.push_str("  call void @fn_main(ptr null)\n");
+                ir.push_str("  ret i32 0\n");
+            } else {
+                ir.push_str("  %call_main = call i64 @fn_main(ptr null)\n");
+                ir.push_str("  %exit_code = trunc i64 %call_main to i32\n");
+                ir.push_str("  ret i32 %exit_code\n");
+            }
             ir.push_str("}\n");
         }
         ir = dedup_llvm_declarations(&ir);
@@ -422,7 +766,10 @@ fn compile_file_inner(
     }
 
     if options.emit_binary {
-        let cache_dir = runtime_base.join(".cobject_cache");
+        let cache_dir = std::env::var_os("MIRE_CACHE_DIR")
+            .map(PathBuf::from)
+            .map(|path| path.join("cobjects"))
+            .unwrap_or_else(|| runtime_base.join(".cobject_cache"));
         let cache_dir = if fs::create_dir_all(&cache_dir).is_ok() {
             cache_dir
         } else {
@@ -471,6 +818,12 @@ fn compile_file_inner(
             }
             results
         };
+        let has_pal_objects = c_source_files.iter().any(|f| f.contains("pal/"));
+        let needs_sodium = has_pal_objects
+            || used
+                .runtime
+                .iter()
+                .any(|symbol| symbol.starts_with("rt_crypto_"));
         compile_binary_from_ir(
             &final_ir,
             &c_objects,
@@ -478,14 +831,10 @@ fn compile_file_inner(
             &extern_libs,
             options.opt_level,
             source_filename,
+            needs_sodium,
         )?;
         let phase_link = build_start.elapsed().as_millis() as u64;
-        progress_phase(
-            "link",
-            source_filename,
-            phase_link - phase_llvm,
-            phase_link,
-        );
+        progress_phase("link", source_filename, phase_link - phase_llvm, phase_link);
     }
     let phase_done = build_start.elapsed().as_millis() as u64;
     progress_phase("done", source_filename, 0, phase_done);
@@ -531,6 +880,11 @@ fn compile_file_inner(
 }
 
 pub fn default_output_dir(source_path: &Path, mode: BuildMode) -> PathBuf {
+    // Owl's normalized config supplies an exact output directory. It must win
+    // over project auto-discovery so managed builds are reproducible.
+    if let Some(output_dir) = std::env::var_os("MIRE_OUTPUT_DIR") {
+        return PathBuf::from(output_dir);
+    }
     if let Some(project_root) =
         find_project_root(source_path.parent().unwrap_or_else(|| Path::new(".")))
     {
@@ -543,8 +897,75 @@ pub fn default_output_dir(source_path: &Path, mode: BuildMode) -> PathBuf {
     source_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
+        .join("bin")
         .join(match mode {
             BuildMode::Debug => "debug",
             BuildMode::Release => "release",
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(artifact: LibType, runtime: RuntimeTier, test_mode: bool) -> BuildOptions {
+        BuildOptions {
+            c_defs: CDefs {
+                artifact,
+                runtime,
+                ..CDefs::default()
+            },
+            test_mode,
+            ..BuildOptions::default()
+        }
+    }
+
+    #[test]
+    fn a_test_build_is_artifact_independent() {
+        // The library case that made `owl test` report every file as ok having
+        // run nothing: kioto, mire, sdl, sqlite and blu all declare this.
+        let shared = normalize_test_build_options(&opts(LibType::Shared, RuntimeTier::Minimal, true))
+            .expect("shared artifact must be normalized for a test");
+        assert!(matches!(shared.c_defs.artifact, LibType::Bin));
+
+        let statik =
+            normalize_test_build_options(&opts(LibType::Static, RuntimeTier::Minimal, true))
+                .expect("static artifact must be normalized for a test");
+        assert!(matches!(statik.c_defs.artifact, LibType::Bin));
+
+        // Already an executable: nothing to do, so nothing is cloned.
+        assert!(normalize_test_build_options(&opts(LibType::Bin, RuntimeTier::Minimal, true))
+            .is_none());
+    }
+
+    #[test]
+    fn a_test_build_always_gets_a_runtime() {
+        // A test needs the runtime to run on, so a manifest declaring the
+        // freestanding tier is lifted to minimal.
+        let freestanding =
+            normalize_test_build_options(&opts(LibType::Bin, RuntimeTier::None, true))
+                .expect("none runtime must be lifted for a test");
+        assert!(matches!(freestanding.c_defs.runtime, RuntimeTier::Minimal));
+
+        // A full-tier project keeps its tier. Paired with a shared artifact so
+        // there is a normalization to observe: only the artifact should move.
+        let full = normalize_test_build_options(&opts(LibType::Shared, RuntimeTier::Full, true))
+            .expect("shared artifact must be normalized alongside a full tier");
+        assert!(matches!(full.c_defs.runtime, RuntimeTier::Full));
+        assert!(matches!(full.c_defs.artifact, LibType::Bin));
+
+        // Bin + full needs no normalization at all, and must not clone to say so.
+        assert!(normalize_test_build_options(&opts(LibType::Bin, RuntimeTier::Full, true)).is_none());
+    }
+
+    #[test]
+    fn a_normal_build_is_never_touched() {
+        // The whole point is that this applies to tests only. A library build
+        // must keep the artifact it was configured with, or packages would
+        // stop being able to publish.
+        assert!(normalize_test_build_options(&opts(LibType::Shared, RuntimeTier::None, false))
+            .is_none());
+        assert!(normalize_test_build_options(&opts(LibType::Static, RuntimeTier::Minimal, false))
+            .is_none());
+    }
 }

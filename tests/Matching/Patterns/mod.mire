@@ -1,0 +1,30 @@
+// Pattern matching with enum variant discrimination
+
+enum Signal { Green Red }
+
+@[test]
+pub fn variant_green_selected: () :bool {
+    set signal = Signal.Green
+    set is_green = if signal == Signal.Green { 1 } else { 0 }
+
+    // Tests matching Signal.Green variant
+    return is_green == 1
+}
+
+@[test]
+pub fn variant_red_selected: () :bool {
+    set signal = Signal.Red
+    set is_red = if signal == Signal.Red { 1 } else { 0 }
+
+    // Tests matching Signal.Red variant
+    return is_red == 1
+}
+
+@[test]
+pub fn variant_neither: () :bool {
+    set signal = Signal.Green
+    set is_red = if signal == Signal.Red { 1 } else { 0 }
+
+    // Tests that Green is not Red
+    return is_red == 0
+}

@@ -118,7 +118,11 @@ impl Parser {
                         &format!("Invalid integer literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal { lit: Literal::Int(parsed), line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::Int(parsed),
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::FloatLit => {
                 let token = self.advance();
@@ -130,7 +134,11 @@ impl Parser {
                         &format!("Invalid float literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal { lit: Literal::Float(parsed), line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::Float(parsed),
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::CharLit => {
                 let token = self.advance();
@@ -142,21 +150,37 @@ impl Parser {
                         &format!("Invalid char literal '{}'", value),
                     )
                 })?;
-                Ok(Expression::Literal { lit: Literal::Char(parsed), line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::Char(parsed),
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::StrLit => {
                 let token = self.advance();
                 let value = token.value.unwrap_or_default();
-                Ok(Expression::Literal { lit: Literal::Str(value), line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::Str(value),
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::BoolLit => {
                 let token = self.advance();
                 let value = token.value.unwrap_or_default();
-                Ok(Expression::Literal { lit: Literal::Bool(value == "true"), line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::Bool(value == "true"),
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::NoneLit => {
                 let token = self.advance();
-                Ok(Expression::Literal { lit: Literal::None, line: token.line, column: token.column })
+                Ok(Expression::Literal {
+                    lit: Literal::None,
+                    line: token.line,
+                    column: token.column,
+                })
             }
             TokenType::SelfToken => {
                 let token = self.peek();
@@ -187,13 +211,16 @@ impl Parser {
                         args: vec![expr],
                         type_args: Vec::new(),
                         name_line: 0,
-            name_column: 0,
-            data_type: DataType::Str,
+                        name_column: 0,
+                        data_type: DataType::Str,
                     });
                 }
                 if self.check_double_colon() && Self::is_member_name_token(self.peek_n(2).ttype) {
                     let mut full_name = name.clone();
-                    while self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon && Self::is_member_name_token(self.peek_n(2).ttype) {
+                    while self.check(TokenType::Colon)
+                        && self.peek_n(1).ttype == TokenType::Colon
+                        && Self::is_member_name_token(self.peek_n(2).ttype)
+                    {
                         self.advance(); // first :
                         self.advance(); // second :
                         full_name.push('.');
@@ -240,7 +267,10 @@ impl Parser {
 
                     return Ok(Expression::MemberAccess {
                         target: Box::new(identifier_expr_with_pos(&name, token.line, token.column)),
-                        member: full_name.strip_prefix(&format!("{}.", name)).unwrap_or(&full_name).to_string(),
+                        member: full_name
+                            .strip_prefix(&format!("{}.", name))
+                            .unwrap_or(&full_name)
+                            .to_string(),
                         data_type: DataType::Unknown,
                     });
                 }
@@ -339,8 +369,8 @@ impl Parser {
                             args,
                             type_args: Vec::new(),
                             name_line: 0,
-            name_column: 0,
-            data_type: DataType::Unknown,
+                            name_column: 0,
+                            data_type: DataType::Unknown,
                         });
                     }
                 }
@@ -399,8 +429,8 @@ impl Parser {
                                 args,
                                 type_args: Vec::new(),
                                 name_line: 0,
-            name_column: 0,
-            data_type: DataType::Unknown,
+                                name_column: 0,
+                                data_type: DataType::Unknown,
                             });
                         }
                     }
@@ -437,32 +467,39 @@ impl Parser {
         }
     }
 
-    fn check_keyword_ident(&self) -> bool {
-        matches!(
-            self.peek().ttype,
-            TokenType::NewKw
-                | TokenType::DropKw
-                | TokenType::MoveKw
-                | TokenType::OwnKw
-                | TokenType::Set
-                | TokenType::To
-        )
-    }
+      fn check_keyword_ident(&self) -> bool {
+          matches!(
+              self.peek().ttype,
+              TokenType::NewKw
+                  | TokenType::DropKw
+                  | TokenType::MoveKw
+                  | TokenType::OwnKw
+                  | TokenType::Set
+                  | TokenType::To
+                  // `in` reaches an expression in one position only: the head of
+                  // a namespaced call, as in `in::line()`. The membership operator
+                  // and the `for ... in` clause both consume the token themselves
+                  // — the operator after a complete left operand, the clause via
+                  // expect(TokenType::In) — so neither can be mistaken for a name.
+                  | TokenType::In
+          )
+      }
 
-    fn parse_keyword_identifier(&mut self) -> Expression {
-        let token = self.peek();
-        let name = match token.ttype {
-            TokenType::NewKw => "new",
-            TokenType::DropKw => "drop",
-            TokenType::MoveKw => "move",
-            TokenType::OwnKw => "own",
-            TokenType::Set => "set",
-            TokenType::To => "to",
-            _ => unreachable!(),
-        };
-        self.advance();
-        identifier_expr_with_pos(name, token.line, token.column)
-    }
+      fn parse_keyword_identifier(&mut self) -> Expression {
+          let token = self.peek();
+          let name = match token.ttype {
+              TokenType::NewKw => "new",
+              TokenType::DropKw => "drop",
+              TokenType::MoveKw => "move",
+              TokenType::OwnKw => "own",
+              TokenType::Set => "set",
+              TokenType::To => "to",
+              TokenType::In => "in",
+              _ => unreachable!(),
+          };
+          self.advance();
+          identifier_expr_with_pos(name, token.line, token.column)
+      }
 
     fn check_lifecycle_expression_prefix(&self) -> bool {
         matches!(
@@ -570,5 +607,4 @@ impl Parser {
             data_type: DataType::Unknown,
         })
     }
-
 }

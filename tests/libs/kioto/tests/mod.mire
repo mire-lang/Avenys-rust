@@ -1,0 +1,11 @@
+// Native Kioto fixture. This is intentionally separate from the language
+// integration family so a changed Kioto artifact can be validated directly.
+extern lib "kioto_fixture" "tests/libs/kioto/kioto.so"
+extern fn pal_cpu_count: () :i64 lib "kioto_fixture"
+
+@[test]
+pub fn kioto_shared_library_executes: () :bool {
+    set count = pal_cpu_count()
+    if count < 1 { return false }
+    return count > 0
+}

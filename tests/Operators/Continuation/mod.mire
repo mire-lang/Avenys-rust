@@ -1,0 +1,11 @@
+// Continuation family: operator chains and expression formatting
+
+@[test]
+pub fn continuation_chain_with_literals: () :bool {
+    set left = 40
+    set right = 2
+    set result = left + right
+
+    // Tests continuation line with addition: 40 + 2 = 42
+    return result == 42
+}

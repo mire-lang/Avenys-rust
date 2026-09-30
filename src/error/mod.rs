@@ -3,8 +3,11 @@ pub mod format;
 mod kind;
 pub mod mss;
 
+pub use diagnostic::{
+    Diagnostic as Diag, DiagnosticCode, Label as DiagLabel, LabelStyle as DiagLabelStyle,
+    Severity as DiagSeverity,
+};
 use diagnostic::{Diagnostic, Label, LabelStyle, Severity};
-pub use diagnostic::{DiagnosticCode, Diagnostic as Diag, Label as DiagLabel, LabelStyle as DiagLabelStyle, Severity as DiagSeverity};
 use format::format_diagnostic;
 use kind::{default_help_for_code, map_kind};
 use mss::MssError;
@@ -23,10 +26,7 @@ impl Span {
     }
 
     pub const fn unknown() -> Self {
-        Self {
-            line: 0,
-            column: 0,
-        }
+        Self { line: 0, column: 0 }
     }
 
     pub const fn is_unknown(&self) -> bool {
@@ -217,9 +217,10 @@ impl MireError {
     }
 
     pub fn with_suggestion(mut self, message: String, replacement: Option<String>) -> Self {
-        self.diagnostic
-            .suggestions
-            .push(diagnostic::Suggestion { message, replacement });
+        self.diagnostic.suggestions.push(diagnostic::Suggestion {
+            message,
+            replacement,
+        });
         self
     }
 
@@ -419,11 +420,7 @@ pub fn type_error_code(
 }
 
 /// Type error with code and span.
-pub fn type_error_code_at_span(
-    span: Span,
-    code: DiagnosticCode,
-    message: String,
-) -> MireError {
+pub fn type_error_code_at_span(span: Span, code: DiagnosticCode, message: String) -> MireError {
     MireError::new(ErrorKind::Type {
         span,
         message,
@@ -510,8 +507,8 @@ mod tests {
     /// Test: error with unknown position (0,0) still shows a location in output
     #[test]
     fn error_with_unknown_position_shows_recorded_location() {
-        let err = MireError::runtime("io error".to_string())
-            .with_filename("build.mire".to_string());
+        let err =
+            MireError::runtime("io error".to_string()).with_filename("build.mire".to_string());
 
         let formatted = err.format();
         assert!(
@@ -668,8 +665,7 @@ mod tests {
     /// Test: with_span updates the position correctly
     #[test]
     fn with_span_updates_position() {
-        let err = MireError::runtime("test".to_string())
-            .with_span(Span::new(99, 7));
+        let err = MireError::runtime("test".to_string()).with_span(Span::new(99, 7));
 
         assert_eq!(err.span.line, 99);
         assert_eq!(err.span.column, 7);
@@ -684,8 +680,7 @@ mod tests {
     /// Test: with_position backward compat still works
     #[test]
     fn with_position_backward_compat() {
-        let err = MireError::runtime("test".to_string())
-            .with_position(50, 15);
+        let err = MireError::runtime("test".to_string()).with_position(50, 15);
 
         assert_eq!(err.span.line, 50);
         assert_eq!(err.span.column, 15);

@@ -1,0 +1,17 @@
+// FFI: external C function interface verification
+
+extern fn abs: (value :i64) :i64 lib "c"
+
+@[test]
+pub fn ffi_abs_positive: () :bool {
+    set result = abs(42)
+// Tests C extern abs function with positive value
+    return result == 42
+}
+
+@[test]
+pub fn ffi_abs_negative: () :bool {
+    set result = abs(-42)
+// Tests C extern abs function with negative value
+    return result == 42
+}

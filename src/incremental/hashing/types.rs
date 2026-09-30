@@ -88,7 +88,10 @@ pub(super) fn hash_data_type(data_type: &DataType, hasher: &mut FxHasher) {
             hasher.write_u8(37);
             name.hash(hasher);
         }
-        DataType::Closure { params, return_type } => {
+        DataType::Closure {
+            params,
+            return_type,
+        } => {
             hasher.write_u8(38);
             hash_data_types(params, hasher);
             hash_data_type(return_type, hasher);

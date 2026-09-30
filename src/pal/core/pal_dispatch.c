@@ -366,6 +366,20 @@ int64_t pal_socket_recv(pal_socket_t sock, void *buf, int64_t capacity) {
     return ops->socket_recv(internal, buf, capacity);
 }
 
+int64_t pal_listener_send(pal_listener_t listener, const void *buf, int64_t length) {
+    if (!ops || !ops->listener_send) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
+    int64_t internal = (int64_t)pal_core_validate_and_get(listener.index, listener.generation, PAL_RES_LISTENER);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad listener handle"); return -1; }
+    return ops->listener_send(internal, buf, length);
+}
+
+int64_t pal_listener_recv(pal_listener_t listener, void *buf, int64_t capacity) {
+    if (!ops || !ops->listener_recv) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return -1; }
+    int64_t internal = (int64_t)pal_core_validate_and_get(listener.index, listener.generation, PAL_RES_LISTENER);
+    if (!internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad listener handle"); return -1; }
+    return ops->listener_recv(internal, buf, capacity);
+}
+
 void pal_socket_close(pal_socket_t sock) {
     if (!ops || !ops->socket_close) return;
     int64_t internal = (int64_t)pal_core_validate_and_get(sock.index, sock.generation, PAL_RES_SOCKET);
@@ -635,8 +649,13 @@ const char *pal_env_cwd(void) {
 }
 
 const char *pal_env_get(const char *name) {
-    if (!name) return NULL;
-    return getenv(name);
+    /* The Mire env API returns a borrowed string reference. A missing
+       environment variable must therefore be represented by an empty string,
+       never NULL; callers are allowed to compare and concatenate the result. */
+    static const char empty[] = "";
+    if (!name) return empty;
+    const char *value = getenv(name);
+    return value ? value : empty;
 }
 
 // ══ Legacy Shell ────────────────────────────────────────────────
@@ -749,6 +768,11 @@ bool pal_fs_copy(const char *src, const char *dst) {
 bool pal_fs_move(const char *src, const char *dst) {
     if (!ops || !ops->fs_move) return false;
     return ops->fs_move(src, dst);
+}
+
+bool pal_fs_chmod(const char *path, const char *mode) {
+    if (!ops || !ops->fs_chmod) return false;
+    return ops->fs_chmod(path, mode);
 }
 
 #endif // PAL_ALLOW_UNSANDBOXED

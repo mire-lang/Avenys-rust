@@ -175,7 +175,11 @@ mod tests {
                     Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
+                        value: Some(Expression::Literal {
+                            lit: Literal::Int(1),
+                            line: 0,
+                            column: 0,
+                        }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -562,7 +566,9 @@ impl SemanticModelBuilder {
             Expression::Try { expr, .. } => {
                 self.visit_expression(expr);
             }
-            Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
+            Expression::Ok { value, .. }
+            | Expression::Err { value, .. }
+            | Expression::Some { value, .. } => {
                 self.visit_expression(value);
             }
             Expression::Literal { .. } | Expression::Identifier(_) => {}

@@ -1,0 +1,6 @@
+@[test]
+pub fn closure_family_is_discoverable: () :bool {
+    set base = 40
+    set result = base + 2
+    return result == 42
+}

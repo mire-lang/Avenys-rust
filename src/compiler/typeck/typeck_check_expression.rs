@@ -1,6 +1,6 @@
-use crate::error::{Result, type_error_at_span, type_error_code_at_span, DiagnosticCode};
-use crate::parser::ast::{DataType, Expression, Identifier, Literal};
 use crate::canonical_fn_name;
+use crate::error::{DiagnosticCode, Result, type_error_at_span, type_error_code_at_span};
+use crate::parser::ast::{DataType, Expression, Identifier, Literal};
 
 use crate::compiler::typeck::typeck_returns::{
     implicit_return_expression_mut, statements_contain_explicit_return,
@@ -22,13 +22,20 @@ impl TypeChecker {
                 let inner = self.check_expression(expr)?;
                 if inner != DataType::Unknown && *target != DataType::Unknown {
                     let literal_ok = match &**expr {
-                        Expression::Literal { lit: Literal::Int(v), .. } => {
-                            crate::types::unify::validate_int_literal_range(
-                                target, *v, span.line, span.column,
-                            )
-                            .is_ok()
-                        }
-                        Expression::Literal { lit: Literal::Float(_), .. } => {
+                        Expression::Literal {
+                            lit: Literal::Int(v),
+                            ..
+                        } => crate::types::unify::validate_int_literal_range(
+                            target,
+                            *v,
+                            span.line,
+                            span.column,
+                        )
+                        .is_ok(),
+                        Expression::Literal {
+                            lit: Literal::Float(_),
+                            ..
+                        } => {
                             matches!(target, DataType::F32 | DataType::F64)
                         }
                         Expression::Literal { .. } => self.is_assignable(target, &inner),
@@ -38,9 +45,16 @@ impl TypeChecker {
                         if crate::types::unify::is_numeric(target)
                             && crate::types::unify::is_numeric(&inner)
                         {
-                            if let Expression::Literal { lit: Literal::Int(v), .. } = &**expr {
+                            if let Expression::Literal {
+                                lit: Literal::Int(v),
+                                ..
+                            } = &**expr
+                            {
                                 crate::types::unify::validate_int_literal_range(
-                                    target, *v, span.line, span.column,
+                                    target,
+                                    *v,
+                                    span.line,
+                                    span.column,
                                 )?;
                             }
                             return Err(crate::types::errors::precision_loss(
@@ -55,7 +69,11 @@ impl TypeChecker {
                             ));
                         }
                         return Err(crate::types::errors::type_mismatch(
-                            span.line, span.column, target, &inner, "type ascription",
+                            span.line,
+                            span.column,
+                            target,
+                            &inner,
+                            "type ascription",
                         ));
                     }
                 }
@@ -148,37 +166,102 @@ impl TypeChecker {
                 self.in_use_macro = false;
                 result
             }
-Expression::MacroCall { inner } => {
-                 let name = match inner.as_ref() {
-                     Expression::Call { name, .. } => Some(name.clone()),
-                     _ => None,
-                 };
-                 if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
-                     let label = name.unwrap_or_else(|| "?".to_string());
-                     return Err(type_error_code_at_span(
-                         self.current_span,
-                         DiagnosticCode::E0019,
-                         format!(
-                             "no macro named '{label}'\n\n\
+            Expression::MacroCall { inner } => {
+                let name = match inner.as_ref() {
+                    Expression::Call { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                if !name.as_ref().is_some_and(|n| self.macro_names.contains(n)) {
+                    let label = name.unwrap_or_else(|| "?".to_string());
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0019,
+                        format!(
+                            "no macro named '{label}'\n\n\
                               (macros are declared with `@[macro!]` and invoked with `name!(...)`)"
-                         ),
-                     ));
-                 }
-                 let label = name.clone().unwrap_or_default();
-                 if !self.is_macro_allowed(&label) {
-                     return Err(type_error_code_at_span(
-                         self.current_span,
-                         DiagnosticCode::E0021,
-                         format!(
-                             "macro '{label}' is not allowed in this project's [security].macros allowlist"
-                         ),
-                     ));
-                 }
-                 self.in_macro_call = true;
-                 let result = self.check_expression(inner);
-                 self.in_macro_call = false;
-                 result
-             }
+                        ),
+                    ));
+                }
+                let label = name.clone().unwrap_or_default();
+                if !self.is_macro_allowed(&label) {
+                    return Err(type_error_code_at_span(
+                        self.current_span,
+                        DiagnosticCode::E0021,
+                        format!(
+                            "macro '{label}' is not allowed in this project's [security].macros allowlist"
+                        ),
+                    ));
+                }
+                self.in_macro_call = true;
+                let result = self.check_expression(inner);
+                self.in_macro_call = false;
+                result
+            }
+            Expression::Call {
+                name,
+                args,
+                type_args,
+                name_line,
+                name_column,
+                data_type,
+            } if crate::bitcast_target(name).is_some() => {
+                let target = crate::bitcast_target(name).unwrap_or(DataType::Unknown);
+                if args.len() != 1 {
+                    return Err(type_error_at_span(
+                        self.current_span,
+                        format!(
+                            "`bits::<T>(value)` takes exactly 1 argument, got {}",
+                            args.len()
+                        ),
+                    ));
+                }
+                if target == DataType::Unknown {
+                    return Err(type_error_at_span(
+                        self.current_span,
+                        format!("unknown bitcast target type in `bits::<{name}>(value)`"),
+                    ));
+                }
+                let source = self.check_expression(&mut args[0])?;
+                let target_width = match target.bit_width() {
+                    Some(w) => w,
+                    None => {
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            format!(
+                                "`{}` is not a bitcastable type: expected one of \
+                                 i8/i16/i32/i64/i128/u8/u16/u32/u64/u128/f32/f64",
+                                data_type_name_for_diag(&target)
+                            ),
+                        ));
+                    }
+                };
+                match source.bit_width() {
+                    Some(w) if w == target_width => {}
+                    Some(w) => {
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            format!(
+                                "cannot bitcast {} ({w}-bit) to {} ({target_width}-bit): \
+                                 both sides must have the same width",
+                                data_type_name_for_diag(&source),
+                                data_type_name_for_diag(&target)
+                            ),
+                        ));
+                    }
+                    None => {
+                        return Err(type_error_at_span(
+                            self.current_span,
+                            format!(
+                                "cannot bitcast {}: only plain scalars have a bit-level \
+                                 representation",
+                                data_type_name_for_diag(&source)
+                            ),
+                        ));
+                    }
+                }
+                *data_type = target.clone();
+                Ok(target)
+            }
             Expression::Call {
                 name,
                 args,
@@ -211,14 +294,13 @@ Expression::MacroCall { inner } => {
                     return Err(type_error_code_at_span(
                         self.current_span,
                         DiagnosticCode::E0020,
-                        format!(
-                            "macro '{name}' must be invoked with `!`: use `{name}!(...)`",
-                        ),
+                        format!("macro '{name}' must be invoked with `!`: use `{name}!(...)`",),
                     ));
                 }
                 // Macro body sandbox: macro bodies cannot call extern functions
                 // unless they are in the [security].externs allowlist.
-                if self.in_macro_definition && self.extern_fn_names.contains(&canonical_fn_name(name))
+                if self.in_macro_definition
+                    && self.extern_fn_names.contains(&canonical_fn_name(name))
                     && !self.is_extern_allowed(name)
                 {
                     return Err(type_error_code_at_span(
@@ -389,8 +471,10 @@ Expression::MacroCall { inner } => {
                         }
                         callback_expr => {
                             let callback_ty = self.check_expression(callback_expr)?;
-                            if !matches!(callback_ty, DataType::Function | DataType::Closure { .. } | DataType::Unknown)
-                            {
+                            if !matches!(
+                                callback_ty,
+                                DataType::Function | DataType::Closure { .. } | DataType::Unknown
+                            ) {
                                 return Err(type_error_at_span(
                                     self.current_span,
                                     format!(
@@ -459,7 +543,10 @@ Expression::MacroCall { inner } => {
                 if let Some((receiver_name, method)) = name.split_once('.')
                     && let Some((receiver_ty, _)) = self.lookup_var(receiver_name)
                 {
-                    let base_method = method.split_once('.').map(|(base, _)| base).unwrap_or(method);
+                    let base_method = method
+                        .split_once('.')
+                        .map(|(base, _)| base)
+                        .unwrap_or(method);
                     if let Some(target) = Self::builtin_method_target(&receiver_ty, base_method) {
                         let receiver = Expression::Identifier(Identifier {
                             name: receiver_name.to_string(),
@@ -528,8 +615,8 @@ Expression::MacroCall { inner } => {
                     nominal_type_args_from_name
                 };
                 if let Some(class_sig) = self.classes.get(base_name).cloned() {
-                    if nominal_type_args.is_empty() && !class_sig.type_params.is_empty() {
-                        if let Some(ref impl_self_name) = self.impl_self_name {
+                    if nominal_type_args.is_empty() && !class_sig.type_params.is_empty()
+                        && let Some(ref impl_self_name) = self.impl_self_name {
                             let (impl_base, _) = Self::split_nominal_type_args(impl_self_name);
                             if impl_base == base_name {
                                 nominal_type_args = self
@@ -539,7 +626,6 @@ Expression::MacroCall { inner } => {
                                     .collect();
                             }
                         }
-                    }
                     let bindings = self.bindings_for_nominal_type_args(
                         &class_sig.type_params,
                         &nominal_type_args,
@@ -606,7 +692,11 @@ Expression::MacroCall { inner } => {
                     && matches!(var_type, DataType::Closure { .. } | DataType::Function)
                 {
                     let closure_type = var_type.clone();
-                    if let DataType::Closure { params, return_type } = closure_type {
+                    if let DataType::Closure {
+                        params,
+                        return_type,
+                    } = closure_type
+                    {
                         if params.len() != arg_types.len() {
                             return Err(type_error_at_span(
                                 self.current_span,
@@ -746,9 +836,7 @@ Expression::MacroCall { inner } => {
                 // Auto-deref: `x.field` on `&T`/`&mut T` resolves through the
                 // reference to the underlying struct, same as a value target.
                 let target_type = match &target_type {
-                    DataType::Ref { inner } | DataType::RefMut { inner } => {
-                        (**inner).clone()
-                    }
+                    DataType::Ref { inner } | DataType::RefMut { inner } => (**inner).clone(),
                     other => other.clone(),
                 };
                 if target_type.is_struct_like() {
@@ -1040,7 +1128,10 @@ Expression::MacroCall { inner } => {
                     }
                 };
                 if let Some(current_return) = self.return_type_stack.last()
-                    && !matches!(current_return, DataType::Result { .. } | DataType::Maybe { .. })
+                    && !matches!(
+                        current_return,
+                        DataType::Result { .. } | DataType::Maybe { .. }
+                    )
                 {
                     return Err(type_error_at_span(
                         self.current_span,
@@ -1076,8 +1167,13 @@ Expression::MacroCall { inner } => {
                     resolved_type = Self::unify_types(&resolved_type, &case_type)?;
                 }
 
-                let is_implicit_default =
-                    matches!(default.as_ref(), Expression::Literal { lit: Literal::None, .. });
+                let is_implicit_default = matches!(
+                    default.as_ref(),
+                    Expression::Literal {
+                        lit: Literal::None,
+                        ..
+                    }
+                );
                 if !is_implicit_default {
                     let default_type = self.check_expression(default)?;
                     resolved_type = Self::unify_types(&resolved_type, &default_type)?;

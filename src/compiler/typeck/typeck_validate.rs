@@ -111,10 +111,9 @@ impl TypeChecker {
             let implemented_params =
                 Self::normalize_trait_impl_params(type_name, &implemented_params);
 
-            let required_return = Self::substitute_self_type(&required_method.return_type, type_name);
-            if implemented_params != required_params
-                || implemented_return != required_return
-            {
+            let required_return =
+                Self::substitute_self_type(&required_method.return_type, type_name);
+            if implemented_params != required_params || implemented_return != required_return {
                 return Err(type_error_at_span(
                     self.current_span,
                     format!(

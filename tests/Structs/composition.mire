@@ -1,0 +1,62 @@
+// Struct composition: methods, field access, and combined operations
+
+struct Coordinate { x :i64, y :i64 }
+
+fn coordinate_sum: (point :Coordinate) :i64 { return point.x + point.y }
+
+@[test]
+pub fn coordinate_origin_sum: () :bool {
+    set point = Coordinate(0 0)
+// Tests origin coordinates sum to 0
+    return coordinate_sum(point) == 0
+}
+
+@[test]
+pub fn coordinate_positive_sum: () :bool {
+    set point = Coordinate(3 4)
+// Tests positive coordinates: 3 + 4 = 7
+    return coordinate_sum(point) == 7
+}
+
+@[test]
+pub fn coordinate_negative_sum: () :bool {
+    set point = Coordinate(-3 -4)
+// Tests negative coordinates: -3 + -4 = -7
+    return coordinate_sum(point) == -7
+}
+
+@[test]
+pub fn coordinate_x_field_access: () :bool {
+    set point = Coordinate(8 1)
+// Tests x field access
+    return point.x == 8
+}
+
+@[test]
+pub fn coordinate_y_field_access: () :bool {
+    set point = Coordinate(8 1)
+// Tests y field access
+    return point.y == 1
+}
+
+@[test]
+pub fn coordinate_rebuild_with_fields: () :bool {
+    set point = Coordinate(2 5)
+    set rebuilt = Coordinate(point.x point.y)
+// Tests struct rebuild with named fields
+    return rebuilt.y == 5
+}
+
+@[test]
+pub fn coordinate_difference: () :bool {
+    set point = Coordinate(9 4)
+// Tests x - y operation
+    return point.x - point.y == 5
+}
+
+@[test]
+pub fn coordinate_combined_sums: () :bool {
+    set first = Coordinate(1 2)
+    set second = Coordinate(3 4)
+// Tests sum of two coordinate sums: 3 + 7 = 10
+    return coordinate_sum(first) + coordinate_sum(second) == 10

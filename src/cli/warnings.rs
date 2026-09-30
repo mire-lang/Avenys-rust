@@ -39,7 +39,9 @@ pub(crate) fn print_warning_detailed(d: &Diagnostic, use_color: bool) {
 
 pub(crate) fn should_suppress(code_name: &str, suppressed: &[String]) -> bool {
     let hyphenated = code_name.replace('_', "-");
-    suppressed.iter().any(|s| s == code_name || s == &hyphenated)
+    suppressed
+        .iter()
+        .any(|s| s == code_name || s == &hyphenated)
 }
 
 /// Print warnings from a BuildResult according to `position` flag.

@@ -1,0 +1,25 @@
+// Operator precedence is validated through expressions whose grouping matters.
+
+@[test]
+pub fn multiply_before_add: () :bool { return 2 + 3 * 4 == 14 }
+
+@[test]
+pub fn division_before_subtract: () :bool { return 20 - 8 / 2 == 16 }
+
+@[test]
+pub fn comparison_after_arithmetic: () :bool { return 2 + 2 == 4 }
+
+@[test]
+pub fn and_before_or: () :bool { return false || true && true }
+
+@[test]
+pub fn parentheses_change_result: () :bool { return (false || true) && true }
+
+@[test]
+pub fn remainder_expression: () :bool { return 17 % 5 == 2 }
+
+@[test]
+pub fn shift_expression: () :bool { return (1 << 3) == 8 }
+
+@[test]
+pub fn bitwise_expression: () :bool { return (5 & 3) == 1 }

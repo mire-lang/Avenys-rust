@@ -1,0 +1,45 @@
+// String values cover equality, inequality, empty values and reassignment.
+
+@[test]
+pub fn empty_string: () :bool {
+    set value = ""
+    return value == ""
+}
+
+@[test]
+pub fn string_inequality: () :bool { return "left" != "right" }
+
+@[test]
+pub fn repeated_string: () :bool {
+    set value = "mire"
+    return value == "mire"
+}
+
+@[test]
+pub fn string_mutation: () :bool {
+    set value = "first" mut
+    set value = "second"
+    return value == "second"
+}
+
+@[test]
+pub fn string_in_branch: () :bool {
+    set value = "ok"
+    if value == "ok" { return true }
+    return false
+}
+
+@[test]
+pub fn string_expression: () :bool {
+    set value = "x"
+    return value == "x"
+}
+
+@[test]
+pub fn string_comparison_pair: () :bool { return "same" == "same" && "a" != "b" }
+
+@[test]
+pub fn string_literal_length_input: () :bool {
+    set value = "four"
+    return value != "three"
+}

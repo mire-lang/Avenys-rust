@@ -1,6 +1,138 @@
-use super::toolchain::llvm_version;
 use super::*;
 use std::collections::HashMap;
+
+/// Normalized project configuration emitted by Owl. Avenys accepts this file
+/// as a closed compiler contract and does not resolve the originating
+/// `owl.toml` or dependency graph when it is supplied with `--config`.
+///
+/// Dependency management is Owl's job, not the compiler's. Avenys never reads,
+/// writes, updates or validates a lockfile (`owl.lock` or any other), never
+/// resolves version constraints, and never picks a dependency version. It is
+/// handed source code plus this normalized config, it keeps its own build cache
+/// under `bin/.cache`, and it compiles. Anything that needs to know *which*
+/// version of a library to use has already been decided upstream by Owl.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MireConfigFile {
+    #[serde(default)]
+    project: MireConfigProject,
+    #[serde(default)]
+    build: MireConfigBuild,
+    #[serde(default)]
+    cfg: MireConfigCfg,
+    #[serde(default)]
+    security: Option<SecurityConfig>,
+    #[serde(default)]
+    paths: MirePaths,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct MireConfigProject {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    entry: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MireConfigBuild {
+    #[serde(default = "default_config_runtime")]
+    runtime: RuntimeTier,
+    #[serde(default = "default_config_target")]
+    target: Option<String>,
+    #[serde(default = "default_config_artifact")]
+    artifact: LibType,
+}
+
+impl Default for MireConfigBuild {
+    fn default() -> Self {
+        Self {
+            runtime: default_config_runtime(),
+            target: default_config_target(),
+            artifact: default_config_artifact(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct MireConfigCfg {
+    #[serde(default)]
+    libs: Vec<String>,
+    #[serde(default, alias = "link_dirs")]
+    link_dirs: Vec<String>,
+    #[serde(default)]
+    cflags: Vec<String>,
+    #[serde(default)]
+    sources: Vec<String>,
+}
+
+fn default_config_runtime() -> RuntimeTier {
+    RuntimeTier::Minimal
+}
+
+fn default_config_target() -> Option<String> {
+    Some("x86_64-unknown-linux-gnu".to_string())
+}
+
+fn default_config_artifact() -> LibType {
+    LibType::Bin
+}
+
+/// Load Owl's normalized `mire-config.toml` without consulting project
+/// manifests, registries, lockfiles, or dependency metadata.
+pub fn load_config_file(config_path: &Path) -> Result<MireManifest> {
+    let raw = fs::read_to_string(config_path).map_err(|err| {
+        MireError::runtime(format!(
+            "Could not read compiler config '{}': {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    let config: MireConfigFile = toml::from_str(&raw).map_err(|err| {
+        MireError::runtime(format!(
+            "Invalid compiler config '{}': {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    let mut c = CDefs {
+        runtime: config.build.runtime,
+        target: config.build.target,
+        artifact: config.build.artifact,
+        libs: config.cfg.libs,
+        sources: config.cfg.sources,
+        cflags: config
+            .cfg
+            .link_dirs
+            .into_iter()
+            .map(|dir| format!("-L{dir}"))
+            .collect(),
+        ..CDefs::default()
+    };
+    c.cflags.extend(config.cfg.cflags);
+    let config_root = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let default_entry = if config_root.join("mod.mire").exists() {
+        "mod.mire"
+    } else {
+        "mod.mr"
+    };
+    Ok(MireManifest {
+        project: MireProject {
+            name: config.project.name,
+            version: config.project.version,
+            entry: if config.project.entry.is_empty() {
+                default_entry.to_string()
+            } else {
+                config.project.entry
+            },
+        },
+        c,
+        security: config.security,
+        paths: Some(config.paths),
+        ..MireManifest::default()
+    })
+}
 
 pub fn load_project_manifest(cwd: &Path) -> Result<Option<MireManifest>> {
     let manifest_path = project_manifest_path(cwd);
@@ -37,47 +169,29 @@ fn load_manifest_file(manifest_path: &Path) -> Result<Option<MireManifest>> {
     Ok(Some(manifest))
 }
 
-pub fn write_lock_file(cwd: &Path, manifest: &MireManifest, mode: BuildMode) -> Result<()> {
-    let llvm_version = llvm_version()?;
-    let lock = MireLock {
-        project: MireLockProject {
-            name: manifest.project.name.clone(),
-            version: manifest.project.version.clone(),
-        },
-        build: MireLockBuild {
-            llvm_version,
-            profile: match mode {
-                BuildMode::Debug => "debug".to_string(),
-                BuildMode::Release => "release".to_string(),
-            },
-            opt_level: match mode {
-                BuildMode::Debug => "0".to_string(),
-                BuildMode::Release => "3".to_string(),
-            },
-        },
-    };
-
-    let raw = toml::to_string_pretty(&lock).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Could not serialize Mire.lock: {}", err),
-        })
-    })?;
-
-    fs::write(project_lock_path(cwd), raw).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Could not write project.lock: {}", err),
-        })
-    })?;
-
-    Ok(())
+/// Directory names that are shared scratch space rather than a project root.
+///
+/// A manifest sitting directly in one of these is not owned by the build that
+/// happens to be walking upwards: any project created under a temp directory
+/// would otherwise "inherit" it and have its own manifest silently ignored, and
+/// a malformed scratch copy would fail unrelated builds. Subdirectories of a
+/// temp root are unaffected — a real project there brings its own manifest, so
+/// the walk returns before reaching the root itself.
+fn is_shared_temp_root(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str());
+    let is_tmpdir = std::env::var("TMPDIR")
+        .ok()
+        .map(|t| Path::new(&t) == path)
+        .unwrap_or(false);
+    matches!(name, Some("tmp") | Some("temp")) || is_tmpdir || path == Path::new("/tmp")
 }
 
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     let mut current = Some(start);
     while let Some(path) = current {
-        if path.join("owl.toml").exists() || path.join("Mire.toml").exists() {
+        if (path.join("owl.toml").exists() || path.join("Mire.toml").exists())
+            && !is_shared_temp_root(path)
+        {
             return Some(path.to_path_buf());
         }
         current = path.parent();
@@ -93,40 +207,6 @@ pub fn project_manifest_path(cwd: &Path) -> PathBuf {
         return cwd.join("Mire.toml");
     }
     cwd.join("owl.toml")
-}
-
-pub fn project_lock_path(cwd: &Path) -> PathBuf {
-    if cwd.join("owl.lock").exists() {
-        return cwd.join("owl.lock");
-    }
-    if cwd.join("project.lock").exists() {
-        return cwd.join("project.lock");
-    }
-    cwd.join("Mire.lock")
-}
-
-pub fn write_manifest(manifest: &MireManifest, path: &Path) -> Result<()> {
-    let raw = toml::to_string_pretty(manifest).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Could not serialize manifest: {}", err),
-        })
-    })?;
-    fs::write(path, raw).map_err(|err| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: format!("Could not write manifest '{}': {}", path.display(), err),
-        })
-    })?;
-    Ok(())
-}
-
-pub fn load_manifest_dependencies(cwd: &Path) -> Result<HashMap<String, MireDependency>> {
-    match load_project_manifest(cwd) {
-        Ok(Some(manifest)) => Ok(manifest.dependencies.entries),
-        Ok(None) => Ok(HashMap::new()),
-        Err(e) => Err(e),
-    }
 }
 
 pub fn load_exports(cwd: &Path) -> Result<HashMap<String, String>> {
@@ -149,8 +229,10 @@ pub fn resolve_export_path(
         if canonical.starts_with(canonical_root.as_path()) {
             if canonical.extension().is_some() {
                 Some(canonical)
-            } else {
+            } else if canonical.join("mod.mire").exists() {
                 Some(canonical.join("mod.mire"))
+            } else {
+                Some(canonical.join("mod.mr"))
             }
         } else {
             None

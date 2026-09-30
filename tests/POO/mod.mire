@@ -1,0 +1,21 @@
+// POO: structs, methods, and basic inventory scenarios
+
+struct Product { price :i64, stock :i64 }
+
+@[test]
+pub fn struct_creation_with_fields: () :bool {
+    set item = Product(120 3)
+
+    // Tests struct can be created with field values
+    return true
+}
+
+@[test]
+pub fn struct_field_access: () :bool {
+    set item = Product(120 3)
+    set price_val = item.price
+    set stock_val = item.stock
+
+    // Tests accessing struct fields after creation
+    return price_val == 120 && stock_val == 3
+}

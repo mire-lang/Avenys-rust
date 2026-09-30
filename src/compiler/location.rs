@@ -21,7 +21,11 @@ pub fn statement_location(statement: &Statement) -> Span {
             value: Some(value), ..
         }
         | Statement::Move { value, .. } => expression_location(value),
-        Statement::Function { name_line, name_column, .. } => Span::new(*name_line, *name_column),
+        Statement::Function {
+            name_line,
+            name_column,
+            ..
+        } => Span::new(*name_line, *name_column),
         Statement::Return(Some(value)) => expression_location(value),
         Statement::If { condition, .. } | Statement::While { condition, .. } => {
             expression_location(condition)
@@ -78,12 +82,10 @@ pub fn expression_location(expression: &Expression) -> Span {
                     .unwrap_or(Span::unknown())
             }
         }
-        | Expression::List { elements: args, .. }
-        | Expression::Tuple { elements: args, .. } => {
-            args.first()
-                .map(expression_location)
-                .unwrap_or(Span::unknown())
-        }
+        Expression::List { elements: args, .. } | Expression::Tuple { elements: args, .. } => args
+            .first()
+            .map(expression_location)
+            .unwrap_or(Span::unknown()),
         Expression::Dict { entries, .. } => entries
             .first()
             .map(|(key, _)| expression_location(key))

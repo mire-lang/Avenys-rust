@@ -1,4 +1,0 @@
-pub fn main: () {
-    set x = -3.5 :f64
-    use dasu(x)
-}

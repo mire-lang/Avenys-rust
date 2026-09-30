@@ -86,7 +86,8 @@ void *rt_dict_get_ptr(void *dict_ptr, int64_t key_kind, int64_t key_i64,
     uint64_t h = mire_hash_key(key_kind, key_i64, key_ptr);
     int64_t idx = mire_dict_find(dict, key_i64, key_ptr, h);
     if (idx < 0) return default_value;
-    return mire_read_ptr(dict, idx);
+    void *value = mire_read_ptr(dict, idx);
+    return value;
 }
 
 void *rt_dict_set_ptr(void *dict_ptr, int64_t key_kind, int64_t value_kind,

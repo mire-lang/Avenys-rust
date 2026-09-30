@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 10
-    if x > 5 {
-        use dasu("hola")
-    }
-    use undefined_var
-}

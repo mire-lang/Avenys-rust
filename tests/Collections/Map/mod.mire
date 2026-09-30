@@ -1,0 +1,29 @@
+// Map insert, lookup, remove, and multi-key tracking
+load mire::map
+load mire::vec
+
+@[test]
+pub fn map_insert_lookup_remove_single: () :bool {
+    set values = {} :map[str i64] mut
+    set values = map::set::i64(values "answer" 42)
+    set has_key = map::has(values "answer")
+    set observed = map::get::i64(values "answer")
+    map::remove(values "answer")
+    set is_empty = map::is::empty(values)
+
+    // Verifies set, has, get, remove, and empty check all work
+    return has_key && observed == 42 && is_empty && map::len(values) == 0
+}
+
+@[test]
+pub fn map_multiple_keys_values_len: () :bool {
+    set values = {} :map[str i64] mut
+    set values = map::set::i64(values "alpha" 10)
+    set values = map::set::i64(values "beta" 20)
+    set len_val = map::len(values)
+    set keys = map::keys(values)
+    set stored = map::values::i64(values)
+
+    // Verifies multiple keys, len, keys, and values access
+    return len_val == 2 && vec::len(keys) == 2 && vec::len(stored) == 2
+}

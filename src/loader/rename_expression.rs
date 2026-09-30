@@ -1,8 +1,7 @@
-use super::*;
 use super::rename::{ModuleRenamer, match_pattern_bindings};
+use super::*;
 
 impl<'a> ModuleRenamer<'a> {
-
     pub(crate) fn rename_expression(
         &self,
         expression: Expression,
@@ -258,35 +257,43 @@ impl<'a> ModuleRenamer<'a> {
             Expression::Ascription { .. } => expression,
             Expression::UseMacro { .. } => expression,
             Expression::MacroCall { .. } => expression,
-            Expression::Literal { lit: literal, line, column } => Expression::Literal { lit: match literal {
-                Literal::List(elements) => Literal::List(
-                    elements
-                        .into_iter()
-                        .map(|element| self.rename_expression(element, scope_stack))
-                        .collect(),
-                ),
-                Literal::Dict(entries) => Literal::Dict(
-                    entries
-                        .into_iter()
-                        .map(|((key, value), data_type)| {
-                            (
+            Expression::Literal {
+                lit: literal,
+                line,
+                column,
+            } => Expression::Literal {
+                lit: match literal {
+                    Literal::List(elements) => Literal::List(
+                        elements
+                            .into_iter()
+                            .map(|element| self.rename_expression(element, scope_stack))
+                            .collect(),
+                    ),
+                    Literal::Dict(entries) => Literal::Dict(
+                        entries
+                            .into_iter()
+                            .map(|((key, value), data_type)| {
                                 (
-                                    self.rename_expression(key, scope_stack),
-                                    self.rename_expression(value, scope_stack),
-                                ),
-                                self.rename_data_type(data_type, scope_stack),
-                            )
-                        })
-                        .collect(),
-                ),
-                Literal::Tuple(elements) => Literal::Tuple(
-                    elements
-                        .into_iter()
-                        .map(|element| self.rename_expression(element, scope_stack))
-                        .collect(),
-                ),
-                other => other,
-            }, line, column },
+                                    (
+                                        self.rename_expression(key, scope_stack),
+                                        self.rename_expression(value, scope_stack),
+                                    ),
+                                    self.rename_data_type(data_type, scope_stack),
+                                )
+                            })
+                            .collect(),
+                    ),
+                    Literal::Tuple(elements) => Literal::Tuple(
+                        elements
+                            .into_iter()
+                            .map(|element| self.rename_expression(element, scope_stack))
+                            .collect(),
+                    ),
+                    other => other,
+                },
+                line,
+                column,
+            },
         }
     }
 

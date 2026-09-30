@@ -1,0 +1,16 @@
+// Matching family entry point; concrete pattern cases are split below.
+
+enum Colour {
+    Red
+    Blue
+}
+
+@[test]
+pub fn enum_match: () :bool {
+    set colour = Colour.Blue
+    set result = match colour {
+        Colour.Red { 1 }
+        Colour.Blue { 2 }
+    }
+    return result == 2
+}

@@ -14,7 +14,10 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_map(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
+        let loc = args
+            .first()
+            .map(|e| expression_location(e).to_tuple())
+            .unwrap_or(NO_POSITION.to_tuple());
         let closure_val = self.lower_expression(&args[0]);
         let list_val = self.lower_expression(&args[1]);
 
@@ -208,7 +211,10 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_filter(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
+        let loc = args
+            .first()
+            .map(|e| expression_location(e).to_tuple())
+            .unwrap_or(NO_POSITION.to_tuple());
         let closure_val = self.lower_expression(&args[0]);
         let list_val = self.lower_expression(&args[1]);
 
@@ -435,7 +441,10 @@ impl MirLower {
     }
 
     pub(crate) fn lower_lists_fold(&mut self, args: &[Expression]) -> MirValue {
-        let loc = args.first().map(|e| expression_location(e).to_tuple()).unwrap_or(NO_POSITION.to_tuple());
+        let loc = args
+            .first()
+            .map(|e| expression_location(e).to_tuple())
+            .unwrap_or(NO_POSITION.to_tuple());
         let acc_init = self.lower_expression(&args[0]);
         let closure_val = self.lower_expression(&args[1]);
         let list_val = self.lower_expression(&args[2]);
@@ -592,14 +601,13 @@ impl MirLower {
         self.func.blocks[end_block].push(
             Some(final_result),
             MirOp::Load(
-            MirValue::temp(acc_ptr),
-            MirType {
-                data_type: DataType::I64,
-            },
-        ),
-        loc,
-    );
-    MirValue::temp(final_result)
-}
-
+                MirValue::temp(acc_ptr),
+                MirType {
+                    data_type: DataType::I64,
+                },
+            ),
+            loc,
+        );
+        MirValue::temp(final_result)
+    }
 }

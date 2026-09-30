@@ -9,14 +9,16 @@ impl Parser {
         self.expect(TokenType::Load)?;
 
         if self.check(TokenType::Dot) {
-            return Err(self.error("Local paths are not allowed; declare the dependency in owl.toml"));
+            return Err(
+                self.error("Local paths are not allowed; declare the dependency in owl.toml")
+            );
         }
 
-        let mut path = vec![self.expect_ident()?];
+        let mut path = vec![self.expect_path_segment()?];
         while self.check(TokenType::Colon) && self.peek_n(1).ttype == TokenType::Colon {
             self.advance();
             self.advance();
-            path.push(self.expect_ident()?);
+            path.push(self.expect_path_segment()?);
         }
 
         let alias = if self.check(TokenType::As) {

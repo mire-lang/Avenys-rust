@@ -83,6 +83,70 @@ mod tests {
         MirValue::Const(MirConst::Int(v))
     }
 
+    fn f64(v: f64) -> MirValue {
+        MirValue::Const(MirConst::Float(v))
+    }
+
+    fn folded_const(op: &MirOp) -> Option<f64> {
+        match op {
+            MirOp::Copy(MirValue::Const(MirConst::Float(x))) => Some(*x),
+            _ => None,
+        }
+    }
+
+    // ── Constant folding ──
+
+    #[test]
+    fn const_fold_float_division_keeps_the_quotient() {
+        // Regression: the float arm of SDiv ignored its operands and folded
+        // every float division to 0.0, so "1.0 / 2.0" became 0.0.
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::SDiv(f64(1.0), f64(2.0)))],
+            MirTerminator::Ret(None),
+        );
+        assert_eq!(constant_fold_function(&mut f), 1);
+        let got = folded_const(&f.blocks[0].insts[0].op).expect("folded to a float");
+        assert!((got - 0.5).abs() < f64::EPSILON, "got {got}, want 0.5");
+    }
+
+    #[test]
+    fn const_fold_float_remainder_keeps_the_quotient() {
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::SRem(f64(7.5), f64(2.0)))],
+            MirTerminator::Ret(None),
+        );
+        assert_eq!(constant_fold_function(&mut f), 1);
+        let got = folded_const(&f.blocks[0].insts[0].op).expect("folded to a float");
+        assert!((got - 1.5).abs() < f64::EPSILON, "got {got}, want 1.5");
+    }
+
+    #[test]
+    fn const_fold_float_arithmetic_round_trips() {
+        for (op, want) in [
+            (MirOp::Add(f64(0.5), f64(0.25)), 0.75),
+            (MirOp::Sub(f64(0.5), f64(0.25)), 0.25),
+            (MirOp::Mul(f64(0.5), f64(0.25)), 0.125),
+        ] {
+            let mut f = make_func("f", vec![inst(1, op)], MirTerminator::Ret(None));
+            assert_eq!(constant_fold_function(&mut f), 1);
+            let got = folded_const(&f.blocks[0].insts[0].op).expect("folded to a float");
+            assert!((got - want).abs() < f64::EPSILON, "got {got}, want {want}");
+        }
+    }
+
+    #[test]
+    fn const_fold_integer_division_by_zero_is_not_folded() {
+        // The div-by-zero check lives in lowering, so folding must decline.
+        let mut f = make_func(
+            "f",
+            vec![inst(1, MirOp::SDiv(i64(1), i64(0)))],
+            MirTerminator::Ret(None),
+        );
+        assert_eq!(constant_fold_function(&mut f), 0);
+    }
+
     // ── Algebraic simplification ──
 
     #[test]

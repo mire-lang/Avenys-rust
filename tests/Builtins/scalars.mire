@@ -1,0 +1,49 @@
+// Built-in scalar behavior is asserted through values consumed by real logic.
+
+@[test]
+pub fn builtin_integer_value: () :bool {
+    set value = 12
+    return value == 12 
+}
+
+@[test]
+pub fn builtin_boolean_value: () :bool {
+    set value = true
+    return value 
+}
+
+@[test]
+pub fn builtin_arithmetic_value: () :bool {
+    set value = 6 * 7
+    return value == 42 
+}
+
+@[test]
+pub fn builtin_comparison_value: () :bool { 
+    set value = 10 > 2
+    return value 
+}
+
+@[test]
+pub fn builtin_logical_value: () :bool { 
+    set value = true && !false
+    return value 
+}
+
+@[test]
+pub fn builtin_remainder_value: () :bool { 
+    set value = 19 % 4
+    return value == 3 
+}
+
+@[test]
+pub fn builtin_shift_value: () :bool { 
+    set value = 2 << 2
+    return value == 8 
+}
+
+@[test]
+pub fn builtin_grouped_value: () :bool { 
+    set value = (2 + 3) * 2
+    return value == 10
+}

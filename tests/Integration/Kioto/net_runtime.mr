@@ -1,0 +1,15 @@
+load kioto
+
+@[test]
+pub fn pal_net_udp_loopback: () :bool {
+    set listener = net::listener::bind::udp(39125 :u16)
+    if listener.handle <= 0 { return false }
+    set sender = net::socket::connect::udp("127.0.0.1" 39125 :u16)
+    if sender.handle <= 0 { return false }
+    set sent = net::socket::send(sender "avenys-udp")
+    set buffer = strings::repeat("\0" 64) :str mut
+    set received = net::listener::recv(listener buffer 64)
+    net::socket::close(sender)
+    net::listener::close(listener)
+    return sent == 10 && received == 10 && strings::substr(buffer 0 10) == "avenys-udp"
+}

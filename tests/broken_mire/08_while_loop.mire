@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set i = 0 :i64 mut
-    while i < 5 {
-        use dasu("i: {i}")
-        set i = i + 1
-    }
-}

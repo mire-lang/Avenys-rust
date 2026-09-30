@@ -1,0 +1,4 @@
+fn subtract: (left :i64, right :i64) :i64 { return left - right }
+
+@[test]
+pub fn separated_arguments: () :bool { return subtract(44 2) == 42 }

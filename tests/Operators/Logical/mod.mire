@@ -1,0 +1,30 @@
+// Logical operators: AND, OR, NOT with boolean values
+
+@[test]
+pub fn logical_and_both_true: () :bool {
+    set a = true
+    set b = true
+    set result = a && b
+
+    // Tests && with both operands true
+    return result == true
+}
+
+@[test]
+pub fn logical_or_both_false: () :bool {
+    set a = false
+    set b = false
+    set result = a || b
+
+    // Tests || with both operands false
+    return result == false
+}
+
+@[test]
+pub fn logical_not_negates_true: () :bool {
+    set a = true
+    set result = !a
+
+    // Tests ! negates true to false
+    return result == false
+}

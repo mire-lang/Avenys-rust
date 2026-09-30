@@ -1,0 +1,2 @@
+@[test]
+pub fn grouped_expression: () :bool { return (20 + 1) * 2 == 42 }

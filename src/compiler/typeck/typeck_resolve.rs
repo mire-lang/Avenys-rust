@@ -4,11 +4,10 @@ use crate::error::type_error_at_span;
 impl TypeChecker {
     fn all_fields<'a>(&'a self, class_sig: &'a ClassSig) -> Vec<&'a ClassFieldSig> {
         let mut fields: Vec<&ClassFieldSig> = Vec::new();
-        if let Some(parent_name) = &class_sig.parent {
-            if let Some(parent_sig) = self.classes.get(parent_name) {
+        if let Some(parent_name) = &class_sig.parent
+            && let Some(parent_sig) = self.classes.get(parent_name) {
                 fields.extend(self.all_fields(parent_sig));
             }
-        }
         for child_field in &class_sig.fields {
             if !fields.iter().any(|f| f.name == child_field.name) {
                 fields.push(child_field);
@@ -256,7 +255,13 @@ impl TypeChecker {
         // Try non-trait inherent method first: "Type.method"
         let inherent_key = format!("{}.{}", struct_name, method_name);
         if let Some(sig) = self.functions.get(&inherent_key) {
-            return self.check_method_sig(struct_name, method_name, sig, &HashMap::new(), arg_types);
+            return self.check_method_sig(
+                struct_name,
+                method_name,
+                sig,
+                &HashMap::new(),
+                arg_types,
+            );
         }
 
         // Try trait methods: "Trait::Type::method"
@@ -332,20 +337,23 @@ impl TypeChecker {
         self.check_method_sig(struct_name, method_name, &sig, &bindings, arg_types)
     }
 
-    fn infer_bindings_for_struct(&self, struct_name: &str, base_name: &str) -> HashMap<String, DataType> {
+    fn infer_bindings_for_struct(
+        &self,
+        struct_name: &str,
+        base_name: &str,
+    ) -> HashMap<String, DataType> {
         let (_, concrete_type_args) = Self::split_nominal_type_args(struct_name);
         if concrete_type_args.is_empty() {
             return HashMap::new();
         }
-        if let Some(class_sig) = self.classes.get(base_name) {
-            if !class_sig.type_params.is_empty()
+        if let Some(class_sig) = self.classes.get(base_name)
+            && !class_sig.type_params.is_empty()
                 && class_sig.type_params.len() == concrete_type_args.len()
-            {
-                if let Ok(b) = self.bindings_for_nominal_type_args(&class_sig.type_params, &concrete_type_args) {
+                && let Ok(b) =
+                    self.bindings_for_nominal_type_args(&class_sig.type_params, &concrete_type_args)
+                {
                     return b;
                 }
-            }
-        }
         HashMap::new()
     }
 
@@ -364,8 +372,8 @@ impl TypeChecker {
                 continue;
             }
             for bound in bounds {
-                if let Some(trait_sig) = self.traits.get(bound) {
-                    if let Some(method) = trait_sig.methods.iter().find(|m| m.name == method_name) {
+                if let Some(trait_sig) = self.traits.get(bound)
+                    && let Some(method) = trait_sig.methods.iter().find(|m| m.name == method_name) {
                         if found_trait.is_some() {
                             return Err(type_error_at_span(
                                 self.current_span,
@@ -378,7 +386,6 @@ impl TypeChecker {
                         found_trait = Some(bound.clone());
                         found_method = Some(method.clone());
                     }
-                }
             }
         }
 
@@ -457,7 +464,11 @@ impl TypeChecker {
         bindings: &HashMap<String, DataType>,
         arg_types: &[DataType],
     ) -> Result<Option<DataType>> {
-        if !sig.params.first().is_some_and(|t| t.is_struct_like() || t.is_enum_like()) {
+        if !sig
+            .params
+            .first()
+            .is_some_and(|t| t.is_struct_like() || t.is_enum_like())
+        {
             return Ok(None);
         }
 

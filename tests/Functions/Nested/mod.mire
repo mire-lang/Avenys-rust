@@ -1,0 +1,8 @@
+pub fn outer: () {
+    pub fn inner: () :i64 { return 42 }
+}
+
+@[test]
+pub fn nested_function_is_promoted: () :bool {
+    return outer::inner() == 42
+}

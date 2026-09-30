@@ -17,6 +17,41 @@ fn fnv_hash(bytes: &[u8]) -> u64 {
     state
 }
 
+fn hash_const(c: &MirConst, buf: &mut Vec<u8>) {
+    match c {
+        MirConst::Int(v) => {
+            buf.push(0);
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        MirConst::Float(v) => {
+            buf.push(1);
+            buf.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        MirConst::Bool(v) => {
+            buf.push(2);
+            buf.push(*v as u8);
+        }
+        MirConst::Char(v) => {
+            buf.push(3);
+            buf.extend_from_slice(&(*v as u32).to_le_bytes());
+        }
+        MirConst::Str(v) => {
+            buf.push(4);
+            buf.extend_from_slice(v.as_bytes());
+        }
+        MirConst::None => buf.push(5),
+        MirConst::Struct { fields, .. } => {
+            buf.push(6);
+            for f in fields {
+                hash_const(f, buf);
+            }
+        }
+        MirConst::Zero { .. } => {
+            buf.push(7);
+        }
+    }
+}
+
 fn hash_data_type(dt: &DataType, buf: &mut Vec<u8>) {
     buf.extend_from_slice(format!("{:?}", dt).as_bytes());
 }
@@ -47,6 +82,15 @@ fn hash_value(value: &MirValue, buf: &mut Vec<u8>) {
                     buf.extend_from_slice(v.as_bytes());
                 }
                 MirConst::None => buf.push(5),
+                MirConst::Struct { fields, .. } => {
+                    buf.push(6);
+                    for f in fields {
+                        hash_const(f, buf);
+                    }
+                }
+                MirConst::Zero { .. } => {
+                    buf.push(7);
+                }
             }
         }
         MirValue::Temp(id) => {
@@ -244,6 +288,32 @@ fn hash_op(op: &MirOp, buf: &mut Vec<u8>) {
             buf.push(24);
             hash_value(v, buf);
         }
+        MirOp::ExtractValue(agg, val, indices) => {
+            buf.push(25);
+            hash_value(agg, buf);
+            hash_value(val, buf);
+            for idx in indices {
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+        }
+        MirOp::InsertValue(agg, val, indices) => {
+            buf.push(26);
+            hash_value(agg, buf);
+            hash_value(val, buf);
+            for idx in indices {
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+        }
+        MirOp::Drop(v) => {
+            buf.push(29);
+            hash_value(v, buf);
+        }
+        MirOp::Concat(vals) => {
+            buf.push(30);
+            for v in vals {
+                hash_value(v, buf);
+            }
+        }
     }
 }
 
@@ -317,6 +387,8 @@ pub enum MirConst {
     Char(char),
     Str(String),
     None,
+    Struct { ty: MirType, fields: Vec<MirConst> },
+    Zero { ty: DataType },
 }
 
 #[derive(Clone, Debug)]
@@ -365,6 +437,10 @@ pub enum MirOp {
     Phi(Vec<(MirValue, usize)>, MirType),
     Select(MirValue, MirValue, MirValue),
     Copy(MirValue),
+    ExtractValue(MirValue, MirValue, Vec<usize>),
+    InsertValue(MirValue, MirValue, Vec<usize>),
+    Drop(MirValue),
+    Concat(Vec<MirValue>),
 }
 
 #[derive(Debug, Clone)]

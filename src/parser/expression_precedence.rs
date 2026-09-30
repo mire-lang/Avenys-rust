@@ -94,8 +94,8 @@ impl Parser {
                     args: vec![expr, right],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::Bool,
+                    name_column: 0,
+                    data_type: DataType::Bool,
                 };
             } else {
                 break;
@@ -212,10 +212,26 @@ impl Parser {
                     args: vec![expr, string_expr(&ty)],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::Bool,
+                    name_column: 0,
+                    data_type: DataType::Bool,
                 };
             } else if self.check(TokenType::At) {
+                // `@`/`at` on a later line is a top-level attribute
+                // (`@[test]`), not an outdented index expression. Only bind as
+                // an index when the `at` token sits on the same line as the
+                // last *significant* token (newline tokens carry the line of
+                // the NEXT line, so walk back over them) — anything else
+                // starting a new line is the attribute syntax and must be left
+                // for the statement loop.
+                let at_line = self.peek().line;
+                let mut prev = self.pos.saturating_sub(1);
+                while prev > 0 && self.tokens[prev].ttype == TokenType::Newline {
+                    prev -= 1;
+                }
+                let same_line = prev > 0 && self.tokens[prev].line == at_line;
+                if !same_line {
+                    break;
+                }
                 self.advance();
                 self.skip_newlines();
                 let index = self.parse_additive()?;
@@ -233,8 +249,8 @@ impl Parser {
                     args: vec![expr, right],
                     type_args: Vec::new(),
                     name_line: 0,
-            name_column: 0,
-            data_type: DataType::List,
+                    name_column: 0,
+                    data_type: DataType::List,
                 };
             } else {
                 break;
@@ -393,5 +409,4 @@ impl Parser {
 
         self.parse_postfix()
     }
-
 }

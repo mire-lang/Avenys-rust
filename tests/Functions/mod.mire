@@ -1,0 +1,10 @@
+// Functions and call syntax, including a real return value.
+
+fn add_values: (left :i64, right :i64) :i64 {
+    return left + right
+}
+
+@[test]
+pub fn positional_call: () :bool {
+    return add_values(19 23) == 42
+}

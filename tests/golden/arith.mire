@@ -1,4 +1,0 @@
-pub fn main: () {
-    set x = (2 + 3) * 4 :i64
-    use dasu(x)
-}

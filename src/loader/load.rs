@@ -5,11 +5,11 @@
 //! reachable-import inference that auto-selects only the exports the caller
 //! actually uses.
 
-use super::{ImportResolver, PackageEntry};
 use super::files::load_or_parse_file;
+use super::{ImportResolver, PackageEntry};
 use crate::avens::{
-    check_entry_containment, load_exports, load_project_manifest, resolve_export_path,
-    EntryContainment, MireDependency,
+    EntryContainment, MireDependency, check_entry_containment, load_exports, load_project_manifest,
+    resolve_export_path,
 };
 use crate::canonical_fn_name;
 use crate::error::Result;
@@ -28,21 +28,28 @@ pub(crate) fn owl_home_libs() -> PathBuf {
     PathBuf::from(home).join(".owl").join("libs")
 }
 
-/// Extra fallback directory from `--lib-dir` / `$MIRE_LIB_DIR`.
-pub(super) fn lib_dir_fallback() -> Option<PathBuf> {
+/// Extra fallback directories from repeated/colon-separated `--lib-dir`
+/// values supplied by Owl. The compiler never discovers these directories by
+/// itself; Owl resolves and installs the packages before invoking it.
+pub(super) fn lib_dir_fallbacks() -> Vec<PathBuf> {
     std::env::var("MIRE_LIB_DIR")
         .ok()
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
+        .map(|paths| {
+            paths
+                .split(':')
+                .filter(|path| !path.is_empty())
+                .map(expand_tilde)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Expand a leading `~` in a path to the user's home directory.
 pub(crate) fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME") {
             return PathBuf::from(home).join(rest);
         }
-    }
     PathBuf::from(path)
 }
 
@@ -70,9 +77,10 @@ pub(crate) fn resolve_dependency_root(
 
 /// Resolve a package name to its `(root_path, entry_string)`.
 ///
-/// Checks the package registry cache first, then consults manifest
-/// dependencies (path-only, with-path, or simple home-path). Special-cases
-/// `"kioto"` for backward compatibility.
+/// Checks the in-process path cache first, then uses the explicit library
+/// directory supplied by Owl (`--lib-dir`/`MIRE_LIB_DIR`). Avenys deliberately
+/// does not read the consumer project's dependency table or contact a
+/// registry; dependency selection and installation belong to Owl.
 pub(super) fn resolve_package(
     resolver: &mut ImportResolver,
     name: &str,
@@ -81,119 +89,57 @@ pub(super) fn resolve_package(
     if let Some(entry) = resolver.package_registry.get(name) {
         return Ok((entry.root.clone(), entry.entry.clone()));
     }
-    let package_root = if let Some(dep) = resolver.manifest_dependencies.get(name) {
-        match dep {
-            crate::avens::MireDependency::PathOnly { path }
-            | crate::avens::MireDependency::WithPath { path, .. } => {
-                let p = expand_tilde(path);
-                if p.is_absolute() {
-                    p
-                } else {
-                    resolver.project_root.join(p)
-                }
-            }
-            crate::avens::MireDependency::Simple { .. } => owl_home_libs().join(name),
-        }
-    } else if name == "kioto" {
-        let home_path = owl_home_libs().join("kioto");
-        if home_path.exists() {
-            home_path
-        } else {
-            let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let dev_path = crate_dir.join("../kioto");
-            if dev_path.exists() {
-                dev_path
-            } else {
-                resolver.project_root.join("../kioto")
-            }
-        }
+    let fallback_dirs = lib_dir_fallbacks();
+    let package_root = if let Some(fallback_path) = fallback_dirs
+        .iter()
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.exists())
+    {
+        fallback_path
     } else {
-        // Try --lib-dir fallback
-        if let Some(fallback) = lib_dir_fallback() {
-            let fallback_path = fallback.join(name);
-            if fallback_path.exists() {
-                fallback_path
-            } else {
-                return Err(resolver.loader_error(span, format!(
-                    "Package '{}' not found in [dependencies] of {}",
-                    name,
-                    resolver.project_root.join("owl.toml").display()
-                )));
-            }
-        } else {
-            return Err(resolver.loader_error(span, format!(
-                "Package '{}' not found in [dependencies] of {}",
+        return Err(resolver.loader_error(
+            span,
+            format!(
+                "Package '{}' is not installed in the library directories supplied by Owl",
                 name,
-                resolver.project_root.join("owl.toml").display()
-            )));
-        }
+            ),
+        ));
     };
 
     let canonical_root = package_root.canonicalize().map_err(|err| {
-        resolver.loader_error(span, format!(
-            "Could not resolve package '{}' at '{}': {}",
-            name,
-            package_root.display(),
-            err
-        ))
+        resolver.loader_error(
+            span,
+            format!(
+                "Could not resolve package '{}' at '{}': {}",
+                name,
+                package_root.display(),
+                err
+            ),
+        )
     })?;
 
     let manifest = load_project_manifest(&canonical_root)?;
     let entry = manifest
         .as_ref()
         .map(|m| m.project.entry.clone())
-        .unwrap_or_else(|| "mod.mire".to_string());
+        .unwrap_or_else(|| {
+            if canonical_root.join("mod.mire").exists() {
+                "mod.mire".to_string()
+            } else {
+                "mod.mr".to_string()
+            }
+        });
 
     // Path containment (docs/SECURITY.md item 5): a manifest entry that is
     // absolute or resolves outside the package root must not be loaded.
     if check_entry_containment(&canonical_root, &entry) == EntryContainment::EscapesRoot {
-        return Err(resolver.loader_error(span, format!(
-            "Package '{}' entry '{}' escapes the package root",
-            name, entry
-        )));
-    }
-
-    if let Some(ref m) = manifest {
-        for (dep_name, dep) in &m.dependencies.entries {
-            // Store transitive dependencies with paths absolute relative to
-            // the package that declares them, so that a `load` from deep
-            // inside a dependency resolves against *its* root, not the
-            // top-level consumer's project root.
-            let absolutized = match dep {
-                crate::avens::MireDependency::PathOnly { path } => {
-                    let p = expand_tilde(path);
-                    if p.is_absolute() {
-                        dep.clone()
-                    } else {
-                        crate::avens::MireDependency::PathOnly {
-                            path: canonical_root
-                                .join(&p)
-                                .to_string_lossy()
-                                .into_owned(),
-                        }
-                    }
-                }
-                crate::avens::MireDependency::WithPath { version, path } => {
-                    let p = expand_tilde(path);
-                    if p.is_absolute() {
-                        dep.clone()
-                    } else {
-                        crate::avens::MireDependency::WithPath {
-                            version: version.clone(),
-                            path: canonical_root
-                                .join(&p)
-                                .to_string_lossy()
-                                .into_owned(),
-                        }
-                    }
-                }
-                crate::avens::MireDependency::Simple { .. } => dep.clone(),
-            };
-            resolver
-                .manifest_dependencies
-                .entry(dep_name.clone())
-                .or_insert_with(|| absolutized);
-        }
+        return Err(resolver.loader_error(
+            span,
+            format!(
+                "Package '{}' entry '{}' escapes the package root",
+                name, entry
+            ),
+        ));
     }
 
     resolver.package_registry.insert(
@@ -240,7 +186,10 @@ pub(super) fn resolve_load_path(
 
         let target =
             resolve_export_path(&current_exports, &current_root, segment).ok_or_else(|| {
-                resolver.loader_error(span, format!("Package '{}' has no export '{}'", segments[0], segment))
+                resolver.loader_error(
+                    span,
+                    format!("Package '{}' has no export '{}'", segments[0], segment),
+                )
             })?;
 
         if is_last {
@@ -257,11 +206,14 @@ pub(super) fn resolve_load_path(
             current_exports = load_exports(&parent).unwrap_or_default();
             current_root = parent;
         } else {
-            return Err(resolver.loader_error(span, format!(
-                "Cannot resolve '{}': '{}' has no sub-exports",
-                segments[i + 1..].join("::"),
-                segment
-            )));
+            return Err(resolver.loader_error(
+                span,
+                format!(
+                    "Cannot resolve '{}': '{}' has no sub-exports",
+                    segments[i + 1..].join("::"),
+                    segment
+                ),
+            ));
         }
     }
 
@@ -271,13 +223,24 @@ pub(super) fn resolve_load_path(
 /// When `ImportMode::Reachable` is active and no explicit items are given,
 /// parse the target file and select only exports matching the caller's
 /// dependency candidates.
+///
+/// `module_segments` is the load path that reached this file (for example
+/// `["math", "float"]` for `load kioto::math::float`). The statements this
+/// module contributes are named after the *last* segment (`float.sign`), but a
+/// consumer spells them with the namespace it wrote in its own source
+/// (`math::float::sign`), and the candidate set is built from that spelling.
+/// Matching on the bare export name alone therefore misses every qualified
+/// call: `sign` does not equal `math.float.sign`, and the only reason such a
+/// module kept any symbols at all was an unrelated tail collision elsewhere in
+/// the candidate set. So an export is selected when a candidate *ends with* the
+/// export, with or without the module's own namespace in front.
 pub(super) fn infer_reachable_import_items(
     resolver: &mut ImportResolver,
     path: &Path,
-    module_prefix: Option<&str>,
+    module_segments: &[String],
     candidates: &HashSet<String>,
 ) -> Result<Option<Vec<String>>> {
-    let parsed = load_or_parse_file(resolver, path)?;
+    let parsed = load_or_parse_file(resolver, path, None)?;
     if parsed.exports.is_empty() {
         return Ok(None);
     }
@@ -311,18 +274,7 @@ pub(super) fn infer_reachable_import_items(
         if non_selectable.contains(export) {
             continue;
         }
-        let normalized = canonical_fn_name(export);
-        let export_tail = normalized
-            .rsplit_once('.')
-            .map_or(normalized.as_str(), |(_, tail)| tail);
-        let prefixed = module_prefix.map(|prefix| format!("{prefix}.{export_tail}"));
-        if candidates.contains(export)
-            || candidates.contains(&normalized)
-            || candidates.contains(export_tail)
-            || prefixed
-                .as_ref()
-                .is_some_and(|value| candidates.contains(value))
-        {
+        if candidate_reaches_export(candidates, module_segments, export) {
             selected.push(export.to_string());
             continue;
         }
@@ -333,10 +285,35 @@ pub(super) fn infer_reachable_import_items(
         // `complex.new`, not `math.complex.new`), so a per-statement selection
         // on the `math.` prefix would drop them. Bail to a full load instead.
         if namespace_exports.contains(export)
-            && candidates.iter().any(|candidate| {
-                candidate.starts_with(&format!("{export}."))
-                    || candidate.starts_with(&format!("{export}::"))
-            })
+            && candidates
+                .iter()
+                .any(|candidate| candidate_references_namespace(candidate, export))
+        {
+            return Ok(None);
+        }
+    }
+
+    // A private `extern fn` is a declaration of a foreign symbol, not an
+    // implementation, and a consumer is allowed to name it even though the
+    // library did not publish it: `sdl3`'s `events` module declares
+    // `rt_write_i32` and sdl's own test calls it directly. `parsed.exports` only
+    // lists `pub` statements, so reachable selection dropped the declaration
+    // and the consumer failed with `Unknown function 'rt_write_i32'` — a symbol
+    // the library really does declare.
+    //
+    // A reference to one of those makes this module's public surface the wrong
+    // thing to select against, so it bails to a full load exactly as the
+    // namespace case above does. Adding the extern to the item list instead
+    // would be wrong twice over: it would leave the module's real exports
+    // behind, and in a module whose only candidate is the extern it would turn
+    // what used to be a full load into a one-item selection.
+    for statement in &parsed.program.statements {
+        if let Statement::ExternFunction {
+            name,
+            visibility: crate::parser::ast::Visibility::Private,
+            ..
+        } = statement
+            && candidate_reaches_export(candidates, module_segments, name)
         {
             return Ok(None);
         }
@@ -348,4 +325,73 @@ pub(super) fn infer_reachable_import_items(
     selected.sort();
     selected.dedup();
     Ok(Some(selected))
+}
+
+/// True when some candidate names this export, either bare or under the
+/// module's own namespace.
+fn candidate_reaches_export(
+    candidates: &HashSet<String>,
+    module_segments: &[String],
+    export: &str,
+) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| candidate_reaches_export_namespaced(candidate, module_segments, export))
+}
+
+/// True when `candidate` names `export`, bare or namespaced.
+///
+/// A candidate matches when it equals the export or ends with `.{export}`, and
+/// additionally when it ends with `.{namespace}.{export}` for the namespace the
+/// module was loaded under. The suffix form is what makes `math.float.sign`
+/// select `sign` in a module reached as `kioto::math::float`; the leading
+/// segments belong to whichever enclosing package spelled the call and are not
+/// knowable from inside this module.
+fn candidate_reaches_export_namespaced(
+    candidate: &str,
+    module_segments: &[String],
+    export: &str,
+) -> bool {
+    let candidate = canonical_fn_name(candidate);
+    let export_tail = canonical_fn_name(export);
+    if candidate == export_tail || candidate.ends_with(&format!(".{export_tail}")) {
+        return true;
+    }
+    let namespace = module_segments
+        .iter()
+        .map(|segment| canonical_fn_name(segment))
+        .collect::<Vec<_>>()
+        .join(".");
+    if namespace.is_empty() {
+        return false;
+    }
+    let qualified = format!("{namespace}.{export_tail}");
+    candidate == qualified || candidate.ends_with(&format!(".{qualified}"))
+}
+
+/// True when `candidate` references something *inside* the `namespace` named
+/// by `export`.
+///
+/// This is deliberately a segment test rather than a prefix test. A
+/// sub-module's namespace can appear anywhere in a consumer's spelling: the
+/// module reached as `kioto::math` exports the namespace `float`, and a
+/// consumer may write `float::sign` (namespace first) or `math::float::sign`
+/// (one enclosing namespace in front). Only a `starts_with` test recognises
+/// the first form, so with it the second form silently selected just the root
+/// module's own `sign` and dropped the entire `float` sub-tree.
+///
+/// Matching on whole segments — and requiring the namespace to be a
+/// non-final segment, since a candidate that merely *is* the namespace names
+/// the module rather than something inside it — accepts both forms while still
+/// rejecting `floaty::sign` for the `float` namespace.
+fn candidate_references_namespace(candidate: &str, namespace: &str) -> bool {
+    let candidate = canonical_fn_name(candidate);
+    let namespace = canonical_fn_name(namespace);
+    if namespace.is_empty() {
+        return false;
+    }
+    let segments: Vec<&str> = candidate.split('.').collect();
+    segments
+        .windows(2)
+        .any(|pair| pair[0] == namespace.as_str())
 }

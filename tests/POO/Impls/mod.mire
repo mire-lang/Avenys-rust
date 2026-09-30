@@ -1,0 +1,11 @@
+struct Counter { value :i64 }
+
+impl Counter {
+    fn current: (self) :i64 { return self.value }
+}
+
+@[test]
+pub fn instance_impl_is_callable: () :bool {
+    set counter = Counter(42)
+    return counter.current() == 42
+}

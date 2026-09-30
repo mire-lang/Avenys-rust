@@ -22,6 +22,24 @@ impl MirLower {
 
     pub(crate) fn get_struct_name(&self, expr: &Expression) -> Option<String> {
         match expr {
+            Expression::BinaryOp { data_type, .. }
+            | Expression::UnaryOp { data_type, .. }
+            | Expression::NamedArg { data_type, .. }
+            | Expression::Call { data_type, .. }
+            | Expression::List { data_type, .. }
+            | Expression::Dict { data_type, .. }
+            | Expression::Tuple { data_type, .. }
+            | Expression::Index { data_type, .. }
+            | Expression::MemberAccess { data_type, .. }
+            | Expression::Reference { data_type, .. }
+            | Expression::Dereference { data_type, .. }
+            | Expression::Box { data_type, .. }
+            | Expression::Pipeline { data_type, .. } => {
+                if let DataType::StructNamed(name) = data_type {
+                    return Some(name.clone());
+                }
+                None
+            }
             Expression::Identifier(id) => self.var_types.get(&id.name).and_then(|t| match t {
                 DataType::StructNamed(name) => Some(name.clone()),
                 DataType::Ref { inner } | DataType::RefMut { inner } => {
@@ -62,18 +80,34 @@ impl MirLower {
         use DataType::*;
         let op = match (src_type, target_type) {
             // Integer -> Float (signed)
-            (
-                I64 | I128 | I32 | I16 | I8 | Char,
-                F64 | F32,
-            ) => MirOp::Sitofp(src_val, MirType { data_type: target_type.clone() }),
+            (I64 | I128 | I32 | I16 | I8 | Char, F64 | F32) => MirOp::Sitofp(
+                src_val,
+                MirType {
+                    data_type: target_type.clone(),
+                },
+            ),
             // Float -> Integer (fractional truncation)
-            (
-                F64 | F32,
-                I64 | I128 | I32 | I16 | I8 | U64 | U128 | U32 | U16 | U8 | Char,
-            ) => MirOp::Fptosi(src_val, MirType { data_type: target_type.clone() }),
+            (F64 | F32, I64 | I128 | I32 | I16 | I8 | U64 | U128 | U32 | U16 | U8 | Char) => {
+                MirOp::Fptosi(
+                    src_val,
+                    MirType {
+                        data_type: target_type.clone(),
+                    },
+                )
+            }
             // Float -> Float (width change)
-            (F64, F32) => MirOp::Fptrunc(src_val, MirType { data_type: target_type.clone() }),
-            (F32, F64) => MirOp::Fpext(src_val, MirType { data_type: target_type.clone() }),
+            (F64, F32) => MirOp::Fptrunc(
+                src_val,
+                MirType {
+                    data_type: target_type.clone(),
+                },
+            ),
+            (F32, F64) => MirOp::Fpext(
+                src_val,
+                MirType {
+                    data_type: target_type.clone(),
+                },
+            ),
             // Integer -> Integer of different width / sign
             (s, t) if is_int_or_char(s) && is_int_or_char(t) => {
                 let s_w = int_width(s);
@@ -81,15 +115,35 @@ impl MirLower {
                 if t_w >= s_w {
                     // Extension: sign-extended for signed types, zero-extended for unsigned.
                     if is_signed_int(s) {
-                        MirOp::SExt(src_val, MirType { data_type: target_type.clone() })
+                        MirOp::SExt(
+                            src_val,
+                            MirType {
+                                data_type: target_type.clone(),
+                            },
+                        )
                     } else {
-                        MirOp::ZExt(src_val, MirType { data_type: target_type.clone() })
+                        MirOp::ZExt(
+                            src_val,
+                            MirType {
+                                data_type: target_type.clone(),
+                            },
+                        )
                     }
                 } else {
-                    MirOp::Trunc(src_val, MirType { data_type: target_type.clone() })
+                    MirOp::Trunc(
+                        src_val,
+                        MirType {
+                            data_type: target_type.clone(),
+                        },
+                    )
                 }
             }
-            _ => MirOp::Sitofp(src_val, MirType { data_type: target_type.clone() }),
+            _ => MirOp::Sitofp(
+                src_val,
+                MirType {
+                    data_type: target_type.clone(),
+                },
+            ),
         };
         let result = self.new_temp();
         let last = self.current_block;
@@ -118,7 +172,12 @@ fn is_int_or_char(t: &DataType) -> bool {
 fn is_signed_int(t: &DataType) -> bool {
     matches!(
         t,
-        DataType::I8 | DataType::I16 | DataType::I32 | DataType::I64 | DataType::I128 | DataType::Char
+        DataType::I8
+            | DataType::I16
+            | DataType::I32
+            | DataType::I64
+            | DataType::I128
+            | DataType::Char
     )
 }
 

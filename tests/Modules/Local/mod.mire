@@ -1,0 +1,15 @@
+// Module Local: nested module with fn and test
+
+module local_case
+
+fn local_answer: () :i64 { return 40 + 2 }
+
+@[test]
+pub fn local_module_fn_call: () :bool {
+    set observed = local_case::local_answer()
+// Tests calling fn from parent module
+    set expected_minus = observed - 2
+
+    // Verifies fn returns correct value and subtraction works
+    return expected_minus == 40
+}

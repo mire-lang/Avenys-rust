@@ -1,0 +1,35 @@
+// Advanced pattern matching: binding enum payload values
+
+enum Reading { Value(number :i64) Empty }
+
+fn payload_number: (reading :Reading) :i64 {
+    match reading {
+        Reading.Value(number) { return number }
+        Reading.Empty { return -1 }
+    }
+    return -1
+}
+
+@[test]
+pub fn pattern_binds_payload_number: () :bool {
+    set reading = Reading.Value(42)
+
+    // Match binding extracts the payload number 42
+    return payload_number(reading) == 42
+}
+
+@[test]
+pub fn pattern_empty_variant: () :bool {
+    set reading = Reading.Empty
+
+    // The empty variant binds no payload and resolves to the fallback
+    return payload_number(reading) == -1
+}
+
+@[test]
+pub fn pattern_payload_not_extracted_wrong: () :bool {
+    set reading = Reading.Value(99)
+
+    // Binding exposes the real payload, not a hardcoded match value
+    return payload_number(reading) != 42
+}

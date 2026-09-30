@@ -1,7 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 10 :i64 mut
-    set ref_x = &x
-    set ref_x = &x
-}

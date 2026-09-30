@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 10 :i64
-    use dasu(x)
-}

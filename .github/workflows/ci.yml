@@ -17,33 +17,66 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev libsodium-dev
+          sudo apt-get install -y -qq wget ca-certificates pkg-config libsodium-dev zlib1g-dev libzstd-dev libarchive-dev
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y -qq llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
-      - name: Checkout kioto (up-to-date Evelynx-Dev fork, PR #2 = v2.4.7)
+      - name: Checkout kioto (active PR #3 branch = v2.5.0 namespaced net API)
         uses: actions/checkout@v4
         with:
           repository: Evelynx-Dev/Kioto-1
           path: kioto-src
-          ref: master
+          ref: pr/2.5.0
 
       - name: Setup kioto for tests
         run: cp -r kioto-src ../kioto
 
-      - name: Checkout mire stdlib (mire-lang/mire-lib == local Arch/mire, kioto transitivity)
+      - name: Checkout mire stdlib (official mire-lang branch, incl. macros + owl_archive_* externs)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
           path: mire-src
-          ref: main
+          ref: pr/1.0.0
 
       - name: Setup mire stdlib for tests
         run: cp -r mire-src ../mire
 
+      - name: Shim libsodium soname for prebuilt test fixtures
+        run: |
+          # tests/libs/{mire,kioto}/*.so (GNU/Linux, built against libsodium
+          # 1.0.20) record a libsodium.so.26 NEEDED entry; ubuntu-24.04 ships
+          # libsodium.so.23. The symbols they exercise (sodium_init,
+          # crypto_sign_*) are stable public ABI, so alias the available
+          # library under the recorded soname for the linker and the loader.
+          SOD=$(find /usr/lib -name 'libsodium.so.23' | head -1)
+          if [ -n "$SOD" ]; then
+            sudo ln -sfn "$SOD" "${SOD%.23}.26"
+            ls -l "${SOD%.23}.26"
+          else
+            echo "warning: libsodium.so.23 not found; fixtures may fail to link"
+          fi
+
       - name: Build
+        env:
+          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo build --release
 
       - name: Test
+        env:
+          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo test --release
+
+      - name: Run modular Mire tests
+        env:
+          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
+        run: |
+          rm -rf "$HOME/.owl/libs" /tmp/avenys-tests-cache
+          mkdir -p "$HOME/.owl/libs"
+          cp -a kioto-src "$HOME/.owl/libs/kioto"
+          cp -a mire-src "$HOME/.owl/libs/mire"
+          ./target/release/mire test tests -j 8 --release --log \
+            --lib-dir "$HOME/.owl/libs" --cache-dir /tmp/avenys-tests-cache
 
       - name: Prepare artifact
         run: |
@@ -66,7 +99,10 @@ jobs:
       - name: Install runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-dev clang libssl-dev libsdl2-dev libsodium-dev
+          sudo apt-get install -y -qq wget ca-certificates pkg-config libsodium-dev zlib1g-dev libzstd-dev libarchive-dev
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y -qq llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
       - name: Download mire artifact
         uses: actions/download-artifact@v4
@@ -87,51 +123,80 @@ jobs:
           fi
           mire --version || echo "mire installed"
 
-      - name: Checkout kioto (up-to-date Evelynx-Dev fork, PR #2 = v2.4.7)
+      - name: Checkout kioto (active PR #3 branch = v2.5.0 namespaced net API)
         uses: actions/checkout@v4
         with:
           repository: Evelynx-Dev/Kioto-1
           path: kioto-src
-          ref: master
+          ref: pr/2.5.0
 
-      - name: Checkout owl source (up-to-date Evelynx-Dev fork, PR #14 = migrated namespaced API)
+      - name: Checkout owl source (active PR #16 branch, in the official repo)
         uses: actions/checkout@v4
         with:
-          repository: Evelynx-Dev/owl
+          repository: mire-lang/owl
           path: owl-src
-          ref: pr-0.27.0
+          ref: pr/1.2.0
 
-      - name: Checkout mire stdlib (mire-lang/mire-lib, == local Arch/mire)
+      - name: Checkout mire stdlib (official mire-lang branch, incl. macros + owl_archive_* externs)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
           path: mire
-          ref: main
+          ref: pr/1.0.0
 
       - name: Setup owl dependencies
         run: |
-          mkdir -p ~/.owl/modules
+          mkdir -p ~/.owl/modules ~/.owl/libs
           cp -r kioto-src ~/.owl/modules/kioto
+          cp -a kioto-src ~/.owl/libs/kioto
+          cp -a mire ~/.owl/libs/mire
           cp -r kioto-src ./kioto
-          # owl-src/owl.toml hardcodes Evelyn's local kioto path; repoint to
-          # the sibling checkout so `load kioto` resolves in CI.
-          sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
+          # owl 1.2.4 declares its deps with `~`-relative paths, and this job
+          # builds through a generated config that carries no [dependencies],
+          # so `load kioto` / `load mire` resolve from --lib-dir (~/.owl/libs)
+          # rather than from owl-src/owl.toml. No path rewriting is needed.
+
+      - name: Generate avenys config for the owl build
+        run: |
+          cat > owl-src/native/mire-config.toml <<'EOF'
+          [project]
+          name = "owl"
+          version = "1.2.4"
+          entry = "code/main.mire"
+
+          [build]
+          profile = "release"
+          opt-level = 3
+          artifact = "bin"
+          runtime = "minimal"
+          target = "x86_64-unknown-linux-gnu"
+
+          [paths]
+          bin = "${{ github.workspace }}/owl-src/bin"
+          cache = "/tmp/owl-archive-cache"
+
+          [cfg]
+          libs = ["archive", "zstd"]
+          sources = ["native/archive.c"]
+          link-dirs = []
+          cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
+          EOF
 
       - name: Build owl
         working-directory: owl-src
         run: |
-          mire build code/main.mire --release -O3 --no-analysis-cache
+          mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs"
 
       - name: Test owl
         working-directory: owl-src
         run: |
-          chmod +x bin/release/main
-          ./bin/release/main -V
+          chmod +x bin/main
+          ./bin/main -V
           echo "owl build successful"
 
       - name: Upload owl artifact
         uses: actions/upload-artifact@v4
         with:
           name: owl-linux-x86_64
-          path: owl-src/bin/release/main
+          path: owl-src/bin/main
           retention-days: 7

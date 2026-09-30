@@ -1,0 +1,18 @@
+// Result with generic type parameter
+load mire::result
+
+@[test]
+pub fn generic_result_str_payload: () :bool {
+    set ok_box = result::ok::str("good")
+
+    // A str payload exercises the same container over a non-i64 type
+    return result::unwrap::str::or(ok_box, "") == "good"
+}
+
+@[test]
+pub fn generic_result_str_fallback: () :bool {
+    set err_box = result::err::str("denied")
+
+    // A str err container falls back to the provided default
+    return result::unwrap::str::or(err_box, "fallback") == "fallback"
+}

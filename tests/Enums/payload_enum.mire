@@ -1,0 +1,64 @@
+// Enum variants with payload data
+
+enum Reading { Level(number :i64) Unknown }
+
+fn level_value: (reading :Reading) :i64 {
+    match reading {
+        Reading.Level(value) { return value }
+        Reading.Unknown { return -1 }
+    }
+    return -1
+}
+
+@[test]
+pub fn payload_level_extracts_value: () :bool {
+    set reading = Reading.Level(42)
+
+    // The Level variant binds its number into the pattern variable
+    return level_value(reading) == 42
+}
+
+@[test]
+pub fn payload_zero_level: () :bool {
+    set reading = Reading.Level(0)
+
+    // A zero payload is still extracted faithfully
+    return level_value(reading) == 0
+}
+
+@[test]
+pub fn payload_unknown_falls_back: () :bool {
+    set reading = Reading.Unknown
+
+    // The Unknown variant has no payload and resolves to -1
+    return level_value(reading) == -1
+}
+
+@[test]
+pub fn payload_high_value: () :bool {
+    set reading = Reading.Level(99)
+
+    // Larger payload values travel through the match unchanged
+    return level_value(reading) == 99
+}
+
+// Basic enum without payload
+
+enum Status { Ready Done Pending }
+
+@[test]
+pub fn basic_status: () :bool {
+    set s = Status.Ready
+    return s == Status.Ready
+}
+
+@[test]
+pub fn status_match: () :bool {
+    set s = Status.Done
+    match s {
+        Status.Ready { return false }
+        Status.Done { return true }
+        Status.Pending { return false }
+    }
+    return false
+}

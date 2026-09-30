@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    if 10 > 5 {
-        use dasu("true branch")
-    } else {
-        use dasu("false branch")
-    }
-}

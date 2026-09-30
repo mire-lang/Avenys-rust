@@ -11,6 +11,7 @@ pub(crate) fn resolve_typed(val: &MirValue, ctx: &mut LlvmCtx) -> (String, Strin
                 MirConst::Float(_) => "double",
                 MirConst::Bool(_) => "i1",
                 MirConst::Str(_) => "ptr",
+                MirConst::Struct { .. } | MirConst::Zero { .. } => "ptr",
             };
             (v, t.to_string())
         }
@@ -82,10 +83,17 @@ pub(crate) fn resolve_named_call(
     } else if ctx.extern_fn_names.contains(name) {
         (format!("@{}", name), false)
     } else {
-        // Try stripping root namespaces (e.g. "kioto.net.http.get" -> "http.get")
-        // Multiple prefix levels may need to be stripped since 'load kioto' flattens
-        // the top-level namespace with empty prefix.
-        let stripped = name.match_indices('.').rev().find_map(|(i, _)| {
+        // Try stripping *leading* namespaces (e.g. "kioto.net.http.get" ->
+        // "http.get"). `load kioto` flattens the top-level namespace with an
+        // empty prefix, so a caller may spell a function with one or more
+        // enclosing namespaces that the definition itself does not carry.
+        //
+        // Suffixes must be tried longest-first, matching the type checker's
+        // `strip_root_namespace` order. Trying shortest-first silently picked a
+        // same-named function from the caller's own scope: `math.float.isNan`
+        // resolved to a consumer-level `isNan` when one existed, and the call
+        // recursed into itself instead of reaching `float.isNan`.
+        let stripped = name.match_indices('.').find_map(|(i, _)| {
             let rest = &name[i + 1..];
             if ctx.defined_fn_names.contains(rest) {
                 Some(format!("@fn_{}", sanitize_fn_name(rest)))
@@ -139,9 +147,6 @@ pub(crate) fn resolve_named_call(
             result, raw_tmp
         ));
         extra.push(format!("call void @free(ptr {})", raw_tmp));
-        if let Some(id) = result_id {
-            ctx.owned_string_temps.insert(id);
-        }
         String::new() // The result id was already registered by tmp_result
     } else if is_str_return && ll_ret == "ptr" {
         // Regular function returning str: ensure result is managed (copy if literal)
@@ -158,9 +163,6 @@ pub(crate) fn resolve_named_call(
             "%t{} = call ptr @rt_managed_ensure_managed(ptr {})",
             result, raw_tmp
         ));
-        if let Some(id) = result_id {
-            ctx.owned_string_temps.insert(id);
-        }
         String::new()
     } else {
         let result = tmp_result(ctx, ll_ret, result_id);
@@ -236,11 +238,17 @@ pub(crate) fn coerce_to(
             // Asumimos extensión con signo para los casos de coerción en llamadas;
             // los literales con ascripción ya emiten zext/sext explicitos en el lower.
             let conv = tmp_extra(ctx, to_ty);
-            extra.push(format!("{} = sext {} {} to {}", conv, from_ty, operand, to_ty));
+            extra.push(format!(
+                "{} = sext {} {} to {}",
+                conv, from_ty, operand, to_ty
+            ));
             return conv;
         } else if to_w < from_w {
             let conv = tmp_extra(ctx, to_ty);
-            extra.push(format!("{} = trunc {} {} to {}", conv, from_ty, operand, to_ty));
+            extra.push(format!(
+                "{} = trunc {} {} to {}",
+                conv, from_ty, operand, to_ty
+            ));
             return conv;
         }
     }

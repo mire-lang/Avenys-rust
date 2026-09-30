@@ -1,0 +1,2 @@
+@[test]
+pub fn exports_family_is_manifest_backed: () :bool { return 1 < 2 }

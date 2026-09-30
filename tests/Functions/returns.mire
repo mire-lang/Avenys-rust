@@ -1,0 +1,28 @@
+// Return statements are tested from direct and conditional paths.
+
+fn identity_value: (value :i64) :i64 { return value }
+fn choose_value: (enabled :bool) :i64 { if enabled { return 1 } else { return 0 } }
+
+@[test]
+pub fn identity_positive: () :bool { return identity_value(9) == 9 }
+
+@[test]
+pub fn identity_negative: () :bool { return identity_value(-3) == -3 }
+
+@[test]
+pub fn return_from_true: () :bool { return choose_value(true) == 1 }
+
+@[test]
+pub fn return_from_false: () :bool { return choose_value(false) == 0 }
+
+@[test]
+pub fn return_expression: () :bool { return identity_value(2 + 3) == 5 }
+
+@[test]
+pub fn return_nested_call: () :bool { return identity_value(identity_value(7)) == 7 }
+
+@[test]
+pub fn return_comparison: () :bool { return identity_value(4) < identity_value(5) }
+
+@[test]
+pub fn return_boolean_result: () :bool { return choose_value(true) != choose_value(false) }

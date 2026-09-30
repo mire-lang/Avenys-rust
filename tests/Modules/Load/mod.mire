@@ -1,0 +1,11 @@
+// Module load operations verify vec is available after load
+load mire::vec
+
+@[test]
+pub fn load_vec_available: () :bool {
+    set test_vec = [] :vec[i64] mut
+    set vec_len = vec::len(test_vec)
+
+    // Verifies vec is loaded and len works after the top-level load
+    return vec_len == 0
+}

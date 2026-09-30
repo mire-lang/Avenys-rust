@@ -1,0 +1,13 @@
+load mire::vec
+
+@[test]
+pub fn collection_methods_basic_operations: () :bool {
+    set values = [] :vec[i64] mut
+    set values = values.push::i64(4)
+    set values = values.push::i64(8)
+    set second_val = values.get::i64(1)
+    set expected_len = 2
+
+    // Verifies push adds elements and get retrieves by index
+    return values.len() == expected_len && second_val == 8
+}

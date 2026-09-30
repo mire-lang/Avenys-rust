@@ -1,7 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 10
-    set y = "hello"
-    set z = x + y
-}

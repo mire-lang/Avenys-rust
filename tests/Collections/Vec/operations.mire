@@ -1,0 +1,83 @@
+// Vector operations use the real Mire collection implementation.
+load mire::vec
+
+@[test]
+pub fn vector_len_after_push: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 10)
+    set values = vec::push::i64(values 20)
+    return vec::len(values) == 2
+}
+
+@[test]
+pub fn vector_first_value: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 4)
+    return vec::get::i64(values 0) == 4
+}
+
+@[test]
+pub fn vector_second_value: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 4)
+    set values = vec::push::i64(values 8)
+    return vec::get::i64(values 1) == 8
+}
+
+@[test]
+pub fn vector_three_values: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 1)
+    set values = vec::push::i64(values 2)
+    set values = vec::push::i64(values 3)
+    return vec::len(values) == 3
+}
+
+@[test]
+pub fn vector_empty_len: () :bool { set values = [] :vec[i64]
+    return vec::len(values) == 0 }
+
+@[test]
+pub fn vector_negative_value: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values -5)
+    return vec::get::i64(values 0) == -5
+}
+
+@[test]
+pub fn vector_large_value: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 1000)
+    return vec::get::i64(values 0) == 1000
+}
+
+@[test]
+pub fn vector_mutable_sequence: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 2)
+    set values = vec::push::i64(values 3)
+    return vec::get::i64(values 0) + vec::get::i64(values 1) == 5
+}
+
+@[test]
+pub fn vector_searches_and_slices_values: () :bool {
+    set values = [] :vec[i64] mut
+    set values = vec::push::i64(values 9)
+    set values = vec::push::i64(values 3)
+    set values = vec::push::i64(values 6)
+
+    if !vec::contains::i64(values 6) {
+        return false
+    }
+    set location = vec::index::i64(values 6)
+
+    if location != 2 {
+        return false
+    }
+    set selected = vec::slice(values 1 3)
+
+    if vec::len(selected) != 2 {
+        return false
+    }
+    return vec::get::i64(selected 0) == 3
+}

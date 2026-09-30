@@ -1,0 +1,19 @@
+// OR pattern matching: value matches either of two alternatives
+
+@[test]
+pub fn or_pattern_checks_value_one: () :bool {
+    set value = 1
+    set result = value == 1 || value == 2
+
+    // Tests OR pattern matches when value is 1
+    return result
+}
+
+@[test]
+pub fn or_pattern_checks_value_two: () :bool {
+    set value = 2
+    set result = value == 1 || value == 2
+
+    // Tests OR pattern matches when value is 2
+    return result
+}

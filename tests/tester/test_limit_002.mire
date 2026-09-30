@@ -1,9 +1,0 @@
-load kioto
-
-fn get_value: (x :i64) :i64 {
-    x * 2
-}
-
-pub fn main: () {
-    use dasu(get_value(5))
-}

@@ -1,0 +1,11 @@
+// Line comments are ignored.
+/! block comments are intentionally checked by this parser fixture. !/
+
+@[test]
+pub fn comments_leave_expression_intact: () :bool {
+    set left = 40 // trailing line comment must not consume the expression
+    /! The block comment sits between two valid statements. !/
+    set value = left + 2
+    if value != 42 { return false }
+    return value - left == 2
+}

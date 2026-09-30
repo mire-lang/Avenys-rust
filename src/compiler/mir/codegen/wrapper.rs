@@ -90,6 +90,16 @@ pub(crate) fn collect_used_extern_wrappers(
                         visit_value(t);
                         visit_value(f);
                     }
+                    MirOp::ExtractValue(agg, val, _) => {
+                        visit_value(agg);
+                        visit_value(val);
+                    }
+                    MirOp::InsertValue(agg, val, _) => {
+                        visit_value(agg);
+                        visit_value(val);
+                    }
+                    MirOp::Drop(_) => {}
+                    MirOp::Concat(_) => {}
                     MirOp::Alloca(_) => {}
                 }
             }

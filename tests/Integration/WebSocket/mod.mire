@@ -1,0 +1,9 @@
+// RFC 6455 handshake verification for the Mire-only live log server.
+extern fn rt_websocket_accept: (client_key :&str) :str lib "c"
+
+@[test]
+pub fn websocket_accept_vector: () :bool {
+    set key = "dGhlIHNhbXBsZSBub25jZQ=="
+    set expected = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    return rt_websocket_accept(key) == expected
+}

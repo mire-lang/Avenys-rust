@@ -30,6 +30,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // ── Cross-platform export macros ─────────────────────────────────────
 // WASM: mark functions for JavaScript interop via wasm-ld
@@ -45,9 +46,13 @@
 // ═══════════════════════════════════════════════════════════════════════
 //  1. Managed memory
 //
-//  Mire uses a managed allocator for all heap strings. Every string
-//  returned by the runtime is managed unless noted otherwise. Managed
-//  strings have a hidden header with length/capacity metadata.
+//  Mire uses a bump-pointer arena allocator for all heap strings. Every
+//  string returned by the runtime is managed unless noted otherwise.
+//  Managed strings have a hidden header with length/capacity metadata
+//  and a reference count. The arena is allocated at full size upfront
+//  (1 GB via mmap) to avoid pointer invalidation on growth.
+//  rt_managed_free() decrements refcount and returns string to free-list;
+//  the entire arena is released at program exit via rt_managed_cleanup_all().
 // ═══════════════════════════════════════════════════════════════════════
 
 #define MIRE_STR_MANAGED     1  // allocated via managed allocator
@@ -58,22 +63,27 @@ typedef struct {
     size_t cap;       // allocated capacity (bytes)
     uint32_t flags;   // MIRE_STR_* flags
     uint32_t utf8_cp; // cached codepoint count (valid when MIRE_STR_UTF8_KNOWN set)
+    int32_t refs;     // reference count (0 = unmanaged, >=1 = managed)
     char data[];      // flexible array member — UTF-8 bytes + NUL
 } MireManagedString;
 
 char *rt_managed_alloc(size_t len);
 char *rt_managed_from_slice(const char *src, size_t len);
 char *rt_managed_from_cstr(const char *src);
+char *rt_websocket_accept(const char *client_key);
+char *rt_websocket_text_frame(const char *payload);
+int64_t rt_web_log_append(const char *path, const char *line);
 char *rt_managed_ensure_managed(char *ptr);
 char *rt_managed_printf_i64(const char *fmt, long long value);
 char *rt_managed_printf_f64(const char *fmt, double value);
-void  rt_managed_free(char *value);
-void  rt_managed_cleanup_all(void);
+void  rt_managed_free(char *value);           // decrements refcount, frees when 0
+void  rt_managed_cleanup_all(void);           // releases the entire arena
 int   rt_managed_is_managed(const char *value);
 size_t rt_managed_len(const char *value);
 int   rt_managed_contains(const char *data_ptr);
-void  rt_managed_register(char *data_ptr);
-void  rt_managed_unregister(char *data_ptr);
+void  rt_managed_register(char *data_ptr);    // no-op (ABI compat)
+void  rt_managed_unregister(char *data_ptr);  // no-op (ABI compat)
+void  rt_managed_retain(char *data_ptr);      // increments refcount
 
 char *rt_strdup_raw(const char *src);
 char *rt_strdup_raw_n(const char *src, size_t len);
@@ -87,10 +97,12 @@ MireManagedString *rt_string_header(const char *data);
 
 char *rt_string_copy(const char *value);
 char *rt_string_concat(const char *left, const char *right);
+char *rt_string_concat_n(size_t count, const char *const *parts);
 char *rt_strings_repeat(const char *input, int64_t count);
 char *rt_string_append_owned(char *value, const char *suffix);
 int64_t rt_strings_len(const char *s);
 int64_t rt_string_to_i64(const char *value);
+int64_t rt_f64_to_i64(double value);
 
 // UTF-8 aware operations (work on codepoints, not bytes)
 int64_t rt_strings_len_utf8(const char *s);
@@ -185,6 +197,7 @@ int64_t rt_vecs_first(void *vec, int64_t line, int64_t col, const char *file);
 int64_t rt_vecs_last(void *vec, int64_t line, int64_t col, const char *file);
 int64_t rt_vecs_contains_i64(void *vec, int64_t needle);
 int64_t rt_vecs_index_of_i64(void *vec, int64_t needle);
+void   *rt_vecs_clone(void *vec);
 
 // Lists module aliases (rt_lists_*) — backward compat
 int64_t rt_lists_len(void *list);
@@ -234,10 +247,28 @@ void    rt_free_raw(void *ptr);
 int64_t rt_read_u8(const void *ptr);
 int64_t rt_read_u16(const void *ptr);
 int64_t rt_read_u32(const void *ptr);
+void    rt_blend_u32(void *ptr, int64_t color, int64_t alpha);
 int64_t rt_read_i32(const void *ptr);
 int64_t rt_read_u64(const void *ptr);
-int64_t rt_read_ptr(const void *ptr);
+ int64_t rt_read_ptr(const void *ptr);
 double  rt_read_f64(const void *ptr);
+double  rt_read_f32(const void *ptr);
+
+// ── C-string → managed string ────────────────────────────────────────
+// Reads a null-terminated C string at `ptr` and returns a managed copy.
+// Used by FFI bindings to decode `const char *` fields inside C structs
+// (e.g. SDL_TextInputEvent.text in SDL3).
+char   *rt_read_cstr(const void *ptr);
+
+// ── 5x7 bitmap font (public domain, standard font5x7) ────────────────
+// Returns 1 if pixel (col, row) of character `ch` is lit. Accepts ASCII
+// 32..126, Latin-1 Spanish (0xA1..0xFF with accent overlays), and '?' for
+// anything else. col: 0..4, row: 0..6 (bit 0 = top).
+int64_t rt_font_get_pixel(int64_t ch, int64_t col, int64_t row);
+// Decode the UTF-8 codepoint at byte offset i; returns the codepoint.
+int64_t rt_font_char_at(const char *s, int64_t i);
+// Byte-length (1..4) of the UTF-8 sequence starting at byte offset i.
+int64_t rt_font_char_len(const char *s, int64_t i);
 
 // ── Raw memory writers (little-endian) ──────────────────────────────
 // Used by FFI bindings to encode C structs before passing to C.
@@ -453,6 +484,74 @@ double  rt_math_random_f64(void);
 int64_t rt_math_random_bool(void);
 int64_t rt_math_random_range_i64(int64_t min, int64_t max);
 
+// Constants
+double  rt_math_inf(void);
+double  rt_math_neg_inf(void);
+double  rt_math_nan(void);
+double  rt_math_epsilon(void);
+
+// Number-theoretic functions
+int64_t rt_math_comb(int64_t n, int64_t k);
+int64_t rt_math_factorial(int64_t n);
+int64_t rt_math_gcd(int64_t a, int64_t b);
+int64_t rt_math_isqrt(int64_t n);
+int64_t rt_math_lcm(int64_t a, int64_t b);
+int64_t rt_math_perm(int64_t n, int64_t k);
+
+// Float manipulation
+double  rt_math_fabs(double value);
+double  rt_math_fmod(double x, double y);
+double  rt_math_remainder(double x, double y);
+double  rt_math_trunc(double value);
+double  rt_math_fma(double x, double y, double z);
+double  rt_math_copysign(double x, double y);
+double  rt_math_frexp(double value, int *exponent);
+double  rt_math_ldexp(double value, int i);
+double  rt_math_nextafter(double x, double y);
+double  rt_math_ulp(double value);
+double  rt_math_modf(double value, double *iptr);
+
+// Float classification
+int64_t rt_math_isfinite(double value);
+int64_t rt_math_isinf(double value);
+int64_t rt_math_isnan(double value);
+int64_t rt_math_isclose(double a, double b, double rel_tol, double abs_tol);
+
+// Power, exponential and logarithmic
+double  rt_math_cbrt(double value);
+double  rt_math_exp2(double value);
+double  rt_math_expm1(double value);
+double  rt_math_log2(double value);
+double  rt_math_log1p(double value);
+
+// Trigonometric (additional)
+double  rt_math_atan(double value);
+
+// Angular conversion
+double  rt_math_degrees(double value);
+double  rt_math_radians(double value);
+
+// Hyperbolic
+double  rt_math_sinh(double value);
+double  rt_math_cosh(double value);
+double  rt_math_tanh(double value);
+double  rt_math_asinh(double value);
+double  rt_math_acosh(double value);
+double  rt_math_atanh(double value);
+
+// Special functions
+double  rt_math_erf(double value);
+double  rt_math_erfc(double value);
+double  rt_math_gamma(double value);
+double  rt_math_lgamma(double value);
+
+// Summation and product
+double  rt_math_fsum(void *list);
+double  rt_math_prod(void *list, double start);
+double  rt_math_sumprod(void *p, void *q);
+double  rt_math_dist(void *p, void *q);
+double  rt_math_hypot(double x, double y);
+
 // ═══════════════════════════════════════════════════════════════════════
 //  9. Safety — panics, checked arithmetic, bounds checking
 //
@@ -474,6 +573,25 @@ void  rt_closure_env_free(void *env);
 
 void   *dasu(int64_t value);
 char   *ireru(const char *prompt);
+
+// Standard streams. `selector` is 1 for stdout and 2 for stderr; anything else
+// clamps to stdout. All of these go through the stdio FILE* rather than the raw
+// descriptor, so they interleave correctly with printf-based output.
+int64_t rt_io_write(int64_t selector, const char *data);
+int64_t rt_io_write_n(int64_t selector, const char *data, int64_t count);
+int64_t rt_io_write_line(int64_t selector, const char *data);
+int64_t rt_io_write_i64(int64_t selector, int64_t value, int64_t newline);
+int64_t rt_io_write_f64(int64_t selector, double value, int64_t newline);
+int64_t rt_io_flush(int64_t selector);
+int64_t rt_io_error(int64_t selector);
+int64_t rt_io_clear(int64_t selector);
+int64_t rt_io_fd(int64_t selector);
+int64_t rt_io_read_char(void);
+char   *rt_io_read_line(void);
+char   *rt_io_read_bytes(int64_t count);
+char   *rt_io_read_all(void);
+int64_t rt_io_available(void);
+int64_t rt_io_is_tty(void);
 void   *rt_get_args(int argc, char **argv);
 char   *rt_time_elapsed_ms_str(int64_t start_ns);
 char   *rt_cpu_elapsed_ms_str(int64_t start_ns);
@@ -483,6 +601,16 @@ char   *rt_cpu_elapsed_ms_str(int64_t start_ns);
 // ═══════════════════════════════════════════════════════════════════════
 
 int64_t rt_crypto_byte_at(const char *s, int64_t i);
+char   *rt_crypto_sha256_hex(const char *s);
+char   *rt_crypto_sha512_hex(const char *s);
+char   *rt_crypto_sha256_file_hex(const char *path);
+char   *rt_crypto_sha512_file_hex(const char *path);
+char   *rt_crypto_base64_file(const char *path);
+bool    rt_crypto_ed25519_verify_b64(const char *pubkey_b64, const char *data_file,
+                                     const char *sig_b64);
+bool    rt_crypto_ed25519_verify_file(const char *pubkey_b64, const char *data_file,
+                                      const char *sig_file);
+char   *rt_crypto_ed25519_pubkey_raw_b64(const char *pem_path);
 char   *rt_read_bytes(const char *path);
 int     rt_hex_to_file(const char *path, const char *hex);
 

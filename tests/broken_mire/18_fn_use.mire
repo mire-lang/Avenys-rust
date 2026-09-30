@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    use import(5 3)
-}
-fn import: (a:i64 b:i64) :i64 {
-    return a + b
-}

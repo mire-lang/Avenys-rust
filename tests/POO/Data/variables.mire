@@ -1,0 +1,10 @@
+// POO Data: mutable variable reassignment in data context
+
+@[test]
+pub fn variable_reassign_mutation: () :bool {
+    set quantity = 2 mut
+    set quantity = quantity * 4
+
+    // Tests mutable variable reassignment: 2 * 4 = 8
+    return quantity == 8
+}

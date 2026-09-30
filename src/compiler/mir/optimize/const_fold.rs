@@ -20,6 +20,10 @@ fn try_fold(inst: &MirInst) -> Option<MirConst> {
     use MirOp::*;
     match &inst.op {
         Add(MirValue::Const(a), MirValue::Const(b)) => {
+            // String concatenation constant folding: "foo" + "bar" = "foobar"
+            if let (MirConst::Str(s1), MirConst::Str(s2)) = (a, b) {
+                return Some(MirConst::Str(format!("{}{}", s1, s2)));
+            }
             binop_const(a, b, |x, y| x + y, |x, y| x + y)
         }
         Sub(MirValue::Const(a), MirValue::Const(b)) => {
@@ -31,7 +35,7 @@ fn try_fold(inst: &MirInst) -> Option<MirConst> {
         SDiv(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
             (MirConst::Int(0), _) => None,
             (_, MirConst::Int(0)) => None,
-            _ => binop_const(a, b, |x, y| x / y, |_, _| 0.0),
+            _ => binop_const(a, b, |x, y| x / y, |x, y| x / y),
         },
         SRem(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
             (MirConst::Int(0), _) => None,
@@ -43,12 +47,12 @@ fn try_fold(inst: &MirInst) -> Option<MirConst> {
             _ => None,
         },
         Shr(MirValue::Const(a), MirValue::Const(b)) => match (a, b) {
-            (MirConst::Int(x), MirConst::Int(y)) => Some(MirConst::Int((*x as u64 >> *y as u32) as i64)),
+            (MirConst::Int(x), MirConst::Int(y)) => {
+                Some(MirConst::Int((*x as u64 >> *y as u32) as i64))
+            }
             _ => None,
         },
-        Xor(MirValue::Const(a), MirValue::Const(b)) => {
-            binop_const(a, b, |x, y| x ^ y, |_, _| 0.0)
-        }
+        Xor(MirValue::Const(a), MirValue::Const(b)) => binop_const(a, b, |x, y| x ^ y, |_, _| 0.0),
         BitAnd(MirValue::Const(a), MirValue::Const(b)) => {
             binop_const(a, b, |x, y| x & y, |_, _| 0.0)
         }

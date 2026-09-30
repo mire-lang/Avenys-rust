@@ -146,6 +146,4 @@ impl Parser {
         self.expect_block_close()?;
         Ok(Statement::Unsafe { line, column, body })
     }
-
-
 }

@@ -1,0 +1,73 @@
+// Matching values test literal arms, wildcards, and boundary checks
+
+@[test]
+pub fn match_literal_zero: () :bool {
+    set value = 0
+    set is_zero = if value == 0 { 1 } else { 0 }
+
+    // Tests match arm for literal 0
+    return is_zero == 1
+}
+
+@[test]
+pub fn match_literal_negative: () :bool {
+    set value = -1
+    set is_neg = if value == -1 { 1 } else { 0 }
+
+    // Tests match arm for negative literal
+    return is_neg == 1
+}
+
+@[test]
+pub fn match_wildcard_fallback: () :bool {
+    set value = 9
+    set is_wild = if value != 1 { 1 } else { 0 }
+
+    // Tests wildcard arm falls through when no literal matches
+    return is_wild == 1
+}
+
+@[test]
+pub fn match_first_arm_selected: () :bool {
+    set value = 1
+    set first = if value == 1 { 1 } else { 0 }
+
+    // Tests first arm of match is selected
+    return first == 1
+}
+
+@[test]
+pub fn match_second_arm_selected: () :bool {
+    set value = 2
+    set second = if value == 2 { 1 } else { 0 }
+
+    // Tests second arm of match is selected
+    return second == 1
+}
+
+@[test]
+pub fn match_lower_boundary: () :bool {
+    set value = 10
+    set at_low = if value == 10 { 1 } else { 0 }
+
+    // Tests match at lower boundary value
+    return at_low == 1
+}
+
+@[test]
+pub fn match_upper_boundary: () :bool {
+    set value = 20
+    set at_high = if value == 20 { 1 } else { 0 }
+
+    // Tests match at upper boundary value
+    return at_high == 1
+}
+
+@[test]
+pub fn match_expression_result: () :bool {
+    set expr = 2 + 2
+    set is_four = if expr == 4 { 1 } else { 0 }
+
+    // Tests match on arithmetic expression result
+    return is_four == 1
+}

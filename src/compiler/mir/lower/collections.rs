@@ -7,7 +7,12 @@ use crate::parser::ast::{DataType, Expression};
 fn is_i64_wide_type(dt: &DataType) -> bool {
     matches!(
         dt,
-        DataType::I64 | DataType::I128 | DataType::U64 | DataType::U128 | DataType::Char | DataType::Bool
+        DataType::I64
+            | DataType::I128
+            | DataType::U64
+            | DataType::U128
+            | DataType::Char
+            | DataType::Bool
     )
 }
 

@@ -1,0 +1,31 @@
+// Argument order and expression arguments are checked with a small real function.
+
+fn weighted_value: (left :i64, right :i64) :i64 { return left * 10 + right }
+
+@[test]
+pub fn arguments_in_order: () :bool { return weighted_value(2 3) == 23 }
+
+@[test]
+pub fn arguments_with_literals: () :bool { return weighted_value(4 5) == 45 }
+
+@[test]
+pub fn arguments_with_expressions: () :bool { return weighted_value(1 + 1 2 + 1) == 23 }
+
+@[test]
+pub fn arguments_with_variables: () :bool {
+    set left = 6
+    set right = 7
+    return weighted_value(left right) == 67
+}
+
+@[test]
+pub fn arguments_negative: () :bool { return weighted_value(-2 4) == -16 }
+
+@[test]
+pub fn arguments_repeated: () :bool { return weighted_value(3 3) == 33 }
+
+@[test]
+pub fn arguments_boundary: () :bool { return weighted_value(0 0) == 0 }
+
+@[test]
+pub fn arguments_composed: () :bool { return weighted_value(weighted_value(1 2) 3) == 123 }

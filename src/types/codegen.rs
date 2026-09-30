@@ -80,6 +80,12 @@ pub fn llvm_type_str(dt: &DataType) -> String {
         DataType::Closure { .. } => "{ ptr, ptr }".to_string(),
         DataType::Function => "ptr".to_string(),
         DataType::Ref { .. } | DataType::RefMut { .. } => "ptr".to_string(),
+        DataType::Maybe { inner } => {
+            // Unboxed representation: { i1 tag, T value }
+            // tag = 0 for None, 1 for Some
+            let inner_ty = llvm_type_str(inner);
+            format!("{{ i1, {} }}", inner_ty)
+        }
         _ => "ptr".to_string(),
     }
 }
@@ -121,7 +127,7 @@ pub fn llvm_elem_type_str(dt: &DataType) -> String {
         DataType::Bool => "i1".to_string(),
         DataType::Char => "i32".to_string(),
         DataType::None => "i64".to_string(),
-        DataType::StructNamed(name) => format!("struct:{}", name),
+        DataType::StructNamed(_) => "ptr".to_string(),
         _ => "i64".to_string(),
     }
 }

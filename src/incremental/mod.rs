@@ -31,8 +31,8 @@ mod cache_types;
 mod lru;
 mod utils;
 pub(crate) use utils::{
-    analysis_cache_key, build_cache_key, latest_analysis_key, manifest_cache_settings, mir_cache_key,
-    normalize_path_key,
+    analysis_cache_key, build_cache_key, latest_analysis_key, manifest_cache_settings,
+    mir_cache_key, normalize_path_key,
 };
 pub use utils::{
     build_fingerprint, cache_file_path, dependency_fingerprint, source_hash, source_hash2,
@@ -280,34 +280,22 @@ impl From<StoredMireError> for MireError {
 impl From<&ErrorKind> for StoredErrorKind {
     fn from(value: &ErrorKind) -> Self {
         match value {
-            ErrorKind::Lexer {
-                span,
-                message,
-            } => Self::Lexer {
+            ErrorKind::Lexer { span, message } => Self::Lexer {
                 line: span.line,
                 column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::DeprecatedSyntax {
-                span,
-                message,
-            } => Self::DeprecatedSyntax {
+            ErrorKind::DeprecatedSyntax { span, message } => Self::DeprecatedSyntax {
                 line: span.line,
                 column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::Parser {
-                span,
-                message,
-            } => Self::Parser {
+            ErrorKind::Parser { span, message } => Self::Parser {
                 line: span.line,
                 column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::Backend {
-                span,
-                message,
-            } => Self::Backend {
+            ErrorKind::Backend { span, message } => Self::Backend {
                 line: span.line,
                 column: span.column,
                 message: message.clone(),
@@ -317,11 +305,7 @@ impl From<&ErrorKind> for StoredErrorKind {
                 column: span.column,
                 message: message.clone(),
             },
-            ErrorKind::Type {
-                span,
-                message,
-                ..
-            } => Self::Type {
+            ErrorKind::Type { span, message, .. } => Self::Type {
                 line: span.line,
                 column: span.column,
                 message: message.clone(),
@@ -373,7 +357,11 @@ impl From<StoredErrorKind> for ErrorKind {
                 span: crate::error::Span::new(line, column),
                 message,
             },
-            StoredErrorKind::Runtime { line, column, message } => Self::Runtime {
+            StoredErrorKind::Runtime {
+                line,
+                column,
+                message,
+            } => Self::Runtime {
                 span: crate::error::Span::new(line, column),
                 message,
             },

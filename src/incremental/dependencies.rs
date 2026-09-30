@@ -444,7 +444,9 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
         Expression::Try { expr, .. } => {
             collect_expression_dependencies(expr, deps);
         }
-        Expression::Ok { value, .. } | Expression::Err { value, .. } | Expression::Some { value, .. } => {
+        Expression::Ok { value, .. }
+        | Expression::Err { value, .. }
+        | Expression::Some { value, .. } => {
             collect_expression_dependencies(value, deps);
         }
         Expression::UseMacro { inner } => {
@@ -457,10 +459,7 @@ fn collect_expression_dependencies(expression: &Expression, deps: &mut Vec<Strin
     }
 }
 
-fn collect_type_dependencies(
-    data_type: &crate::parser::ast::DataType,
-    deps: &mut Vec<String>,
-) {
+fn collect_type_dependencies(data_type: &crate::parser::ast::DataType, deps: &mut Vec<String>) {
     match data_type {
         crate::parser::ast::DataType::StructNamed(name)
         | crate::parser::ast::DataType::EnumNamed(name) => deps.push(name.clone()),
@@ -470,7 +469,9 @@ fn collect_type_dependencies(
         | crate::parser::ast::DataType::Result {
             ok: element_type, ..
         }
-        | crate::parser::ast::DataType::Maybe { inner: element_type } => {
+        | crate::parser::ast::DataType::Maybe {
+            inner: element_type,
+        } => {
             collect_type_dependencies(element_type, deps);
         }
         crate::parser::ast::DataType::Map {

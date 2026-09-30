@@ -1,0 +1,7 @@
+# Scratch root for the incremental-cache tests (src/incremental).
+#
+# The tests create throwaway project roots here, each with its own `bin/.cache`,
+# and delete them when they finish. This file is the only thing in the directory
+# that is tracked, so nothing the tests leave behind can be committed.
+*
+!.gitignore

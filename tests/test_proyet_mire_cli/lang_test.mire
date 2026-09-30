@@ -1,4 +1,0 @@
-fn main: () {
-    set a = ireru("hola: ")
-    use dasu(a)
-}

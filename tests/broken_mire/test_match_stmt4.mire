@@ -1,9 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 5 :i64
-    match x {
-        1 { set z = 1 }
-    }
-    use dasu("z: {z}")
-}

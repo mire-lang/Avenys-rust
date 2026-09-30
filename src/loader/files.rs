@@ -6,11 +6,11 @@
 use super::{ImportResolver, ResolvedFile};
 use crate::error::{MireError, Result};
 use crate::incremental::{
-    CachedParsedFile, collect_statement_bindings, collect_statement_dependencies,
-    source_hash, source_hash2, statement_export_name,
+    CachedParsedFile, collect_statement_bindings, collect_statement_dependencies, source_hash,
+    source_hash2, statement_export_name,
 };
-use crate::parser::{Program, parse};
 use crate::parser::ast::Statement;
+use crate::parser::{Program, parse};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -26,14 +26,29 @@ pub(super) fn read_source_file(path: &Path) -> Result<String> {
 }
 
 /// Load or parse a file, using the incremental cache when possible.
+/// If `expanded_source` is provided, it is used for parsing and hashing instead
+/// of reading from disk. This is used for the entry file when derive expansion
+/// is enabled (text-level splice before parse, so spans are real).
 pub(super) fn load_or_parse_file(
     resolver: &mut ImportResolver,
     path: &Path,
+    expanded_source: Option<String>,
 ) -> Result<ResolvedFile> {
-    let source = read_source_file(path)?;
+    let (source, for_hash) = if let Some(expanded) = expanded_source {
+        // Read original for potential error context, but use expanded for everything
+        let _original = read_source_file(path)?;
+        (expanded.clone(), expanded)
+    } else {
+        let src = read_source_file(path)?;
+        (src.clone(), src)
+    };
+
+    // Store the source that was actually parsed (expanded for entry, original for deps)
+    // so error spans match the source text.
     resolver.sources.insert(path.to_path_buf(), source.clone());
-    let hash = source_hash(&source);
-    let hash2 = source_hash2(&source);
+
+    let hash = source_hash(&for_hash);
+    let hash2 = source_hash2(&for_hash);
     if let Some(cached) = resolver.cache.cached_file(path, hash, hash2) {
         return Ok(ResolvedFile {
             hash,
@@ -42,8 +57,8 @@ pub(super) fn load_or_parse_file(
         });
     }
 
-    let program = parse(&source).map_err(|err| {
-        err.with_source(source.clone())
+    let program = parse(&for_hash).map_err(|err| {
+        err.with_source(for_hash.clone())
             .with_filename(path.display().to_string())
     })?;
     let exports: Vec<String> = program

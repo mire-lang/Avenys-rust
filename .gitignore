@@ -28,3 +28,6 @@ tests/loads/bin/
 # Local workspace files
 .branch
 TODO.md
+owl.lock
+# Generated `mire test --log` transcripts and fixtures
+tests/log/

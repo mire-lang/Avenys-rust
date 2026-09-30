@@ -1,0 +1,21 @@
+// These paths are produced reproducibly by the library build step documented
+// in tests/README.md; the declarations exercise both shared and static link
+// inputs rather than merely checking that their files exist.
+extern lib "kioto" "tests/libs/kioto/kioto.so"
+extern lib "mire" "tests/libs/mire/mire.a"
+
+// These symbols are exported by the native artifacts. Calling them proves
+// that linking resolved a real symbol; declarations alone do not. The static
+// Mire exports its hash primitive from the static archive and Kioto exports
+// the PAL CPU primitive from the shared object.
+extern fn mire_hash_u64: (value :u64) :u64 lib "mire"
+extern fn pal_cpu_count: () :i64 lib "kioto"
+
+@[test]
+pub fn dynamic_library_symbols_execute: () :bool {
+    set hash = mire_hash_u64(42)
+    set kioto_count = pal_cpu_count()
+    if hash == 42 { return false }
+    if kioto_count < 1 { return false }
+    return hash != 0 && kioto_count > 0
+}

@@ -1,7 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set nums = [1 2 3]
-    set nums2 = nums + [4 5]
-    use dasu("len {len(nums2)}")
-}

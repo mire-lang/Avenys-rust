@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set result = match 1 { 1 { 10 } } :i64
-    use dasu("result: {result}")
-}

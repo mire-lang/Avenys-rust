@@ -10,6 +10,14 @@
 #define PAL_CRYPTO_ED25519_BYTES             64
 #define PAL_CRYPTO_ED25519_PUBLICKEYBYTES    32
 #define PAL_CRYPTO_ED25519_SECRETKEYBYTES    64
+#define PAL_CRYPTO_SHA256_BYTES              32
+#define PAL_CRYPTO_SHA512_BYTES              64
+
+pal_error_code_t pal_crypto_sha256(const unsigned char *input, size_t len,
+                                   unsigned char *output);
+pal_error_code_t pal_crypto_sha512(const unsigned char *input, size_t len,
+                                   unsigned char *output);
+pal_error_code_t pal_crypto_random_bytes(void *buf, size_t len);
 
 // All functions return pal_error_code_t (PAL_ERR_OK == 0 on success, a
 // non-zero error otherwise). This mirrors the libsodium `0 / non-zero`

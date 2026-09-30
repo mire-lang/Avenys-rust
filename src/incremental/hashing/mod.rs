@@ -478,10 +478,15 @@ mod tests {
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),
                     parent: None,
+                    attributes: vec![],
                     fields: vec![Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
+                        value: Some(Expression::Literal {
+                            lit: Literal::Int(1),
+                            line: 0,
+                            column: 0,
+                        }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -489,6 +494,10 @@ mod tests {
                         name_line: 1,
                         name_column: 1,
                     }],
+                    line: 0,
+                    column: 0,
+                    end_line: 0,
+                    end_column: 0,
                 },
                 Statement::Impl {
                     trait_name: None,
@@ -536,7 +545,11 @@ mod tests {
                     column: 0,
                 })),
                 operator: "+".to_string(),
-                right: Box::new(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
+                right: Box::new(Expression::Literal {
+                    lit: Literal::Int(1),
+                    line: 0,
+                    column: 0,
+                }),
                 data_type: DataType::I64,
             }))],
             return_type: DataType::I64,
@@ -788,10 +801,15 @@ mod tests {
                     type_params: Vec::new(),
                     type_param_bounds: Vec::new(),
                     parent: None,
+                    attributes: vec![],
                     fields: vec![Statement::Let {
                         name: "x".to_string(),
                         data_type: DataType::I64,
-                        value: Some(Expression::Literal { lit: Literal::Int(1), line: 0, column: 0 }),
+                        value: Some(Expression::Literal {
+                            lit: Literal::Int(1),
+                            line: 0,
+                            column: 0,
+                        }),
                         is_constant: false,
                         is_mutable: false,
                         is_static: false,
@@ -799,6 +817,10 @@ mod tests {
                         name_line: 1,
                         name_column: 1,
                     }],
+                    line: 0,
+                    column: 0,
+                    end_line: 0,
+                    end_column: 0,
                 },
                 Statement::Function {
                     name: "main".to_string(),
@@ -831,7 +853,11 @@ mod tests {
         let Statement::Let { value, .. } = &mut fields[0] else {
             panic!("expected field");
         };
-        *value = Some(Expression::Literal { lit: Literal::Int(2), line: 0, column: 0 });
+        *value = Some(Expression::Literal {
+            lit: Literal::Int(2),
+            line: 0,
+            column: 0,
+        });
 
         let report = compute_invalidation_report(
             &analysis_units_for_program(&previous),
@@ -964,14 +990,136 @@ mod tests {
         let mut found = 0usize;
         for i in 0..8 {
             let source_path = root.join(format!("mod{i}.mire"));
-            let mut cache =
-                IncrementalCache::load_with_settings(&source_path, test_settings()).expect("reload");
-            if cache.cached_analysis(&source_path, i as u64 + 15, 0).is_some() {
+            let mut cache = IncrementalCache::load_with_settings(&source_path, test_settings())
+                .expect("reload");
+            if cache
+                .cached_analysis(&source_path, i as u64 + 15, 0)
+                .is_some()
+            {
                 found += 1;
             }
         }
         assert_eq!(found, 8, "all writers' final entries must roundtrip");
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn concurrent_cold_cache_init_preserves_all_writers() {
+        // Hammers the cold-cache path that failed in `mire test -j 8`:
+        //   Cannot write cache file '<cache>/blobs/<hash>': No such file or directory
+        //
+        // Two defects combined to cause it. The index/blob/WAL directories were
+        // created *before* the init lock was taken, so the lock holder's
+        // `wipe_cache_dir` could `remove_dir_all` a directory a sibling had
+        // just created, and that sibling then failed a write with ENOENT on a
+        // path it had already made. Worse, the lock itself lived *inside* the
+        // cache directory, so the wipe deleted the very lock meant to prevent
+        // it, letting a waiter take the lock and wipe a second time while the
+        // first holder was still initialising. Both are fixed: the directories
+        // are created under the lock after any wipe, and the lock is a sibling
+        // of the cache directory.
+        //
+        // SCOPE / KNOWN LIMITATION: this test asserts that concurrent cold
+        // starts never lose or corrupt any writer's entries, but it does NOT
+        // reproduce the CI failure. It passes on the pre-fix code as well,
+        // because a barrier releases every thread into the load phase together,
+        // so no thread reaches `save()` until the wipe storm has already
+        // finished. The fatal `Cannot write cache file` error likewise does not
+        // reproduce locally on either build (0 in 6 `mire test tests -j 8` runs
+        // on a fresh cache directory, before and after the fix) because it
+        // depends on the CI runner's thread interleaving. So treat this as a
+        // concurrency invariant guard, not as proof the regression cannot
+        // return. The deterministic coverage lives next door, in
+        // `incremental::cache::tests`, and CI is the authority on the
+        // end-to-end symptom.
+        use std::sync::{Arc, Barrier};
+
+        const THREADS: usize = 8;
+        const ROUNDS: usize = 6;
+
+        for round in 0..ROUNDS {
+            // Fixture lives under the repo's own tests directory (never /tmp),
+            // and is gitignored via tests/cache/.gitignore.
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("cache")
+                .join(format!("cold_{round}_{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).expect("fixture dir");
+            fs::write(
+                root.join("owl.toml"),
+                "[project]\nname = \"test\"\nversion = \"0.1.0\"\nentry = \"main.mire\"\n",
+            )
+            .expect("owl.toml");
+            for i in 0..THREADS {
+                fs::write(root.join(format!("mod{i}.mire")), "pub fn main: () {}\n")
+                    .expect("source");
+            }
+
+            let barrier = Arc::new(Barrier::new(THREADS));
+            std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for i in 0..THREADS {
+                    let root = root.clone();
+                    let barrier = Arc::clone(&barrier);
+                    handles.push(scope.spawn(move || {
+                        let source_path = root.join(format!("mod{i}.mire"));
+                        // All threads hit the cold cache at once.
+                        barrier.wait();
+                        let mut cache = IncrementalCache::load_with_settings(
+                            &source_path,
+                            test_settings(),
+                        )
+                        .unwrap_or_else(|e| panic!("thread {i} cold load failed: {e:?}"));
+                        cache
+                            .store_file(
+                                &source_path,
+                                CachedParsedFile {
+                                    hash: i as u64,
+                                    hash2: i as u64,
+                                    program: demo_program(&format!("cold_{i}")),
+                                    exports: vec!["main".to_string()],
+                                    local_imports: Vec::new(),
+                                },
+                            )
+                            .unwrap_or_else(|e| panic!("thread {i} store failed: {e:?}"));
+                        cache
+                            .store_analysis(
+                                &source_path,
+                                i as u64,
+                                0,
+                                &demo_program(&format!("cold_typed_{i}")),
+                            )
+                            .unwrap_or_else(|e| panic!("thread {i} store analysis failed: {e:?}"));
+                        cache
+                            .save()
+                            .unwrap_or_else(|e| panic!("thread {i} save failed: {e:?}"));
+                    }));
+                }
+                for handle in handles {
+                    handle.join().expect("thread joined");
+                }
+            });
+
+            // Every writer must survive a reload: a second wipe would have
+            // dropped these entries along with the blobs they point at.
+            let mut found = 0usize;
+            for i in 0..THREADS {
+                let source_path = root.join(format!("mod{i}.mire"));
+                let mut cache =
+                    IncrementalCache::load_with_settings(&source_path, test_settings())
+                        .expect("reload after cold race");
+                if cache.cached_analysis(&source_path, i as u64, 0).is_some() {
+                    found += 1;
+                }
+            }
+            assert_eq!(
+                found, THREADS,
+                "round {round}: all writers' entries must survive the cold init"
+            );
+
+            let _ = fs::remove_dir_all(&root);
+        }
     }
 }

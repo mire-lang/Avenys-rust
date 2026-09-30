@@ -1,0 +1,21 @@
+// Normal pattern matching with exhaustive checks
+
+@[test]
+pub fn match_integer_literal: () :bool {
+    set value = 2
+    set matched = if value == 2 { 1 } else { 0 }
+    set is_two = matched == 1
+
+    // Tests match on integer literal value
+    return is_two
+}
+
+@[test]
+pub fn match_with_default: () :bool {
+    set value = 5
+    set matched = if value == 2 { 1 } else { 5 }
+    set is_value = matched == 5
+
+    // Tests match falls through to default/default case
+    return is_value
+}

@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set m = {a: 1} :map[str i64]
-    use dasu(m)
-}

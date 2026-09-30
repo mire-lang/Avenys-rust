@@ -2,29 +2,58 @@ use super::{DiagnosticCode, ErrorKind, Span};
 
 pub(crate) fn map_kind(kind: &ErrorKind) -> (Span, &'static str, String, DiagnosticCode) {
     match kind {
-        ErrorKind::Lexer { span, message } => (*span, "Lexical Error", message.clone(), DiagnosticCode::E0001),
+        ErrorKind::Lexer { span, message } => (
+            *span,
+            "Lexical Error",
+            message.clone(),
+            DiagnosticCode::E0001,
+        ),
         ErrorKind::DeprecatedSyntax { span, message } => (
             *span,
             "Deprecated Syntax",
             message.clone(),
             DiagnosticCode::W0010,
         ),
-        ErrorKind::Parser { span, message } => (*span, "Syntax Error", message.clone(), DiagnosticCode::E0003),
+        ErrorKind::Parser { span, message } => (
+            *span,
+            "Syntax Error",
+            message.clone(),
+            DiagnosticCode::E0003,
+        ),
         ErrorKind::Backend { span, message } => (
             *span,
             "Backend Limitation",
             message.clone(),
             DiagnosticCode::E0014,
         ),
-        ErrorKind::Runtime { span, message } => (*span, "Runtime Error", message.clone(), DiagnosticCode::E0015),
-        ErrorKind::Type { span, message, code } => (
+        ErrorKind::Runtime { span, message } => (
+            *span,
+            "Runtime Error",
+            message.clone(),
+            DiagnosticCode::E0015,
+        ),
+        ErrorKind::Type {
+            span,
+            message,
+            code,
+        } => (
             *span,
             "Type Error",
             message.clone(),
             code.unwrap_or(DiagnosticCode::E0005),
         ),
-        ErrorKind::Ownership { span, kind } => (*span, "Ownership Error", kind.to_string(), kind.diagnostic_code()),
-        ErrorKind::Cli { message } => (Span::unknown(), "CLI Error", message.clone(), DiagnosticCode::E0017),
+        ErrorKind::Ownership { span, kind } => (
+            *span,
+            "Ownership Error",
+            kind.to_string(),
+            kind.diagnostic_code(),
+        ),
+        ErrorKind::Cli { message } => (
+            Span::unknown(),
+            "CLI Error",
+            message.clone(),
+            DiagnosticCode::E0017,
+        ),
     }
 }
 

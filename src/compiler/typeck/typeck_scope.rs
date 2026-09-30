@@ -190,14 +190,16 @@ impl TypeChecker {
                 self.lookup_function_value_signature(&ident.name)
             }
             Expression::Call { name, .. } => self.function_return_signatures.get(name).cloned(),
-            Expression::Closure { params, return_type, .. } => {
-                Some(FunctionSig {
-                    type_params: Vec::new(),
-                    type_param_bounds: Vec::new(),
-                    params: params.iter().map(|(_, t)| t.clone()).collect(),
-                    return_type: return_type.clone(),
-                })
-            }
+            Expression::Closure {
+                params,
+                return_type,
+                ..
+            } => Some(FunctionSig {
+                type_params: Vec::new(),
+                type_param_bounds: Vec::new(),
+                params: params.iter().map(|(_, t)| t.clone()).collect(),
+                return_type: return_type.clone(),
+            }),
             _ => None,
         }
     }
@@ -504,15 +506,41 @@ impl TypeChecker {
             | Expression::EnumVariant { data_type, .. } => data_type.clone(),
             Expression::UseMacro { inner } => self.expression_type_hint(inner),
             Expression::MacroCall { inner } => self.expression_type_hint(inner),
-            Expression::Literal { lit: Literal::Int(_), .. } => DataType::I64,
-            Expression::Literal { lit: Literal::Float(_), .. } => DataType::F64,
-            Expression::Literal { lit: Literal::Char(_), .. } => DataType::Char,
-            Expression::Literal { lit: Literal::Str(_), .. } => DataType::Str,
-            Expression::Literal { lit: Literal::Bool(_), .. } => DataType::Bool,
-            Expression::Literal { lit: Literal::None, .. } => DataType::None,
-            Expression::Literal { lit: Literal::List(_), .. } => DataType::List,
-            Expression::Literal { lit: Literal::Dict(_), .. } => DataType::Dict,
-            Expression::Literal { lit: Literal::Tuple(_), .. } => DataType::Tuple,
+            Expression::Literal {
+                lit: Literal::Int(_),
+                ..
+            } => DataType::I64,
+            Expression::Literal {
+                lit: Literal::Float(_),
+                ..
+            } => DataType::F64,
+            Expression::Literal {
+                lit: Literal::Char(_),
+                ..
+            } => DataType::Char,
+            Expression::Literal {
+                lit: Literal::Str(_),
+                ..
+            } => DataType::Str,
+            Expression::Literal {
+                lit: Literal::Bool(_),
+                ..
+            } => DataType::Bool,
+            Expression::Literal {
+                lit: Literal::None, ..
+            } => DataType::None,
+            Expression::Literal {
+                lit: Literal::List(_),
+                ..
+            } => DataType::List,
+            Expression::Literal {
+                lit: Literal::Dict(_),
+                ..
+            } => DataType::Dict,
+            Expression::Literal {
+                lit: Literal::Tuple(_),
+                ..
+            } => DataType::Tuple,
             Expression::Closure { return_type, .. } => return_type.clone(),
         }
     }
@@ -815,13 +843,22 @@ fn collect_used_identifiers_in_expr(
                 collect_used_identifiers_in_expr(p, declared, used);
             }
         }
-        Expression::Literal { lit: Literal::List(elements), .. }
-        | Expression::Literal { lit: Literal::Tuple(elements), .. } => {
+        Expression::Literal {
+            lit: Literal::List(elements),
+            ..
+        }
+        | Expression::Literal {
+            lit: Literal::Tuple(elements),
+            ..
+        } => {
             for e in elements {
                 collect_used_identifiers_in_expr(e, declared, used);
             }
         }
-        Expression::Literal { lit: Literal::Dict(entries), .. } => {
+        Expression::Literal {
+            lit: Literal::Dict(entries),
+            ..
+        } => {
             for ((k, v), _) in entries {
                 collect_used_identifiers_in_expr(k, declared, used);
                 collect_used_identifiers_in_expr(v, declared, used);

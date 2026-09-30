@@ -106,14 +106,14 @@ impl TypeChecker {
                         },
                     );
                 }
-                 Statement::Type {
-                     name,
-                     type_params,
-                     type_param_bounds,
-                     parent,
-                     fields,
-                     ..
-                 } => {
+                Statement::Type {
+                    name,
+                    type_params,
+                    type_param_bounds,
+                    parent,
+                    fields,
+                    ..
+                } => {
                     let type_fields = fields
                         .iter()
                         .filter_map(|statement| match statement {
@@ -123,13 +123,13 @@ impl TypeChecker {
                                 value,
                                 ..
                             } => Some(ClassFieldSig {
-                        name: name.clone(),
-                            data_type: data_type.clone(),
-                            has_default: value.is_some(),
-                        }),
-                        _ => None,
-                    })
-                    .collect();
+                                name: name.clone(),
+                                data_type: data_type.clone(),
+                                has_default: value.is_some(),
+                            }),
+                            _ => None,
+                        })
+                        .collect();
                     self.classes.insert(
                         name.clone(),
                         ClassSig {
@@ -183,7 +183,8 @@ impl TypeChecker {
                     if *return_type == DataType::Function
                         && let Some(sig) = self.infer_returned_function_signature(body)
                     {
-                        self.function_return_signatures.insert(canonical_fn_name(name), sig);
+                        self.function_return_signatures
+                            .insert(canonical_fn_name(name), sig);
                     }
                 }
                 Statement::Impl {

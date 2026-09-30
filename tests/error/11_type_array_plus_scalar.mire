@@ -1,6 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = [1 2 3] :arr[i64 3]
-    set y = x + 1
-}

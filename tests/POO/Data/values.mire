@@ -1,0 +1,21 @@
+// POO Data: value operations on product components
+
+@[test]
+pub fn value_price_times_quantity: () :bool {
+    set price = 12
+    set quantity = 3
+    set total = price * quantity
+
+    // Tests price multiplied by quantity
+    return total == 36
+}
+
+@[test]
+pub fn value_stock_calculation: () :bool {
+    set base = 10
+    set multiplier = 3
+    set result = base * multiplier
+
+    // Tests basic arithmetic on data values
+    return result == 30
+}

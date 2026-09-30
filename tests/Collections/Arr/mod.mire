@@ -1,0 +1,21 @@
+@[test]
+pub fn array_family_is_discoverable: () :bool {
+    set values = [1 2 3] :arr[i64 3]
+    return values at 1 == 2
+}
+
+@[test]
+pub fn array_preserves_multiple_positions: () :bool {
+    set values = [8 13 21 34] :arr[i64 4]
+    set first = values at 0
+    set middle = values at 2
+    set last = values at 3
+
+    if first != 8 {
+        return false
+    }
+    if middle != 21 {
+        return false
+    }
+    return last - middle == 13
+}

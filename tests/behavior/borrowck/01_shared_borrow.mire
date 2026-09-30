@@ -1,8 +1,0 @@
-load kioto
-
-pub fn main: () {
-    set x = 1 :i64 mut
-    set shared = &x
-    set x = 2
-    use dasu("x = {x}")
-}

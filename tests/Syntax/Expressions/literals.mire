@@ -1,0 +1,31 @@
+// Literals are tested by comparing their runtime values and inferred types.
+
+@[test]
+pub fn literal_integer: () :bool { return 42 == 42 }
+
+@[test]
+pub fn literal_negative: () :bool { return -7 < 0 }
+
+@[test]
+pub fn literal_float: () :bool {
+    set value = 3.5 :f64
+    return value > 3.0
+}
+
+@[test]
+pub fn literal_bool: () :bool { set value = true
+    return value }
+
+@[test]
+pub fn literal_char: () :bool { set value = 'x'
+    return value == 'x' }
+
+@[test]
+pub fn literal_string: () :bool { set value = "syntax"
+    return value == "syntax" }
+
+@[test]
+pub fn grouped_expression: () :bool { return (2 + 3) * 4 == 20 }
+
+@[test]
+pub fn nested_grouping: () :bool { return ((8 - 3) * 2) == 10 }

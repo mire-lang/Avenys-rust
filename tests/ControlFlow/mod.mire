@@ -1,0 +1,36 @@
+// Control flow branches and loops verified through final state
+
+@[test]
+pub fn if_else_with_mutation: () :bool {
+    set counter = 0 mut
+    set counter = if counter == 0 { counter + 1 } else { counter + 10 }
+
+    // Tests if-else branch selection with mutable state
+    return counter == 1
+}
+
+@[test]
+pub fn while_counts_up_proper: () :bool {
+    set counter = 0 mut
+    set limit = 5 mut
+    while counter < limit {
+        set counter += 1
+    }
+
+    // Tests while loop with proper termination
+    return counter == 5
+}
+
+@[test]
+pub fn while_accumulates_total: () :bool {
+    set index = 1 mut
+    set total = 0 mut
+    set max = 4 mut
+    while index <= max {
+        set total += index
+        set index += 1
+    }
+
+    // Tests while loop accumulation
+    return total == 10
+}

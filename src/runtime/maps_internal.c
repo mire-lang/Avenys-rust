@@ -11,13 +11,25 @@
 
 // ── Hash functions ───────────────────────────────────────────────────
 
+// Length of a key: managed strings carry an explicit NUL-safe length;
+// raw C strings (host literals, `strlen`-terminated) fall back to strlen.
+static size_t mire_str_len(const char *src) {
+    if (src == NULL) return 0;
+    if (rt_managed_is_managed(src)) {
+        MireManagedString *hdr = rt_string_header(src);
+        return hdr->len;
+    }
+    return strlen(src);
+}
+
 uint64_t mire_hash_string(const char *src) {
     uint64_t hash = 1469598103934665603ULL;
-    if (src == NULL) return hash;
-    while (*src != '\0') {
-        hash ^= (uint64_t)(unsigned char)*src;
+    size_t len = mire_str_len(src);
+    hash ^= (uint64_t)len;
+    hash *= 1099511628211ULL;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint64_t)(unsigned char)src[i];
         hash *= 1099511628211ULL;
-        ++src;
     }
     return hash;
 }
@@ -73,7 +85,11 @@ int mire_key_equals(const MireDict *dict, int64_t entry_index,
     const void *slot = dict->key_storage + entry_index * dict->key_size;
     if (dict->key_kind == MIRE_KIND_STR) {
         const char *stored = *(const char **)slot;
-        return strcmp(stored, (const char *)key_ptr) == 0;
+        const char *lookup = (const char *)key_ptr;
+        size_t stored_len = mire_str_len(stored);
+        size_t lookup_len = mire_str_len(lookup);
+        if (stored_len != lookup_len) return 0;
+        return memcmp(stored, lookup, stored_len) == 0;
     }
     if (dict->key_kind == MIRE_KIND_MAP || dict->key_kind == MIRE_KIND_PTR) {
         const void *stored = *(const void **)slot;
@@ -101,7 +117,8 @@ void mire_store_key(MireDict *dict, int64_t entry_index,
                 else free(existing);
             }
         }
-        char *copy = rt_strdup_raw((const char *)key_ptr);
+        // Store a managed copy owned by the map: remove/replace/free release it.
+        char *copy = rt_managed_from_slice((const char *)key_ptr, mire_str_len((const char *)key_ptr));
         memcpy(slot, &copy, sizeof(char *));
         return;
     }
@@ -124,7 +141,8 @@ void mire_store_value(MireDict *dict, int64_t entry_index,
                 else free(existing);
             }
         }
-        char *copy = rt_strdup_raw((const char *)value_ptr);
+        // Store a managed copy owned by the map: remove/replace/free release it.
+        char *copy = rt_managed_from_slice((const char *)value_ptr, mire_str_len((const char *)value_ptr));
         memcpy(slot, &copy, sizeof(void *));
         return;
     }

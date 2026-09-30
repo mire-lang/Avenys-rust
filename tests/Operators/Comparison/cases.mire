@@ -1,0 +1,81 @@
+// Comparison operator cases with explicit bindings
+
+@[test]
+pub fn equal_values_case: () :bool {
+    set x = 9
+    set y = 9
+    set eq = x == y
+
+    // Tests 9 == 9
+    return eq == true
+}
+
+@[test]
+pub fn different_values_case: () :bool {
+    set x = 9
+    set y = 8
+    set neq = x != y
+
+    // Tests 9 != 8
+    return neq == true
+}
+
+@[test]
+pub fn lower_than_case: () :bool {
+    set a = 3
+    set b = 4
+    set lt = a < b
+
+    // Tests 3 < 4
+    return lt == true
+}
+
+@[test]
+pub fn greater_than_case: () :bool {
+    set a = 4
+    set b = 3
+    set gt = a > b
+
+    // Tests 4 > 3
+    return gt == true
+}
+
+@[test]
+pub fn lower_or_equal_case: () :bool {
+    set a = 4
+    set b = 4
+    set le = a <= b
+
+    // Tests 4 <= 4
+    return le == true
+}
+
+@[test]
+pub fn greater_or_equal_case: () :bool {
+    set a = 4
+    set b = 4
+    set ge = a >= b
+
+    // Tests 4 >= 4
+    return ge == true
+}
+
+@[test]
+pub fn string_equality_case: () :bool {
+    set s1 = "same"
+    set s2 = "same"
+    set str_eq = s1 == s2
+
+    // Tests string equality
+    return str_eq == true
+}
+
+@[test]
+pub fn comparison_expression_case: () :bool {
+    set a = 2
+    set b = 2
+    set comp = (a + a) >= 4
+
+    // Tests 2 + 2 >= 4
+    return comp == true
+}

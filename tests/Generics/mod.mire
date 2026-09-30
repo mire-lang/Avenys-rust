@@ -1,0 +1,42 @@
+// Comprehensive generic tests
+
+// Identity function
+fn identity[T]: (value :T) :T {
+    return value
+}
+
+// Constant function returning the first parameter
+fn const_fn[T, U]: (value :T, _ignored :U) :T {
+    return value
+}
+
+// Two type parameters unify independently at each call site
+fn pick_second[T, U]: (a :T, b :U) :U {
+    return b
+}
+
+@[test]
+pub fn test_inferred_generic: () :bool {
+    set copied = identity(40 + 1)
+    set reused = identity(copied + 1)
+
+    // A generic identity preserves the inferred concrete type
+    return reused == 42
+}
+
+@[test]
+pub fn test_const_fn: () :bool {
+    set value = const_fn(10 + 0, "ignore")
+
+    // const_fn returns the first parameter regardless of the second
+    return value == 10
+}
+
+@[test]
+pub fn test_swap: () :bool {
+    set from_int = pick_second(7 + 0, 20)
+    set from_str = pick_second("left", 42)
+
+    // Multiple type parameters select the second at each call site
+    return from_int == 20 && from_str == 42
+}

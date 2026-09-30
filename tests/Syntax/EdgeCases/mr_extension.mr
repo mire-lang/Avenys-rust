@@ -1,0 +1,5 @@
+@[test]
+pub fn mr_files_are_compilation_units: () :bool {
+    set source_extension = "mr"
+    return source_extension == "mr"
+}

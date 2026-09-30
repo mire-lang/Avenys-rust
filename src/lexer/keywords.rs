@@ -1,7 +1,9 @@
 use super::{Token, TokenType};
 
 pub(super) fn token_for(ident: String, start_line: usize, start_col: usize) -> Token {
-    let token = match ident.as_str() {
+    
+
+    match ident.as_str() {
         "set" => Token::new(TokenType::Set, start_line, start_col).with_value("set".to_string()),
         "load" => Token::new(TokenType::Load, start_line, start_col),
         "module" => Token::new(TokenType::Module, start_line, start_col),
@@ -70,7 +72,5 @@ pub(super) fn token_for(ident: String, start_line: usize, start_col: usize) -> T
         "continue" => Token::new(TokenType::Continue, start_line, start_col),
         "true" | "false" => Token::new(TokenType::BoolLit, start_line, start_col).with_value(ident),
         _ => Token::new(TokenType::Ident, start_line, start_col).with_value(ident),
-    };
-
-    token
+    }
 }

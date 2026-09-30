@@ -1,0 +1,71 @@
+// While loop operations with proper termination and mutation
+
+@[test]
+pub fn while_simple_counts_up: () :bool {
+    set counter = 0 mut
+    while counter < 5 {
+        set counter += 1
+    }
+
+    // Tests while loop counting to 5
+    return counter == 5
+}
+
+@[test]
+pub fn while_counts_down_to_zero: () :bool {
+    set counter = 5 mut
+    while counter > 0 {
+        set counter -= 1
+    }
+
+    // Tests while loop counting down to zero
+    return counter == 0
+}
+
+@[test]
+pub fn while_accumulates_sum: () :bool {
+    set idx = 1 mut
+    set running_total = 0 mut
+    set limit = 4 mut
+    while idx <= limit {
+        set running_total += idx
+        set idx += 1
+    }
+
+    // Tests while loop sum accumulation (1+2+3+4 = 10)
+    return running_total == 10
+}
+
+@[test]
+pub fn while_reaches_exact_boundary: () :bool {
+    set counter = 2 mut
+    while counter != 7 {
+        set counter += 1
+    }
+
+    // Tests while loop reaching exact boundary value
+    return counter == 7
+}
+
+@[test]
+pub fn while_skips_when_condition_false: () :bool {
+    set value = 4 mut
+    set threshold = 4 mut
+    while value < threshold {
+        set value += 1
+    }
+
+    // Tests while loop with false condition (no body execution)
+    return value == 4
+}
+
+@[test]
+pub fn while_doubles_until_limit: () :bool {
+    set counter = 1 mut
+    while counter < 10 {
+        set counter *= 2
+    }
+
+    // Tests while loop with multiplicative updates
+    return counter == 16
+}

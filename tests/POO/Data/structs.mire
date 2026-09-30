@@ -1,0 +1,20 @@
+// POO Data: struct construction and field access
+
+struct StockItem { quantity :i64 }
+
+@[test]
+pub fn struct_constructs_with_value: () :bool {
+    set item = StockItem(8)
+
+    // Tests struct can be constructed with payload value
+    return true
+}
+
+@[test]
+pub fn struct_field_access_after_construct: () :bool {
+    set item = StockItem(8)
+    set qty = item.quantity
+
+    // Tests field access returns correct value
+    return qty == 8
+}

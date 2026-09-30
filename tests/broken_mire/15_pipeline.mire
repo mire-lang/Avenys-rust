@@ -1,5 +1,0 @@
-load kioto
-
-pub fn main: () {
-    use range(5) => dasu({self})
-}
