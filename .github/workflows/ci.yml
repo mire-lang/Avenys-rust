@@ -93,7 +93,7 @@ jobs:
         with:
           repository: mire-lang/mire-lib
           path: mire-src
-          ref: beta-stdlib
+          ref: main
 
       - name: Setup local mire stdlib for tests
         run: |
