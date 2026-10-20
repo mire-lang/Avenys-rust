@@ -17,10 +17,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-    sudo apt-get install -y -qq \
-        wget ca-certificates pkg-config build-essential \
-        libsodium-dev libsqlite3-dev zlib1g-dev libzstd-dev libarchive-dev \
-        zsh protobuf-compiler tcc libtcc-dev gcc
+          sudo apt-get install -y -qq \
+            wget ca-certificates pkg-config build-essential \
+            libsodium-dev libsqlite3-dev zlib1g-dev libzstd-dev libarchive-dev \
+            zsh protobuf-compiler tcc libtcc-dev gcc
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
           sudo apt-get install -y -qq \
             llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev
