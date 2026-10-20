@@ -25,6 +25,21 @@
  * allocation registry of pointers returned by our allocators.
  */
 
+/*
+ * Managed string header.
+ *
+ * The byte representation is still a plain `char *` with a trailing NUL so
+ * every C API keeps working, but the allocation stores the real byte length
+ * before the data. `rt_managed_len` returns that length, so embedded NULs
+ * survive; only strings the registry does not know (literals, raw `pal_alloc`
+ * results) fall back to strlen.
+ */
+#define MINIMAL_HEADER_MAGIC ((size_t)0x4d4952454d414e47ULL)
+struct minimal_header {
+    size_t magic;
+    size_t len;
+};
+
 #define MINIMAL_REGISTRY_INITIAL_CAP 1024
 static void **g_managed_allocations = NULL;
 static size_t g_managed_alloc_count = 0;
@@ -98,12 +113,16 @@ char *rt_alloc_printf_raw_i64(const char *fmt, long long value) {
 }
 
 char *rt_managed_alloc(size_t len) {
-    if (len >= (size_t)INT64_MAX) return NULL;
-    char *out = (char *)pal_alloc((int64_t)(len + 1));
-    if (!out) return NULL;
+    if (len >= (size_t)INT64_MAX - sizeof(struct minimal_header)) return NULL;
+    char *base = (char *)pal_alloc((int64_t)(sizeof(struct minimal_header) + len + 1));
+    if (!base) return NULL;
+    struct minimal_header *header = (struct minimal_header *)base;
+    header->magic = MINIMAL_HEADER_MAGIC;
+    header->len = len;
+    char *out = base + sizeof(struct minimal_header);
     out[len] = '\0';
     if (!minimal_registry_add(out)) {
-        pal_free(out);
+        pal_free(base);
         return NULL;
     }
     return out;
@@ -153,7 +172,7 @@ void rt_managed_free(char *value) {
         return;
     }
     minimal_registry_remove(value);
-    pal_free(value);
+    pal_free((char *)value - sizeof(struct minimal_header));
 }
 
 void rt_managed_cleanup_all(void) {}
@@ -169,7 +188,15 @@ int64_t rt_strings_len(const char *value) {
 }
 
 size_t rt_managed_len(const char *value) {
-    return value ? strlen(value) : 0;
+    if (!value) return 0;
+    if (minimal_registry_contains((void *)value)) {
+        const struct minimal_header *header =
+            (const struct minimal_header *)(value - sizeof(struct minimal_header));
+        if (header->magic == MINIMAL_HEADER_MAGIC) {
+            return header->len;
+        }
+    }
+    return strlen(value);
 }
 
 static size_t utf8_next(const unsigned char *s, size_t offset, size_t len) {

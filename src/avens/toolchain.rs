@@ -386,19 +386,12 @@ pub(super) fn compile_binary_from_ir(
                     linker.arg(format!("-Wl,-rpath,{}", parent.display()));
                 }
             }
-            if let Some(file_name) = native_path.file_name().and_then(|name| name.to_str()) {
-                // Exact filenames may intentionally omit the conventional
-                // `lib` prefix (for example `kioto.so` in test fixtures).
-                // Pass the full path directly: tcc does not understand the
-                // GNU `-l:filename` syntax, so we hand it the .so/.a path
-                // together with -L<dir> (already added above) so the linker
-                // finds it by basename.
-                linker.arg(format!("-l{}", file_name.trim_start_matches("lib")));
-            }
+            // Pass the library path directly. `tcc` does not understand the
+            // GNU `-l:filename` syntax used previously, and its `-l` search
+            // does not reliably find exact fixture names such as `kioto.so`.
+            linker.arg(native_path);
         } else if lib_path.as_str() != clean_name && !lib_path.is_empty() {
-            // Pass the path directly rather than `-l:<path>`: tcc does not
-            // accept the GNU `-l:filename` syntax.
-            linker.arg(format!("-l{}", clean_name.trim_start_matches("lib")));
+            linker.arg(lib_path);
         }
         if !explicit_native {
             linker.arg("-l");

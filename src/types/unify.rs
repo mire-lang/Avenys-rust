@@ -365,6 +365,17 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
         | (other, DataType::Ref { inner } | DataType::RefMut { inner }) => {
             return unify_types(inner, other);
         }
+        // Collection handles are pointers at the ABI level; keep the
+        // collection type when unifying with the generic `ptr` used by
+        // `map::set`/`vec::*` signatures.
+        (
+            DataType::Pointer(_),
+            DataType::Map { .. } | DataType::Dict | DataType::List | DataType::Vector { .. },
+        ) => return Ok(right.clone()),
+        (
+            DataType::Map { .. } | DataType::Dict | DataType::List | DataType::Vector { .. },
+            DataType::Pointer(_),
+        ) => return Ok(left.clone()),
         _ => {}
     }
 
@@ -534,6 +545,20 @@ pub fn is_comparable_pair(left: &DataType, right: &DataType) -> bool {
     {
         return true;
     }
+    // A C `char *` (typed as Pointer(Unknown)) compared against a Mire string.
+    if (matches!(left, DataType::Pointer(_))
+        && matches!(
+            right,
+            DataType::Str | DataType::Ref { .. } | DataType::RefMut { .. }
+        ))
+        || (matches!(right, DataType::Pointer(_))
+            && matches!(
+                left,
+                DataType::Str | DataType::Ref { .. } | DataType::RefMut { .. }
+            ))
+    {
+        return true;
+    }
     // Borrow-vs-value: compare the pointees. Only identical underlying types
     // become comparable, so this widens `&str`/`&i64` against their own value
     // type without making unrelated types comparable.
@@ -621,6 +646,20 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
             return is_assignable(expected_inner, actual_inner);
         }
         (DataType::RefMut { .. }, DataType::Ref { .. }) => return false,
+        (DataType::Pointer(_), DataType::Str | DataType::Ref { .. } | DataType::RefMut { .. }) => {
+            return true;
+        }
+        // Collection handles are pointers at the ABI level. The standard
+        // library exposes `map::set`/`vec::*` take-ptr and return-ptr forms,
+        // so a Map/List value has to round-trip through `ptr`.
+        (
+            DataType::Pointer(_),
+            DataType::Map { .. } | DataType::Dict | DataType::List | DataType::Vector { .. },
+        )
+        | (
+            DataType::Map { .. } | DataType::Dict | DataType::List | DataType::Vector { .. },
+            DataType::Pointer(_),
+        ) => return true,
         (DataType::Ref { inner, .. } | DataType::RefMut { inner, .. }, _) => {
             return is_assignable(inner, actual);
         }

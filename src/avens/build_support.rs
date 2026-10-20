@@ -103,6 +103,22 @@ pub(super) fn struct_field_size(dt: &DataType) -> usize {
     }
 }
 
+pub(super) fn struct_field_align(dt: &DataType) -> usize {
+    match dt {
+        DataType::I128 | DataType::U128 => 16,
+        DataType::I64 | DataType::Char | DataType::U64 | DataType::F64 | DataType::None => 8,
+        DataType::I32 | DataType::U32 | DataType::F32 => 4,
+        DataType::I16 | DataType::U16 => 2,
+        DataType::I8 | DataType::U8 | DataType::Bool => 1,
+        DataType::Array { element_type, .. } => struct_field_align(element_type),
+        _ => 8,
+    }
+}
+
+fn align_up(value: usize, align: usize) -> usize {
+    (value + align - 1) & !(align - 1)
+}
+
 pub(super) fn generate_runtime_declarations(ir: &str) -> String {
     let mut out = String::new();
     let needed: &[(&str, &str)] = &[
@@ -295,12 +311,21 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                 })
                 .collect();
 
+            // Match LLVM's struct layout: each field is aligned to its ABI
+            // alignment and the whole struct is padded to its maximum
+            // alignment. Summing field sizes under-allocates mixed-width
+            // structs (e.g. { i8, i64 } is 16 bytes, not 9).
             let mut total_size = 0usize;
+            let mut struct_align = 1usize;
             for field in fields {
                 if let Statement::Let { data_type, .. } = field {
+                    let field_align = struct_field_align(data_type);
+                    total_size = align_up(total_size, field_align);
                     total_size += struct_field_size(data_type);
+                    struct_align = struct_align.max(field_align);
                 }
             }
+            total_size = align_up(total_size, struct_align);
 
             if param_types.is_empty() {
                 continue;
@@ -362,10 +387,15 @@ pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) 
                 let full_name = format!("{}.{}", name, variant.name);
                 let mut all_types = vec!["i64".to_string()];
                 let mut total_size = 8usize;
+                let mut enum_align = 8usize;
                 for dt in &variant.data_types {
                     all_types.push(struct_field_llvm_body_type(dt));
+                    let field_align = struct_field_align(dt);
+                    total_size = align_up(total_size, field_align);
                     total_size += struct_field_size(dt);
+                    enum_align = enum_align.max(field_align);
                 }
+                total_size = align_up(total_size, enum_align);
                 let struct_ty = all_types.join(", ");
                 let param_types: Vec<String> = variant
                     .data_types
@@ -1051,14 +1081,12 @@ fn load_security_config() -> Option<SecurityConfig> {
 }
 
 fn resolve_macro_file(root: &std::path::Path, rel_path: &str) -> Option<std::path::PathBuf> {
-    let canonical_root = root.canonicalize().ok()?;
     let check = |p: &std::path::Path| -> Option<std::path::PathBuf> {
         let c = p.canonicalize().ok()?;
-        if c.starts_with(&canonical_root) && c.is_file() {
-            Some(c)
-        } else {
-            None
-        }
+        // Macro paths are explicitly declared in owl.toml. They may point at
+        // a dependency (for example ../mire/core/macros/assert.mire), so the
+        // project-root confinement that silently dropped them is not applied.
+        if c.is_file() { Some(c) } else { None }
     };
     let candidate = root.join(rel_path);
     if let Some(file) = check(&candidate) {

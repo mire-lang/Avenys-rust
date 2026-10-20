@@ -88,7 +88,7 @@ jobs:
         with:
           repository: mire-lang/mire-lib
           path: mire-src
-          ref: beta-stdlib
+          ref: 2.0.0-beta
 
       - name: Setup local mire stdlib for tests
         run: |
@@ -116,6 +116,11 @@ jobs:
           LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo test --release -j 2
 
+      - name: Create sandbox tool-home fixture
+        # tests/FFI/mod.mire pins /home/Evelyn/.owl because the grant stores a
+        # resolved path and the fixture must exist. Create it on the runner.
+        run: sudo mkdir -p /home/Evelyn/.owl
+
       - name: Run modular Mire tests
         env:
           LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
@@ -123,7 +128,7 @@ jobs:
           rm -rf "$HOME/.owl/libs" /tmp/avenys-tests-cache
           mkdir -p "$HOME/.owl/libs"
           cp -a kioto-src "$HOME/.owl/libs/kioto"
-          cp -a "$GITHUB_WORKSPACE/../mire" "$HOME/.owl/libs/mire"
+          cp -a mire-src "$HOME/.owl/libs/mire"
           ./target/release/mire test tests -j 8 --release --log \
             --lib-dir "$HOME/.owl/libs" --cache-dir /tmp/avenys-tests-cache
 
@@ -222,7 +227,7 @@ jobs:
         with:
           repository: mire-lang/mire-lib
           path: mire
-          ref: beta-stdlib
+          ref: 2.0.0-beta
 
       - name: Setup owl dependencies
         run: |

@@ -31,7 +31,7 @@ ENV PATH="/root/.wasmtime/bin:${PATH}"
 # Set up WASI SDK
 ENV WASI_SDK_PATH=/opt/wasi-sdk
 RUN mkdir -p /opt/wasi-sdk && \
-    curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/wasi-sdk-27.0-linux.tar.gz | tar -xz -C /opt/wasi-sdk --strip-components=1
+    curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/wasi-sdk-27.0-x86_64-linux.tar.gz | tar -xz -C /opt/wasi-sdk --strip-components=1
 
 # Set up working directory
 WORKDIR /workspace

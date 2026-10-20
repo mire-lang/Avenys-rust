@@ -41,7 +41,7 @@ const NEW_CACHE_FORMAT: &str = "MIREINC4";
 /// and to 5 because test-mode builds previously persisted the harness-injected
 /// program under the normal analysis key (a later `owl run` would execute the
 /// test runner instead of the real `main`); cached entries may be polluted.
-const NEW_FORMAT_VERSION: u32 = 5;
+const NEW_FORMAT_VERSION: u32 = 6;
 const FILES_INDEX: &str = "files";
 const ANALYSES_INDEX: &str = "analyses";
 const BUILDS_INDEX: &str = "builds";

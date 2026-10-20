@@ -185,7 +185,7 @@ jobs:
       - name: Install build prerequisites + libsodium (for bundling)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libsodium23 libzstd-dev libarchive-dev zlib1g-dev
+          sudo apt-get install -y -qq libsodium23 libzstd-dev libarchive-dev zlib1g-dev tcc libtcc-dev
 
       - name: Generate avenys config for the owl build
         run: |

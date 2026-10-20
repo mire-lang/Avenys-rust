@@ -24,6 +24,20 @@ fn is_string_comparison_type(t: &DataType) -> bool {
     }
 }
 
+/// A C `char *` parameter or return is typed as Pointer(i8/u8) or
+/// Pointer(Unknown). It behaves like a string only when compared against a
+/// Mire string; two raw pointers must keep comparing by address.
+fn is_c_char_pointer(t: &DataType) -> bool {
+    matches!(
+        t,
+        DataType::Pointer(inner)
+            if matches!(
+                inner.as_ref(),
+                DataType::I8 | DataType::U8 | DataType::Unknown | DataType::Str
+            )
+    )
+}
+
 /// Returns true if both operands of a binary / or % are integer types
 /// (i.e. the operation should be lowered with a div-by-zero check instead of fdiv/frem).
 fn is_int_division(left: &Expression, right: &Expression) -> bool {
@@ -281,13 +295,77 @@ impl MirLower {
                     return MirValue::temp(result);
                 }
 
+                // Enum values are pointers to a tagged struct whose first
+                // field is the i64 discriminant. Comparing the pointers
+                // compares two freshly allocated constructors and is always
+                // false; compare the discriminants instead.
+                if matches!(operator.as_str(), "==" | "!=") {
+                    let left_ty = extract_data_type(left);
+                    let right_ty = extract_data_type(right);
+                    let is_enum =
+                        |dt: &DataType| matches!(dt, DataType::Enum | DataType::EnumNamed(_));
+                    if is_enum(&left_ty) && is_enum(&right_ty) {
+                        let load_discriminant = |this: &mut Self, value: MirValue| {
+                            let ptr = this.new_temp();
+                            let last = this.current_block;
+                            this.func.blocks[last].push(
+                                Some(ptr),
+                                MirOp::Gep(
+                                    value,
+                                    vec![MirValue::Const(MirConst::Int(0))],
+                                    "i64".to_string(),
+                                ),
+                                loc,
+                            );
+                            let discriminant = this.new_temp();
+                            let last = this.current_block;
+                            this.func.blocks[last].push(
+                                Some(discriminant),
+                                MirOp::Load(
+                                    MirValue::temp(ptr),
+                                    MirType {
+                                        data_type: DataType::I64,
+                                    },
+                                ),
+                                loc,
+                            );
+                            MirValue::temp(discriminant)
+                        };
+                        let l = self.lower_expression(left);
+                        let r = self.lower_expression(right);
+                        let l_disc = load_discriminant(self, l);
+                        let r_disc = load_discriminant(self, r);
+                        let result = self.new_temp();
+                        let comparison = if operator == "==" {
+                            MirCmp::Eq
+                        } else {
+                            MirCmp::Ne
+                        };
+                        let last = self.current_block;
+                        self.func.blocks[last].push(
+                            Some(result),
+                            MirOp::ICmp(comparison, l_disc, r_disc),
+                            loc,
+                        );
+                        return MirValue::temp(result);
+                    }
+                }
+
                 // `str` and raw `ptr` share an LLVM representation, but not
                 // comparison semantics. Preserve the source-level string type
                 // here so equal strings allocated independently still compare
                 // by content; generic pointer comparisons remain address-based.
+                let left_cmp_ty = extract_data_type(left);
+                let right_cmp_ty = extract_data_type(right);
+                let left_is_string = is_string_comparison_type(&left_cmp_ty);
+                let right_is_string = is_string_comparison_type(&right_cmp_ty);
+                let left_is_c_str = is_c_char_pointer(&left_cmp_ty);
+                let right_is_c_str = is_c_char_pointer(&right_cmp_ty);
                 if matches!(operator.as_str(), "==" | "!=")
-                    && is_string_comparison_type(&extract_data_type(left))
-                    && is_string_comparison_type(&extract_data_type(right))
+                    && (left_is_string || left_is_c_str)
+                    && (right_is_string || right_is_c_str)
+                    // Two raw C pointers are not strings: keep address identity.
+                    && (left_is_string || right_is_string)
                 {
                     let lower_string_operand = |this: &mut Self, expr: &Expression| {
                         // A borrowed string parameter already is the string

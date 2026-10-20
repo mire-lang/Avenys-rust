@@ -14,8 +14,14 @@
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-/// Directories whose contents can change the generated IR.
-const IR_INPUTS: &[&str] = &["src/compiler/mir"];
+/// Directories whose contents can change the generated IR or the analysis
+/// result that decides whether a cached build is still valid. Typechecker,
+/// parser, and loader changes can alter which programs compile even when the
+/// MIR codegen sources are untouched, so they belong in the epoch too.
+const IR_INPUTS: &[&str] = &["src/compiler", "src/types", "src/parser", "src/loader"];
+
+/// Individual source files outside `IR_INPUTS` that also change the IR.
+const IR_FILES: &[&str] = &["src/avens/build_support.rs"];
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
@@ -40,6 +46,9 @@ fn main() {
     for dir in IR_INPUTS {
         collect(&root.join(dir), &mut files);
     }
+    for file in IR_FILES {
+        files.push(root.join(file));
+    }
     files.sort();
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -62,5 +71,10 @@ fn main() {
     }
     let epoch = format!("{:016x}", hasher.finish());
     println!("cargo:rustc-env=MIRE_CODEGEN_EPOCH={epoch}");
-    println!("cargo:rerun-if-changed=src/compiler/mir");
+    for dir in IR_INPUTS {
+        println!("cargo:rerun-if-changed={dir}");
+    }
+    for file in IR_FILES {
+        println!("cargo:rerun-if-changed={file}");
+    }
 }

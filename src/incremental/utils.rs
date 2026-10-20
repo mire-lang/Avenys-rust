@@ -48,6 +48,7 @@ pub fn build_fingerprint(
     opt_level.hash(&mut hasher);
     emit_binary.hash(&mut hasher);
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    env!("MIRE_CODEGEN_EPOCH").hash(&mut hasher);
     c_sources_combined.hash(&mut hasher);
 
     let mut file_entries: Vec<_> = files.iter().collect();
@@ -87,16 +88,18 @@ pub(crate) fn mir_cache_key(
     opt_level: OptLevel,
 ) -> String {
     format!(
-        "{}::mir::{}::{:#x}::opt={opt_level:?}",
+        "{}::mir::{}::{:#x}::opt={opt_level:?}::epoch={}",
         normalize_path_key(source_path),
         fn_name,
         body_hash,
+        env!("MIRE_CODEGEN_EPOCH"),
     )
 }
 
 pub fn dependency_fingerprint(files: &HashMap<PathBuf, LoadedFile>) -> u64 {
     let mut hasher = FxHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    env!("MIRE_CODEGEN_EPOCH").hash(&mut hasher);
 
     let mut file_entries: Vec<_> = files.iter().collect();
     file_entries.sort_by_key(|(left, _)| *left);
