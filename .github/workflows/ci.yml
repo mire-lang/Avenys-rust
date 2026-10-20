@@ -222,7 +222,7 @@ jobs:
         with:
           repository: mire-lang/mire-lib
           path: mire
-          ref: beta-stdlib
+          ref: main
 
       - name: Setup owl dependencies
         run: |
