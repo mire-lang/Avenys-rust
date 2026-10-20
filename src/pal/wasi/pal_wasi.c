@@ -275,7 +275,7 @@ __attribute__((weak)) int pal_core_init(const pal_ops_t *ops);
 
 // Constructor to register this backend with PAL Core when it is linked.
 __attribute__((constructor))
-static int pal_backend_register(void) {
+int pal_backend_register(void) {
     if (pal_dispatch_set_ops) pal_dispatch_set_ops(&wasi_ops);
     if (pal_core_init) pal_core_init(&wasi_ops);
     return 0;
