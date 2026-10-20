@@ -356,10 +356,27 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
 /// `struct_types` map (discriminant is always field 0).
 pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) -> String {
     let mut out = String::new();
+    let mut globals = String::new();
     for stmt in &program.statements {
         if let Statement::Enum { name, variants, .. } = stmt {
             for (discriminant, variant) in variants.iter().enumerate() {
                 let full_name = format!("{}.{}", name, variant.name);
+                // A payload-less variant is a singleton: every evaluation must
+                // yield the same address, or `State.Ready == State.Ready` compares
+                // two distinct allocations and reports false. Emit one shared
+                // global whose first field is the discriminant and return its
+                // address. Payload variants keep a fresh allocation because their
+                // value is the payload.
+                if variant.data_types.is_empty() {
+                    let global_name = format!("{}_{}_data", sanitize_enum_global(name), sanitize_enum_global(&variant.name));
+                    globals.push_str(&format!(
+                        "@{global_name} = private constant {{ i64 }} {{ i64 {discriminant} }}\n"
+                    ));
+                    out.push_str(&format!(
+                        "define ptr @{full_name}() {{\nentry:\n  ret ptr @{global_name}\n}}\n\n",
+                    ));
+                    continue;
+                }
                 let mut all_types = vec!["i64".to_string()];
                 let mut total_size = 8usize;
                 for dt in &variant.data_types {
@@ -419,7 +436,15 @@ pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) 
     if out.is_empty() {
         return String::new();
     }
-    format!("declare ptr @malloc(i64)\n\n{}", out)
+    format!("declare ptr @malloc(i64)\n\n{globals}{out}")
+}
+
+/// LLVM identifiers cannot contain `.` unquoted, so a global backing a
+/// payload-less enum variant is spelled with underscores.
+fn sanitize_enum_global(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
 }
 
 pub(super) fn dedup_llvm_declarations(ir: &str) -> String {

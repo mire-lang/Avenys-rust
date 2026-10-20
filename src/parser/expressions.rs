@@ -266,9 +266,16 @@ impl Parser {
 
             // Index operator: p[i] for pointer/array indexing
             // Only apply to non-literal expressions (variables, pointers, calls, etc.)
-            // Literal lists/dicts like [1, 2] or {a: 1} should not be indexable
+            // Literal lists/dicts like [1, 2] or {a: 1} should not be indexable,
+            // and neither should scalar literals: `f("cmd" ["arg"])` is two
+            // space-separated arguments, not an index into the string literal.
             if self.check(TokenType::Lbracket)
-                && !matches!(expr, Expression::List { .. } | Expression::Dict { .. })
+                && !matches!(
+                    expr,
+                    Expression::List { .. }
+                        | Expression::Dict { .. }
+                        | Expression::Literal { .. }
+                )
             {
                 self.advance();
                 self.skip_newlines();

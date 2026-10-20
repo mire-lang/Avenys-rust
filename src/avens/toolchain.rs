@@ -377,24 +377,27 @@ pub(super) fn compile_binary_from_ir(
             lib_path.ends_with(".so") || lib_path.ends_with(".dylib") || lib_path.ends_with(".a");
         if explicit_native {
             let native_path = std::path::Path::new(&lib_path);
-            if let Some(parent) = native_path.parent() {
+            // Resolve to an absolute path so the linker finds the file
+            // regardless of the process working directory and regardless of
+            // the tcc version's `-l` basename handling (Ubuntu's tcc rejects
+            // `-l<name>.so` where Arch's accepts it).
+            let resolved = native_path
+                .canonicalize()
+                .unwrap_or_else(|_| native_path.to_path_buf());
+            if let Some(parent) = resolved.parent() {
                 linker.arg(format!("-L{}", parent.display()));
                 if lib_path.ends_with(".so") || lib_path.ends_with(".dylib") {
                     // Keep explicit fixture/shared-library dependencies
-                    // runnable without LD_LIBRARY_PATH. Relative rpaths are
+                    // runnable without LD_LIBRARY_PATH. Absolute rpaths are
                     // intentional for project-local test libraries.
                     linker.arg(format!("-Wl,-rpath,{}", parent.display()));
                 }
             }
-            if let Some(file_name) = native_path.file_name().and_then(|name| name.to_str()) {
-                // Exact filenames may intentionally omit the conventional
-                // `lib` prefix (for example `kioto.so` in test fixtures).
-                // Pass the full path directly: tcc does not understand the
-                // GNU `-l:filename` syntax, so we hand it the .so/.a path
-                // together with -L<dir> (already added above) so the linker
-                // finds it by basename.
-                linker.arg(format!("-l{}", file_name.trim_start_matches("lib")));
-            }
+            // Pass the full path to the .so/.a directly. tcc accepts native
+            // library files as inputs and does not need the GNU `-l:filename`
+            // syntax, which it does not support. This avoids relying on the
+            // file being discoverable by basename through `-l`.
+            linker.arg(&resolved);
         } else if lib_path.as_str() != clean_name && !lib_path.is_empty() {
             // Pass the path directly rather than `-l:<path>`: tcc does not
             // accept the GNU `-l:filename` syntax.

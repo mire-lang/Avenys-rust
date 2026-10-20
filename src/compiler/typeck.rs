@@ -169,7 +169,7 @@ struct TypeChecker {
 
 impl TypeChecker {
     fn new(source: &str) -> Self {
-        Self {
+        let mut ctx = Self {
             scopes: vec![HashMap::new()],
             struct_scopes: vec![HashMap::new()],
             ref_scopes: vec![HashMap::new()],
@@ -205,7 +205,34 @@ impl TypeChecker {
             security_config: Self::load_security_config(),
             extern_fn_names: HashSet::new(),
             constant_scopes: vec![HashSet::new()],
-        }
+        };
+        // PAL panic functions are always available without requiring
+        // `load mire::aux::pal`. They are used by the compiler for unreachable
+        // code paths and by test infrastructure.
+        ctx.functions.insert(
+            "pal.assert_fail".to_string(),
+            FunctionSig {
+                type_params: Vec::new(),
+                type_param_bounds: Vec::new(),
+                params: vec![DataType::Str],
+                return_type: DataType::None,
+            },
+        );
+        ctx.functions.insert(
+            "pal.panic_loc".to_string(),
+            FunctionSig {
+                type_params: Vec::new(),
+                type_param_bounds: Vec::new(),
+                params: vec![
+                    DataType::Str,
+                    DataType::I64,
+                    DataType::I64,
+                    DataType::Str,
+                ],
+                return_type: DataType::None,
+            },
+        );
+        ctx
     }
 
     /// Loads the `[builtins]` allowlist from the project's owl.toml.

@@ -168,19 +168,19 @@ jobs:
           sudo cp -r /tmp/compiler/pal /usr/local/lib/mire/pal
           mire --version
 
-      - name: Checkout kioto (active PR #3 branch, v2.5.0)
+      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
         uses: actions/checkout@v4
         with:
-          repository: Evelynx-Dev/Kioto-1
+          repository: mire-lang/Kioto
           path: kioto
-          ref: pr/2.5.0
+          ref: master
 
-      - name: Checkout owl source (active PR #16 branch, official repo)
+      - name: Checkout owl source (official mire-lang/owl main)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/owl
           path: owl-src
-          ref: pr/1.2.0
+          ref: main
 
       - name: Install build prerequisites + libsodium (for bundling)
         run: |
@@ -188,6 +188,8 @@ jobs:
           sudo apt-get install -y -qq \
             libsodium23 libzstd-dev libarchive-dev zlib1g-dev \
             tcc libtcc-dev gcc
+          # Ensure libsqlite3-dev is available for SQLite tests
+          sudo apt-get install -y -qq libsqlite3-dev 2>/dev/null || true
 
       - name: Generate avenys config for the owl build
         run: |
@@ -217,7 +219,7 @@ jobs:
 
       - name: Setup owl dependency paths
         run: |
-          sed -i 's|/home/Evelyn/\.owl/libs/kioto|../kioto|' owl-src/owl.toml
+          sed -i 's|/home/Evelyn/\.owl/libs/kioto|\.\./kioto|g' owl-src/owl.toml 2>/dev/null || true
 
       - name: Build owl
         working-directory: owl-src
@@ -266,19 +268,19 @@ jobs:
       - name: Enable QEMU binfmt
         run: docker run --rm --privileged tonistiigi/binfmt --install all
 
-      - name: Checkout kioto (active PR #3 branch, v2.5.0)
+      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
         uses: actions/checkout@v4
         with:
-          repository: Evelynx-Dev/Kioto-1
+          repository: mire-lang/Kioto
           path: kioto
-          ref: pr/2.5.0
+          ref: master
 
-      - name: Checkout owl source (active PR #16 branch, official repo)
+      - name: Checkout owl source (official mire-lang/owl main)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/owl
           path: owl-src
-          ref: pr/1.2.0
+          ref: main
 
       - name: Build owl in a riscv64 container (QEMU)
         env:

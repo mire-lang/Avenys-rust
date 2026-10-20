@@ -412,26 +412,42 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 .to_string();
             let source = fs::read_to_string(&file).unwrap_or_default();
             let has_main = source.contains("pub fn main");
-            let has_load = source.contains("load ");
             let has_test_fn = source.contains("@[test]");
+            // A file with neither an entry point nor a `@[test]` function is a
+            // helper module reached through `load!`/`use!` by a real test, not a
+            // test itself. Building it standalone fails with
+            // `tcc: undefined symbol 'main'`.
+            if !has_main && !has_test_fn {
+                continue;
+            }
             let relative = file.strip_prefix(cwd).unwrap_or(&file);
             let safe_stem = relative.to_string_lossy().replace(['/', '\\'], "_");
             let (target_file, _stem) = if !has_main {
                 let test_path = test_dir.join(format!("{}.mire", safe_stem));
-            if has_load || has_test_fn {
+                // Every test file compiled by the runner gets load mire::aux::pal
+                // so that pal::assert_fail (emitted on test failure) and
+                // pal::panic_loc resolve. Without this, functions with
+                // unreachable code or missing return paths fail with
+                // "Unknown function 'pal.assert_fail'".
                 let source = if !source.contains("load mire::aux::pal") {
                     format!("load mire::aux::pal\n{}", source)
                 } else {
                     source
                 };
                 let _ = fs::write(&test_path, &source);
-                } else {
-                    let patched = format!("pub fn main: () {{\n{}\n}}\n", source);
-                    let _ = fs::write(&test_path, &patched);
-                }
                 (test_path, safe_stem.clone())
             } else {
-                (file.clone(), safe_stem.clone())
+                // Files with pub fn main are compiled as-is. Add pal::aux::pal
+                // so pal::assert_fail resolves if the test framework injects it.
+                let source = fs::read_to_string(&file).unwrap_or_default();
+                let source = if !source.contains("load mire::aux::pal") {
+                    format!("load mire::aux::pal\n{}", source)
+                } else {
+                    source
+                };
+                let test_path = test_dir.join(format!("{}.mire", safe_stem));
+                let _ = fs::write(&test_path, &source);
+                (test_path, safe_stem.clone())
             };
             let binary_path = test_bin_dir.join(&safe_stem);
             let category = if use_key_cat {

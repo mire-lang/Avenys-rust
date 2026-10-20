@@ -365,14 +365,27 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
         | (other, DataType::Ref { inner } | DataType::RefMut { inner }) => {
             return unify_types(inner, other);
         }
-        _ => {}
+        // Pointer ↔ collection coercion: a pointer returned from an FFI call
+        // can be assigned to a heap-allocated collection type (they are all
+        // pointers at runtime).
+        (DataType::Pointer(_), DataType::Map { .. } | DataType::Vector { .. }
+         | DataType::Dict | DataType::List | DataType::Box | DataType::Set
+         | DataType::Enum | DataType::EnumNamed { .. }) => Ok(right.clone()),
+        (DataType::Map { .. } | DataType::Vector { .. } | DataType::Dict
+         | DataType::List | DataType::Box | DataType::Set | DataType::Enum
+         | DataType::EnumNamed { .. }, DataType::Pointer(_)) => Ok(left.clone()),
+        // Pointer ↔ reference coercion: a raw pointer and a reference are both
+        // addresses. FFI wrappers declare `ptr` and forward to an extern that
+        // expects `&mut str` (e.g. mire's aux/pal `random_fill`), so the two
+        // must unify in either direction.
+        (DataType::Pointer(_), DataType::Ref { .. } | DataType::RefMut { .. }) => Ok(right.clone()),
+        (DataType::Ref { .. } | DataType::RefMut { .. }, DataType::Pointer(_)) => Ok(left.clone()),
+        _ => return Err(type_error(
+            0,
+            0,
+            format!("Cannot unify incompatible types {:?} and {:?}", left, right),
+        )),
     }
-
-    Err(type_error(
-        0,
-        0,
-        format!("Cannot unify incompatible types {:?} and {:?}", left, right),
-    ))
 }
 
 /// Bit width of a Mire integer/float type (shared utility).
@@ -665,12 +678,17 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
     }
 
     // Reverse FFI coercion: a Pointer returned from an FFI call can be assigned
-    // back to a heap-allocated collection type (they are all pointers at
-    // runtime).
+    // back to a reference or heap-allocated collection type (they are all
+    // pointers at runtime). The `Ref`/`RefMut`/`Str` cases let a `ptr` parameter
+    // forward a raw pointer to an extern declared with `&mut str` (mire's
+    // aux/pal `random_fill`).
     if matches!(actual, DataType::Pointer(_)) {
         return matches!(
             expected,
-            DataType::Map { .. }
+            DataType::Ref { .. }
+                | DataType::RefMut { .. }
+                | DataType::Str
+                | DataType::Map { .. }
                 | DataType::Vector { .. }
                 | DataType::Dict
                 | DataType::List

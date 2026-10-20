@@ -31,6 +31,7 @@ struct MirLower {
     /// Per-variant payload layouts: "Enum.Variant" -> [(payload_name, DataType), ...].
     enum_payloads: HashMap<String, Vec<(String, DataType)>>,
     bare_to_qualified: HashMap<String, String>,
+    function_names: HashSet<String>,
     method_map: HashMap<String, HashMap<String, String>>,
     current_block: usize,
     /// Stack of enclosing loop targets as `(continue_target, break_target)`
@@ -412,6 +413,7 @@ pub fn lower_program_with_filename(
     }
 
     let bare_to_qualified = extract_bare_name_map(program, &seen_functions);
+    let function_names: HashSet<String> = seen_functions.clone();
 
     // Collect module-level `set`/`let` bindings. These are lowered as true
     // globals so they are visible from *every* function (not only `main`),
@@ -494,6 +496,7 @@ pub fn lower_program_with_filename(
                     enum_types: enum_types.clone(),
                     enum_payloads: enum_payloads.clone(),
                     bare_to_qualified: bare_to_qualified.clone(),
+                    function_names: function_names.clone(),
                     method_map: method_map.clone(),
                     current_block: 0,
                     loop_stack: Vec::new(),
@@ -570,6 +573,7 @@ pub fn lower_program_with_filename(
                             enum_types: enum_types.clone(),
                             enum_payloads: enum_payloads.clone(),
                             bare_to_qualified: bare_to_qualified.clone(),
+                            function_names: function_names.clone(),
                             method_map: method_map.clone(),
                             current_block: 0,
                             loop_stack: Vec::new(),
@@ -604,6 +608,40 @@ pub fn lower_program_with_filename(
 }
 
 impl MirLower {
+    /// Resolve a call target written by the consumer to the name the loader
+    /// actually emitted.
+    ///
+    /// The renamer gives every nested module its own *local* prefix rather than
+    /// composing ancestor prefixes (`crypto::hash::sha256::hash` is emitted as
+    /// `sha256.hash`, not `crypto.hash.sha256.hash`). A consumer still spells
+    /// the call fully qualified, so an exact lookup fails. Falling back to a
+    /// whole-segment suffix match against the emitted function names recovers
+    /// the target without changing the emitted ABI.
+    pub(crate) fn resolve_call_name(&self, name: &str) -> String {
+        if let Some(q) = self.bare_to_qualified.get(name) {
+            return q.clone();
+        }
+        if self.function_names.contains(name) {
+            return name.to_string();
+        }
+        let canonical = crate::canonical_fn_name(name);
+        if self.function_names.contains(&canonical) {
+            return canonical;
+        }
+        let mut best: Option<&String> = None;
+        for candidate in &self.function_names {
+            if canonical.ends_with(&format!(".{candidate}")) {
+                if best.is_none_or(|b| candidate.len() > b.len()) {
+                    best = Some(candidate);
+                }
+            }
+        }
+        match best {
+            Some(b) => b.clone(),
+            None => name.to_string(),
+        }
+    }
+
     pub(crate) fn new_temp(&mut self) -> usize {
         let id = self.next_temp;
         self.next_temp += 1;

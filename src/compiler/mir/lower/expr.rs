@@ -769,21 +769,13 @@ impl MirLower {
                         }
                         None => {
                             let mir_args = self.lower_call_args(name, args);
-                            let resolved = self
-                                .bare_to_qualified
-                                .get(name.as_str())
-                                .cloned()
-                                .unwrap_or_else(|| name.clone());
+                            let resolved = self.resolve_call_name(name);
                             (resolved, mir_args)
                         }
                     }
                 } else {
                     let mir_args = self.lower_call_args(name, args);
-                    let resolved = self
-                        .bare_to_qualified
-                        .get(name.as_str())
-                        .cloned()
-                        .unwrap_or_else(|| name.clone());
+                    let resolved = self.resolve_call_name(name);
                     (resolved, mir_args)
                 };
 

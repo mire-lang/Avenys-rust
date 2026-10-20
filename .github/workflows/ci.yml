@@ -81,12 +81,12 @@ jobs:
       - name: Test minimal managed strings through PAL allocation
         run: ./scripts/test-runtime-managed-minimal-pal.sh
 
-      - name: Checkout kioto (active PR #3 branch = v2.5.0 namespaced net API)
+      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0 namespaced net API)
         uses: actions/checkout@v4
         with:
-          repository: Evelynx-Dev/Kioto-1
+          repository: mire-lang/Kioto
           path: kioto-src
-          ref: pr/2.5.0
+          ref: master
 
       - name: Checkout mire stdlib (official mire-lang branch)
         uses: actions/checkout@v4
@@ -203,19 +203,19 @@ jobs:
           fi
           mire --version || echo "mire installed"
 
-      - name: Checkout kioto (active PR #3 branch = v2.5.0 namespaced net API)
+      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0 namespaced net API)
         uses: actions/checkout@v4
         with:
-          repository: Evelynx-Dev/Kioto-1
+          repository: mire-lang/Kioto
           path: kioto-src
-          ref: pr/2.5.0
+          ref: master
 
-      - name: Checkout owl source (active PR #16 branch, in the official repo)
+      - name: Checkout owl source (official mire-lang/owl main)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/owl
           path: owl-src
-          ref: pr/1.2.0
+          ref: main
 
       - name: Checkout mire stdlib (mire@2.0.0-beta, PAL bindings + nested namespaces)
         uses: actions/checkout@v4

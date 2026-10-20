@@ -24,6 +24,9 @@ pub(crate) fn builtin_to_pal(name: &str) -> Option<&'static str> {
         // Memory (PAL-owned)
         "pal.alloc" => Some("pal_alloc"),
         "pal.free" => Some("pal_free"),
+        // Safety / panic
+        "pal.assert_fail" => Some("rt_panic"),
+        "pal.panic_loc" => Some("rt_panic_loc"),
         _ => None,
     }
 }
@@ -165,6 +168,7 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         "declare ptr @pal_secure_alloc(i64)".to_string(),
         "declare void @pal_secure_free(ptr)".to_string(),
         // ── Safety (spans) ────────────────────────────────────────────
+        "declare void @rt_panic(ptr)".to_string(),
         "declare void @rt_panic_loc(ptr, i64, i64, ptr)".to_string(),
         "declare i64 @rt_div_i64(i64, i64, i64, i64, ptr)".to_string(),
         "declare i64 @rt_rem_i64(i64, i64, i64, i64, ptr)".to_string(),

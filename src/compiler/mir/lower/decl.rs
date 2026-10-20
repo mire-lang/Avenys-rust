@@ -87,6 +87,7 @@ impl MirLower {
             enum_types: self.enum_types.clone(),
             enum_payloads: self.enum_payloads.clone(),
             bare_to_qualified: self.bare_to_qualified.clone(),
+            function_names: self.function_names.clone(),
             method_map: self.method_map.clone(),
             current_block: 0,
             loop_stack: Vec::new(),
