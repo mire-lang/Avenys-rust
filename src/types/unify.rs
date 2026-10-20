@@ -365,17 +365,16 @@ pub fn unify_types(left: &DataType, right: &DataType) -> Result<DataType> {
         | (other, DataType::Ref { inner } | DataType::RefMut { inner }) => {
             return unify_types(inner, other);
         }
-        // Pointer ↔ addressable coercion: a pointer returned from FFI can be
-        // assigned to heap-allocated collection types (maps, vectors, etc.) and
-        // to references/strings at runtime.
+        // Pointer ↔ collection coercion: a pointer returned from an FFI call
+        // can be assigned to a heap-allocated collection type (they are all
+        // pointers at runtime). References/strings are coerced via is_assignable
+        // and by peeling &/&mut in the unifier.
         (DataType::Pointer(_), DataType::Map { .. } | DataType::Vector { .. }
          | DataType::Dict | DataType::List | DataType::Box | DataType::Set
-         | DataType::Enum | DataType::EnumNamed { .. }
-         | DataType::Ref { .. } | DataType::RefMut { .. } | DataType::Str) => Ok(right.clone()),
+         | DataType::Enum | DataType::EnumNamed { .. }) => Ok(right.clone()),
         (DataType::Map { .. } | DataType::Vector { .. } | DataType::Dict
          | DataType::List | DataType::Box | DataType::Set | DataType::Enum
-         | DataType::EnumNamed { .. } | DataType::Ref { .. } | DataType::RefMut { .. }
-         | DataType::Str, DataType::Pointer(_)) => Ok(left.clone()),
+         | DataType::EnumNamed { .. }, DataType::Pointer(_)) => Ok(left.clone()),
         _ => return Err(type_error(
             0,
             0,
