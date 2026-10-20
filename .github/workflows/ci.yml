@@ -43,6 +43,11 @@ jobs:
       - name: Test PAL Unix-domain sockets
         run: ./scripts/test-pal-unix-sockets.sh
 
+      - name: Build the Mire compiler
+        env:
+          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
+        run: cargo build --release
+
       - name: Test standard input in the minimal runtime
         run: ./scripts/test-runtime-io.sh
 
@@ -105,11 +110,6 @@ jobs:
           else
             echo "warning: libsodium.so.23 not found; fixtures may fail to link"
           fi
-
-      - name: Build
-        env:
-          LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
-        run: cargo build --release
 
       - name: Test
         env:
