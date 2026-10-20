@@ -418,13 +418,13 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             let safe_stem = relative.to_string_lossy().replace(['/', '\\'], "_");
             let (target_file, _stem) = if !has_main {
                 let test_path = test_dir.join(format!("{}.mire", safe_stem));
-                if has_load || has_test_fn {
-                    let source = if has_test_fn && !source.contains("load mire::aux::pal") {
-                        format!("load mire::aux::pal\n{}", source)
-                    } else {
-                        source
-                    };
-                    let _ = fs::write(&test_path, &source);
+            if has_load || has_test_fn {
+                let source = if !source.contains("load mire::aux::pal") {
+                    format!("load mire::aux::pal\n{}", source)
+                } else {
+                    source
+                };
+                let _ = fs::write(&test_path, &source);
                 } else {
                     let patched = format!("pub fn main: () {{\n{}\n}}\n", source);
                     let _ = fs::write(&test_path, &patched);

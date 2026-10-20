@@ -638,6 +638,14 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
         return true;
     }
 
+    // FFI coercion: Ref/RefMut/Str can be passed where Pointer is expected.
+    if matches!(expected, DataType::Pointer(_)) {
+        return matches!(
+            actual,
+            DataType::Ref { .. } | DataType::RefMut { .. } | DataType::Str
+        );
+    }
+
     if expected == &DataType::Dict && actual == &DataType::List {
         return true;
     }
