@@ -136,7 +136,7 @@ extern fn pal_sbx_permit: (path :&str) :bool lib "c"
 // opts in gets.
 @[test]
 pub fn sbx_the_tool_home_is_denied_until_it_is_authorised: () :bool {
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     return !pal_sbx_permit(home)
 }
 
@@ -144,7 +144,7 @@ pub fn sbx_the_tool_home_is_denied_until_it_is_authorised: () :bool {
 pub fn sbx_authorising_the_tool_home_permits_it: () :bool {
     /! A directory that exists, because the grant is stored resolved and a path
         whose deepest existing ancestor is "/" would collapse to just that. !/
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     rt_sbx_set_tool_home(home)
     set got = rt_sbx_get_tool_home()
     if got != home { return false }
@@ -153,7 +153,7 @@ pub fn sbx_authorising_the_tool_home_permits_it: () :bool {
 
 @[test]
 pub fn sbx_authorising_one_home_does_not_open_another: () :bool {
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     set other = "/var/owl_probe_elsewhere" :str
     rt_sbx_set_tool_home(home)
     return !pal_sbx_permit(other)
@@ -161,25 +161,25 @@ pub fn sbx_authorising_one_home_does_not_open_another: () :bool {
 
 @[test]
 pub fn sbx_traversal_out_of_the_tool_home_is_still_refused: () :bool {
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     rt_sbx_set_tool_home(home)
     /! Lexical normalisation happens before the prefix test, so this is a
         denial on the text and not on the filesystem. !/
-    return !pal_sbx_permit("/home/Evelyn/.owl/../../../tmp")
+    return !pal_sbx_permit("/tmp/avenys-owl-test-home/../../../etc")
 }
 
 @[test]
 pub fn sbx_a_sibling_of_the_tool_home_is_not_under_it: () :bool {
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     rt_sbx_set_tool_home(home)
-    /! "/home/Evelyn/.owlX" shares the prefix as a string but is a different
+    /! "/tmp/avenys-owl-test-homeX" shares the prefix as a string but is a different
         directory; the prefix test has to require the separator. !/
-    return !pal_sbx_permit("/home/Evelyn/.owlX")
+    return !pal_sbx_permit("/tmp/avenys-owl-test-homeX")
 }
 
 @[test]
 pub fn sbx_revoking_the_tool_home_denies_it_again: () :bool {
-    set home = "/home/Evelyn/.owl" :str
+    set home = "/tmp/avenys-owl-test-home" :str
     rt_sbx_set_tool_home(home)
     rt_sbx_set_tool_home("")
     return !pal_sbx_permit(home)
