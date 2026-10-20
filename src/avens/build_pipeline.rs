@@ -134,8 +134,7 @@ fn compile_file_inner(
         .then(|| output_dir.join(format!("{stem}.opt.ll")));
     let runtime_base = runtime_base();
     set_c_defs(options.c_defs.clone());
-<<<<<<< Updated upstream
-    let (mut c_source_files, c_sources_hash) = if options.emit_binary {
+let (mut c_source_files, c_sources_hash) = if options.emit_binary {
         let mut files: Vec<String> = Vec::new();
         // Tier-aware C file collection:
         //   minimal: collect the runtime sources; after IR generation the set
@@ -182,14 +181,6 @@ fn compile_file_inner(
             let compiler_runtime = manifest_dir.join("src/runtime");
             if compiler_runtime.exists() {
                 for path in collect_c_sources(&compiler_runtime).map_err(|err| {
-=======
-    let runtime_tier = options.c_defs.runtime;
-    let (c_source_files, c_sources_hash) = if options.emit_binary {
-        let mut files = Vec::new();
-        for directory in ["runtime", "pal/core", "pal/linux"] {
-            super::toolchain::collect_c_files(&runtime_base.join(directory), &mut files)
-                .map_err(|err| {
->>>>>>> Stashed changes
                     MireError::new(ErrorKind::Runtime {
                         span: crate::error::Span::unknown(),
                         message: format!("Could not read C sources from compiler runtime: {err}"),
@@ -514,17 +505,8 @@ fn compile_file_inner(
                     }
                 }
             }
-<<<<<<< Updated upstream
             let (ir, extern_libs) =
                 mir_to_llvm_with_filename(&mir, source_filename, options.c_defs.runtime);
-=======
-            let (ir, extern_libs) = mir_to_llvm_with_filename(&mir, source_filename);
-            let ir = if matches!(runtime_tier, RuntimeTier::None) {
-                super::build_support::strip_pal_decls(&ir)
-            } else {
-                ir
-            };
->>>>>>> Stashed changes
             phase_mir_time = build_start.elapsed().as_millis() as u64;
             progress_phase(
                 "mir",
@@ -685,7 +667,6 @@ fn compile_file_inner(
                 ir.push_str(&enum_ctors);
             }
         }
-<<<<<<< Updated upstream
         // Add @main entry point wrapper if the program defines @fn_main
         // Respect @[no_main] attribute to skip wrapper generation (freestanding mode)
         let has_no_main = program.file_attributes.iter().any(|a| a.name == "no_main")
@@ -721,12 +702,6 @@ fn compile_file_inner(
             if !freestanding {
                 ir.push_str("\ndeclare void @rt_sbx_init()\n");
             }
-=======
-        if !matches!(runtime_tier, RuntimeTier::None)
-        && ir.contains("define")
-        && ir.contains("@fn_main")
-        && !ir.contains("define i32 @main(")
->>>>>>> Stashed changes
             ir.push_str("\n\ndefine i32 @main(i32 %argc, ptr %argv) {\n");
             if !freestanding {
                 // Capture the sandbox root before user code can perform any host
