@@ -525,6 +525,13 @@ pub fn is_comparable_pair(left: &DataType, right: &DataType) -> bool {
     if left == right {
         return true;
     }
+    // A pointer returned from an FFI call (e.g. result::unwrap::str::or) can be
+    // compared against a string literal; both are pointers to bytes at runtime.
+    if (matches!(left, DataType::Pointer(_)) && matches!(right, DataType::Str))
+        || (matches!(right, DataType::Pointer(_)) && matches!(left, DataType::Str))
+    {
+        return true;
+    }
     // A pointer against an integer is the null check, which is how every
     // allocator return is tested. Without this the comparison is rejected, and
     // the only way to test for failure becomes comparing against a pointer
@@ -638,11 +645,39 @@ pub fn is_assignable(expected: &DataType, actual: &DataType) -> bool {
         return true;
     }
 
-    // FFI coercion: Ref/RefMut/Str can be passed where Pointer is expected.
+    // FFI coercion: Ref/RefMut/Str and heap-allocated collection types can be
+    // passed where Pointer is expected (they are all pointers at runtime).
     if matches!(expected, DataType::Pointer(_)) {
         return matches!(
             actual,
-            DataType::Ref { .. } | DataType::RefMut { .. } | DataType::Str
+            DataType::Ref { .. }
+                | DataType::RefMut { .. }
+                | DataType::Str
+                | DataType::Map { .. }
+                | DataType::Vector { .. }
+                | DataType::Dict
+                | DataType::List
+                | DataType::Box
+                | DataType::Set
+                | DataType::Enum
+                | DataType::EnumNamed { .. }
+        );
+    }
+
+    // Reverse FFI coercion: a Pointer returned from an FFI call can be assigned
+    // back to a heap-allocated collection type (they are all pointers at
+    // runtime).
+    if matches!(actual, DataType::Pointer(_)) {
+        return matches!(
+            expected,
+            DataType::Map { .. }
+                | DataType::Vector { .. }
+                | DataType::Dict
+                | DataType::List
+                | DataType::Box
+                | DataType::Set
+                | DataType::Enum
+                | DataType::EnumNamed { .. }
         );
     }
 
