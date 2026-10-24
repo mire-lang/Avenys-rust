@@ -257,7 +257,7 @@ jobs:
 
           [cfg]
           libs = ["archive", "zstd"]
-          sources = ["native/archive.c"]
+          sources = []
           link-dirs = []
           cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
           EOF
