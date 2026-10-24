@@ -1054,7 +1054,9 @@ if [ "$INSTALL_KIOTO" = "1" ] && [ "$KIOTO_ONLY" != "1" ] && [ -z "$MIRE_NO_STDL
             tar xzf "$TMPDIR/mire-lib.tar.gz" -C "$TMPDIR/mirelib-x" 2>/dev/null
             SRC=""
             for d in "$TMPDIR"/mirelib-x/*/; do
-                [ -f "$d/owl.toml" ] && [ -d "$d/core" ] && SRC="$d" && break
+                if [ -f "$d/owl.toml" ] && { [ -d "$d/core" ] || [ -d "$d/code" ]; }; then
+                    SRC="$d" && break
+                fi
             done
             if [ -n "$SRC" ]; then
                 mkdir -p "${OWL_HOME}/libs"
