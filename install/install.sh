@@ -45,9 +45,9 @@ set -e
 #   MIRE_API_URL    default https://api.github.com    (latest-tag lookup)
 #   MIRE_KIOTO_URL  default https://github.com/<repo> (git clone URL)
 
-REPO_OWL="${OWL_REPO:-Evelynx-Dev/owl}"
-REPO_COMPILER="${COMPILER_REPO:-Evelynx-Dev/Avenys-rust}"
-REPO_KIOTO="${KIOTO_REPO:-Evelynx-Dev/Kioto-1}"
+REPO_OWL="${OWL_REPO:-mire-lang/owl}"
+REPO_COMPILER="${COMPILER_REPO:-mire-lang/Avenys-rust}"
+REPO_KIOTO="${KIOTO_REPO:-mire-lang/Kioto}"
 REPO_MIRE="${MIRE_REPO:-mire-lang/mire-lib}"
 BASE_URL="${MIRE_BASE_URL:-https://github.com}"
 API_URL="${MIRE_API_URL:-https://api.github.com}"

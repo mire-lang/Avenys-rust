@@ -1,18 +1,24 @@
 # Changelog
 
-## 4.4.9 - 2026-10-18
-### Performance and verification
-- Vector append/read/pop/set paths read their existing length metadata directly instead of making redundant `rt_list_len` calls. Bounds checks, null behavior, and growth fallback are unchanged. Paired medians (five runs each): `alloc_pressure` 791→553 ms (30%), `vec_growth` 779→439 ms (44%), `vec_mixed_reads` 143→94 ms (34%), and `vec_pop_drain` 163→102 ms (37%). These paired results supersede earlier estimates below.
-- The 15-kernel benchmark suite verifies identical outputs across Mire, Rust, and C where present. Latest best-of-five run: `alloc_pressure` 487 ms (Rust 26 ms, C 62 ms), `vec_growth` 423 ms (Rust 53 ms, C 75 ms); full table and measurement caveats are in `bench/README.md`.
-- String content comparisons (including borrowed strings) and raw pointer identity are distinguished by semantic type. Pointer arithmetic uses byte offsets and raw `u32` access uses four-byte widths; focused FFI regressions cover the fixes.
-- Release tests: 246 library + 14 CLI tests pass. `cargo clippy --all-targets -- -D warnings` is clean.
+## 4.4.11 - 2026-10-24
+### CI/CD and installation
+- **CI: remove missing archive.c from owl build config.** The generated `mire-config.toml` for the `build-owl` job referenced `native/archive.c`, which does not exist in the Owl repository. Removed the missing source and the unused `archive`/`zstd` libs.
+- **CI: install pal runtime directory in build-owl.** The owl build job now copies `dist/mire/pal` to `/usr/local/lib/mire/` so the compiler can locate PAL C sources (`pal_bridge/helpers.c`, `pal/linux/pal_linux.c`, etc.) at link time.
+- **CI: add compiler dependencies (gcc, g++, make, llvm-22, clang-22, lld-22) for tcc-based C object compilation.** The `build-owl` job installs a full C toolchain so tcc can compile runtime C sources.
+- **CI: remove `-Wl,--disable-new-dtags`/`-Wl,-rpath` cflags from owl mire-config.toml.** These linker flags were being passed to `tcc -c` for C object compilation, causing failures. Linker flags belong in the link step, not the compile step.
+- **Fix tcc error parsing for crypto library auto-detection.** Mire's linker retry logic only recognized ld-style `undefined symbol` in tcc's stderr. tcc 0.9.28rc emits `unresolved reference to` instead, so `-lsodium` was never auto-added. Both forms are now recognized.
+- **install.sh: default repositories changed to `mire-lang/` org.** `REPO_OWL`, `REPO_COMPILER`, and `REPO_KIOTO` now default to `mire-lang/owl`, `mire-lang/Avenys-rust`, and `mire-lang/Kioto` respectively. `Evelynx-Dev/*` references removed.
 
-### Added
-- **IR cache keyed on codegen epoch.** The incremental MIR→IR cache now includes a fingerprint of `src/compiler/mir` sources (emitted via `MIRE_CODEGEN_EPOCH` from build.rs). This prevents a codegen edit from silently reusing IR produced by the previous compiler, which would appear as a no-op. The epoch is overridable with `MIRE_CACHE_EPOCH` for development workflows.
-- **install.sh: package manager + AUR + compiler validation.** `deps_for_pm()` lists gcc as non‑optional (Avenys compiles its own PAL/runtime in C). `install_deps()` adds error capture, AUR tcc installation when a helper is present (paru/yay/pikaur/trizen), and a post‑install check that a C compiler is on PATH. `prereq_missing()` reports the exact missing tool (tcc/cc/gcc/clang or opt/llc). The audit report now shows C compiler status, AUR helper availability, and system library presence.
-- **alloc_pressure representational gap.** Vector `len` resides in heap memory, not a register, so 8 M pushes incur 2 loads + 2 stores each instead of register‑promoted stores. This same cost appears in `vec_growth` (~2.4× vs C). The `with_capacity` OOM clamp adds ~16 % overhead on the push path. Through owl CLI the measurement is ~1.33×; through mire CLI it is ~3.1× due to cache‑cold differences.
-- **vec_growth A/B growth policy.** Measured at ~2.4× vs C (Mire ~78–80 ms, C ~55 ms). The 1.5× growth factor generates realloc traffic; guarded vs unguarded measurements show <1 % variance from glibc realloc non‑determinism.
-- **Native C compilation migrated from clang to tcc/libtcc.** `precompile_c_object` and the native linker now use `tcc` (discovered via `$TCC_PATH`, PATH, or standard locations) instead of `clang`. Runtime C sources (`__int128`) are guarded with `i128_t`/`u128_t` typedefs for tcc compatibility. The clang→tcc transition removes the clang dependency from the C object compilation pipeline; LLVM/Clang remain required only for the LLVM IR pipeline (`opt`, `llc`, `lld`).
+## 4.4.10 - 2026-10-20
+### CI/CD and migration
+- **CI: migrate to official `mire-lang` repos.** Replaced `Evelynx-Dev/Kioto-1@pr/2.5.0` with `mire-lang/Kioto@master` and `mire-lang/owl@pr/1.2.0` with `mire-lang/owl@main` in `.github/workflows/ci.yml` and `release.yml`. All `Evelynx-Dev` references removed from workflows.
+- **Compiler fixes pushed to `main`:** absolute-path native `.so`/`.a` linking for tcc, Pointer↔collection unification, Pointer↔`Ref`/`RefMut`/`Str` coercion, `pal.*` stubs injected into typecheck/builtins, enum payload-less variant equality, auto-inject `load mire::aux::pal` in test runner, suffix-based call resolution for flattened module prefixes, literal-index parse guard, skip helper modules with no `main`/`@[test]`, relaxed proc arg parsing.
+- **FFI sandbox tests:** replaced hardcoded `/home/Evelyn/.owl` paths with `/tmp`-based paths for CI compatibility.
+- **Local verification:** full test suite passes 324/324 against `/tmp/official/libs` (mire-lib + Kioto from `mire-lang`).
+
+### Owl v1.3.0
+- Fixed secondary CLI commands (`--version`, `info --json`, `load`, `new`) that suffered double-free from Mire runtime MSS string handling. Rewrote `compiler_cmd()`, `compiler_version()`, `info::run()`, and `new::run()` without problematic `str mut` reassignments. Added `util::copy_args()` helper.
+- Build (`-d`, `-r`, `-O`, `--release`, `--debug`) and `run` work correctly.
 
 
 All notable changes to Avenys will be documented in this file.
