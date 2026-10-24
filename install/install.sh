@@ -80,6 +80,7 @@ RUN_DOCKER=0
 
 PREFIX=""
 TAG_COMPILER=""
+TAG_OWL=""
 TAG_KIOTO=""
 YES=0
 NO_PROFILE=0
@@ -117,7 +118,8 @@ Options:
   --docker               Run the toolchain inside the provided container instead
   --no-profile           Skip shell profile PATH modification
   --check                Check prerequisites only; never install packages
-  --tag-compiler <tag>   Specific release tag (default: latest)
+  --tag-compiler <tag>   Specific compiler release tag (default: latest)
+  --tag-owl <tag>        Specific owl release tag (default: latest)
   --tag-kioto <tag>      Specific kioto release tag (default: latest)
   --help, -h             Show this help
 
@@ -153,7 +155,7 @@ while [ $# -gt 0 ]; do
         --docker)               RUN_DOCKER=1; shift ;;
         --no-profile)          NO_PROFILE=1; shift ;;
         --check)               CHECK_ONLY=1; shift ;;
-        --tag-owl)              TAG_COMPILER="$2"; shift 2 ;;
+        --tag-owl)              TAG_OWL="$2"; shift 2 ;;
         --tag-compiler)         TAG_COMPILER="$2"; shift 2 ;;
         --tag-kioto)            TAG_KIOTO="$2"; shift 2 ;;
         --help|-h)              usage; exit 0 ;;
@@ -833,10 +835,18 @@ check_prerequisites
 # (owl always downloads; a prebuilt compiler only when not building from source).
 if [ "$KIOTO_ONLY" != "1" ] \
     && { [ "$INSTALL_OWL" = "1" ] || [ "$BUILD_FROM_SOURCE" != "1" ]; }; then
+    if [ -z "$TAG_OWL" ]; then
+        TAG_OWL="$(get_latest_tag "$REPO_OWL")"
+        if [ -z "$TAG_OWL" ]; then
+            echo "  warning: could not determine latest owl release tag"
+            echo "  set MIRE_BASE_URL/MIRE_API_URL or use --tag-owl"
+            exit 1
+        fi
+    fi
     if [ -z "$TAG_COMPILER" ]; then
         TAG_COMPILER="$(get_latest_tag "$REPO_COMPILER")"
         if [ -z "$TAG_COMPILER" ]; then
-            echo "  warning: could not determine latest release tag"
+            echo "  warning: could not determine latest compiler release tag"
             echo "  set MIRE_BASE_URL/MIRE_API_URL or use --tag-compiler"
             exit 1
         fi
@@ -961,13 +971,13 @@ if [ "$INSTALL_OWL" = "1" ]; then
     fi
 
     OWL_TARBALL="${OWL_TARBALL:-owl-${TARGET}.tar.gz}"
-    OWL_URLS="${BASE_URL}/${REPO_COMPILER}/releases/download/${TAG_COMPILER}/${OWL_TARBALL}"
+    OWL_URLS="${BASE_URL}/${REPO_OWL}/releases/download/${TAG_OWL}/${OWL_TARBALL}"
     if [ -z "$ARCH_TARGET" ] && [ "$TARGET" = "x86_64-unknown-linux-gnu" ] \
         && [ "$OWL_TARBALL" = "owl-${TARGET}.tar.gz" ]; then
-        OWL_URLS="${OWL_URLS} ${BASE_URL}/${REPO_COMPILER}/releases/download/${TAG_COMPILER}/${OWL_TARBALL_LEGACY}"
+        OWL_URLS="${OWL_URLS} ${BASE_URL}/${REPO_OWL}/releases/download/${TAG_OWL}/${OWL_TARBALL_LEGACY}"
     fi
 
-    echo "  downloading owl ${TAG_COMPILER} (${OWL_TARBALL})..."
+    echo "  downloading owl ${TAG_OWL} (${OWL_TARBALL})..."
     OWL_DL="$(fetch_first "$TMPDIR/$OWL_TARBALL" $OWL_URLS)"
 
     if [ -f "$TMPDIR/$OWL_TARBALL" ] && [ -s "$TMPDIR/$OWL_TARBALL" ]; then
