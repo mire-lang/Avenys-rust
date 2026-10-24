@@ -177,7 +177,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            wget ca-certificates pkg-config libsodium-dev zlib1g-dev libzstd-dev \
+            wget ca-certificates pkg-config build-essential libsodium-dev zlib1g-dev libzstd-dev \
             libarchive-dev tcc libtcc-dev gcc
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
           sudo apt-get install -y -qq \
