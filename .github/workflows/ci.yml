@@ -201,6 +201,9 @@ jobs:
           if [ -d dist/mire/pal ]; then
             sudo cp -r dist/mire/pal /usr/local/lib/mire/
           fi
+          if [ -d dist/mire/pal ]; then
+            sudo cp -r dist/mire/pal /usr/local/lib/mire/
+          fi
           mire --version || echo "mire installed"
 
       - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0 namespaced net API)
