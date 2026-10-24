@@ -211,10 +211,10 @@ jobs:
           cache = "/tmp/owl-archive-cache"
 
           [cfg]
-          libs = ["archive"]
-          sources = ["native/archive.c"]
+          libs = []
+          sources = []
           link-dirs = []
-          cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
+          cflags = []
           EOF
 
       - name: Setup owl dependency paths

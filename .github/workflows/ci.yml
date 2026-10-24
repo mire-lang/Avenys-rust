@@ -259,10 +259,10 @@ jobs:
           cache = "/tmp/owl-archive-cache"
 
           [cfg]
-          libs = ["archive", "zstd"]
+          libs = []
           sources = []
           link-dirs = []
-          cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
+          cflags = []
           EOF
 
       - name: Build owl

@@ -441,7 +441,7 @@ pub(super) fn compile_binary_from_ir(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mut extra: Vec<&str> = Vec::new();
-        if stderr.contains("undefined symbol") {
+        if stderr.contains("undefined symbol") || stderr.contains("unresolved reference to") {
             // Ask which library could define what is missing rather than
             // guessing: a real error leaves both lists empty and is reported
             // unchanged below.
