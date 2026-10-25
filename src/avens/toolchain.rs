@@ -258,6 +258,16 @@ pub(super) fn compile_binary_from_ir(
 
     // Lower Mire IR independently of the native link driver. Tcc is
     // responsible for target-aware CRT/libc/native-library linking.
+    //
+    // tcc's aarch64/riscv64 linkers cannot relocate the GOT entries that
+    // LLVM emits for PIC code ("Unknown relocation type for got: N"), so use
+    // non-PIC codegen for executables on those targets. Shared libraries go
+    // through ld.lld above and stay PIC.
+    let static_executable = c_defs
+        .target
+        .as_deref()
+        .map(|triple| triple.starts_with("aarch64") || triple.starts_with("riscv64"))
+        .unwrap_or(cfg!(any(target_arch = "aarch64", target_arch = "riscv64")));
     let ir_object = binary_path.with_extension("mire.ir.o");
     lower_ir_to_object(
         ir,
@@ -266,7 +276,7 @@ pub(super) fn compile_binary_from_ir(
         c_defs.cpu.as_deref(),
         opt_level,
         source_filename,
-        true,
+        !static_executable,
     )?;
 
     let tcc_path = build_support::find_tcc().ok_or_else(|| {
