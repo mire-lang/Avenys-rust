@@ -279,7 +279,7 @@ versions, default symlinks, and install paths.
 | sdl | 1.0.1 | 1.0.1 | - |
 | sqlite | 0.1.0 | 0.1.0 | - |
 | wasm | 0.2.0 | 0.2.0 | - |
-| avenys | 4.4.12 | 4.4.12 | - |
+| avenys | 4.4.13 | 4.4.13 | - |
 | owl | 1.3.0 | 1.3.0 | - |
 
 Multi-version packages use version-suffixed directories:

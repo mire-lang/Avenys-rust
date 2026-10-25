@@ -27,10 +27,10 @@ RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends \
         curl ca-certificates tar xz-utils git \
     && rm -rf /var/lib/apt/lists/* \
-    && sh /opt/mire-install/install.sh \
+    && bash /opt/mire-install/install.sh \
         --yes --no-profile --prefix /usr/local \
         --arch "$TARGET_TRIPLE" --compiler \
-    && rm -rf /opt/mire-install /tmp/mire-* 2>/dev/null || true \
+    && rm -rf /opt/mire-install /tmp/mire-* \
     && mire --version \
     && owl --version
 

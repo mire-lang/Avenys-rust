@@ -1,6 +1,6 @@
 [package]
 name = "Avenys"
-version = "4.4.10"
+version = "4.4.13"
 edition = "2024"
 description = "Avenys is the mire compiler"
 

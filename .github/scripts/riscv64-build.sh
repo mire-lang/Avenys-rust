@@ -10,8 +10,8 @@
 #
 # <workdir> must contain, mounted read-write:
 #   compiler mode: the Avenys checkout (Cargo.toml at its root)
-#   owl mode:      owl-src/ (owl checkout), kioto/ (kioto checkout); the
-#                  mire binary must already be installed into the container
+#   owl mode:      owl-src/, kioto-src/ and mire-src/ checkouts; the mire
+#                  binary must already be installed into the container
 #                  (e.g. from the compiler-mode artifact).
 #
 # WHY ubuntu:26.04: apt.llvm.org ships no riscv64 packages, but Ubuntu 26.04
@@ -74,13 +74,14 @@ case "$MODE" in
         fi
         command -v mire >/dev/null 2>&1 || { echo "error: mire is not on PATH" >&2; exit 1; }
         [ -d owl-src ] || { echo "error: owl-src checkout missing" >&2; exit 1; }
-        [ -d kioto ] || { echo "error: kioto checkout missing" >&2; exit 1; }
+        [ -d kioto-src ] || { echo "error: kioto-src checkout missing" >&2; exit 1; }
+        [ -d mire-src ] || { echo "error: mire-src checkout missing" >&2; exit 1; }
 
         echo "== riscv64 build: generating avenys config (owl) =="
         cat > owl-src/native/mire-config.toml <<'EOF'
 [project]
 name = "owl"
-version = "1.1.1"
+version = "1.3.0"
 entry = "code/main.mire"
 
 [build]
@@ -95,21 +96,21 @@ bin = "/buildsrc/owl-src/bin"
 cache = "/tmp/owl-archive-cache"
 
 [cfg]
-libs = ["archive"]
-sources = ["native/archive.c"]
+libs = []
+sources = []
 link-dirs = []
-cflags = ["-Wl,--disable-new-dtags", "-Wl,-rpath,$ORIGIN/../lib/mire"]
+cflags = []
 EOF
 
-        mkdir -p "$HOME/.owl/modules"
-        rm -rf "$HOME/.owl/modules/kioto"
-        cp -r kioto "$HOME/.owl/modules/kioto"
-        # owl-src/owl.toml hardcodes a local kioto path; repoint to the
-        # sibling checkout so `load kioto` resolves inside the container.
-        sed -i 's|"/home/Evelyn/.owl/libs/kioto"|"../kioto"|' owl-src/owl.toml
+        # The generated config carries no [dependencies], so `load kioto` and
+        # `load mire` resolve from --lib-dir (~/.owl/libs).
+        mkdir -p "$HOME/.owl/libs"
+        rm -rf "$HOME/.owl/libs/kioto" "$HOME/.owl/libs/mire"
+        cp -a kioto-src "$HOME/.owl/libs/kioto"
+        cp -a mire-src "$HOME/.owl/libs/mire"
 
         echo "== riscv64 build: compiling owl =="
-        ( cd owl-src && mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml )
+        ( cd owl-src && mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs" )
         test -x owl-src/bin/release/main && echo "owl riscv64 OK"
 
         # Bundle the libsodium runtime lib (owl resolves it via its RUNPATH

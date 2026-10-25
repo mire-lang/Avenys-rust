@@ -30,6 +30,17 @@
 - **Install script configures MOR registry.** Creates `~/.owl/registries/mor/`
   with `index.toml` defining package versions, branches, and default symlinks.
 
+### Release engineering
+- **Compiler version now matches the release tag.** `Cargo.toml`/`Cargo.lock`
+  bumped to 4.4.13 so `mire --version` reports the tagged version.
+- **Release workflow installs mire/kioto into `~/.owl/libs`.** The owl jobs now
+  check out `mire-lang/mire-lib` and pass `--lib-dir`, so owl builds from the
+  official libraries without relying on the installer.
+- **riscv64 build script is executable and uses the same clean owl config.**
+  Removed stale `archive`/`-Wl` entries and the `~/.owl/modules` fallback.
+- **Docker toolchain runs install.sh with bash and fails loudly** if the compiler
+  asset cannot be downloaded.
+
 ## 4.4.12 - 2026-10-24
 ### CI/CD fixes
 - **CI: remove missing archive.c from owl build config.** The generated

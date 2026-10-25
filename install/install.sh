@@ -1357,9 +1357,7 @@ if { [ "$INSTALL_COMPILER" = "1" ] || [ "$COMPILER_ONLY" = "1" ]; } \
         echo "    cd ${REPO_COMPILER}"
         echo "    cargo build --release"
         echo "    cp target/release/mire ${BIN_DIR}/mire"
-        if [ "$COMPILER_ONLY" = "1" ]; then
-            exit 1
-        fi
+        exit 1
     fi
 fi
 
