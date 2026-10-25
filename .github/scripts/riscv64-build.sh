@@ -80,7 +80,7 @@ case "$MODE" in
         echo "== riscv64 build: installing base toolchain (owl) =="
         apt-get update -qq
         apt-get install -y -qq \
-            tcc libtcc-dev \
+            build-essential git pkg-config curl wget ca-certificates \
             llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev \
             || { echo "error: apt install failed" >&2; exit 1; }
 
@@ -90,6 +90,20 @@ case "$MODE" in
                 ln -sf "${t}-22" "/usr/bin/${t}"
             fi
         done
+
+        # tcc is not packaged for riscv64 in ubuntu:26.04; build from source.
+        if ! command -v tcc >/dev/null 2>&1; then
+            echo "== riscv64 build: compiling tcc from source =="
+            TCC_DIR="$(mktemp -d)"
+            curl -fsSL https://github.com/TinyCC/tinycc/archive/refs/tags/rel_0_9_27.tar.gz \
+                | tar xz -C "$TCC_DIR"
+            ( cd "$TCC_DIR"/tinycc-rel_0_9_27 \
+                && ./configure --prefix=/usr/local \
+                && make -j "$(nproc)" \
+                && make install ) \
+                || { echo "error: tcc build failed" >&2; exit 1; }
+            rm -rf "$TCC_DIR"
+        fi
 
         echo "== riscv64 build: generating avenys config (owl) =="
         cat > owl-src/native/mire-config.toml <<'EOF'
