@@ -328,10 +328,10 @@ jobs:
 
   release:
     name: Create Release
-    needs: [compiler, compiler-riscv64, owl]
-    if: >-
-      needs.compiler.result == 'success' ||
-      needs.compiler-riscv64.result == 'success'
+    # riscv64 is experimental: never block the release on the QEMU builds.
+    # Whatever riscv64 artifacts happen to be ready are collected too.
+    needs: [compiler, owl]
+    if: always() && needs.compiler.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
