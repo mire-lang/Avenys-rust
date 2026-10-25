@@ -111,7 +111,7 @@ EOF
 
         echo "== riscv64 build: compiling owl =="
         ( cd owl-src && mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs" )
-        test -x owl-src/bin/release/main && echo "owl riscv64 OK"
+        test -x owl-src/bin/main && echo "owl riscv64 OK"
 
         # Bundle the libsodium runtime lib (owl resolves it via its RUNPATH
         # $ORIGIN/../lib/mire; the installer copies owl/lib/*.so* there).

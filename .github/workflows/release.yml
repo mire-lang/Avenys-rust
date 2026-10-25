@@ -244,13 +244,13 @@ jobs:
       - name: Verify owl
         working-directory: owl-src
         run: |
-          chmod +x bin/release/main
-          ./bin/release/main -V
+          chmod +x bin/main
+          ./bin/main -V
 
       - name: Package owl tarball (${{ matrix.triple }})
         run: |
           mkdir -p dist/owl/lib
-          cp owl-src/bin/release/main dist/owl/owl
+          cp owl-src/bin/main dist/owl/owl
           cp -r kioto-src dist/owl/kioto
           find /usr/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \;
           cd dist
@@ -316,7 +316,7 @@ jobs:
       - name: Package owl tarball (riscv64)
         run: |
           mkdir -p dist/owl/lib
-          cp owl-src/bin/release/main dist/owl/owl
+          cp owl-src/bin/main dist/owl/owl
           cp -r kioto-src dist/owl/kioto
           find owl-src/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \; 2>/dev/null || true
           cd dist
