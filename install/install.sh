@@ -933,30 +933,114 @@ CONFIG
     fi
 
     TAG_KIOTO="${TAG_KIOTO:-$(get_latest_tag "$REPO_KIOTO")}"
-    echo "  downloading kioto ${TAG_KIOTO:-latest}..."
 
-    set -e
-    cd "$TMPDIR"
-    rm -rf kioto-clone
-    if command -v git >/dev/null 2>&1; then
-        git clone --depth 1 --branch "${TAG_KIOTO:-main}" "${KIOTO_URL}" kioto-clone 2>/dev/null \
-            || git clone --depth 1 "${KIOTO_URL}" kioto-clone
+    if command -v "${BIN_DIR}/owl" >/dev/null 2>&1; then
+        echo ""
+        echo "  ── Installing libraries via owl install ────────────────────────"
+        echo ""
+
+        # Configure MOR registry if not already present
+        if [ ! -f "${OWL_HOME}/registries/mor/index.toml" ] 2>/dev/null; then
+            mkdir -p "${OWL_HOME}/registries/mor"
+            cat > "${OWL_HOME}/registries/mor/index.toml" <<'REGIDX'
+[[packages]]
+name = "kioto"
+versions = ["2.5.0", "3.1.0"]
+default = "3.1.0"
+branches = { "2.5.0" = "release/2.5.0", "3.1.0" = "main" }
+paths = { "2.5.0" = "~/.owl/libs/kioto@2.5.0", "3.1.0" = "~/.owl/libs/kioto@3.1.0" }
+
+[[packages]]
+name = "mire"
+versions = ["1.2.4", "2.0.0-beta"]
+default = "2.0.0-beta"
+branches = { "1.2.4" = "release/1.2.4", "2.0.0-beta" = "main" }
+paths = { "1.2.4" = "~/.owl/libs/mire@1.2.4", "2.0.0-beta" = "~/.owl/libs/mire@2.0.0-beta" }
+REGIDX
+            echo "  configured MOR registry at ${OWL_HOME}/registries/mor/"
+        fi
+
+        # Install kioto via owl install
+        echo "  installing kioto via owl install..."
+        if "${BIN_DIR}/owl" install kioto --yes 2>/dev/null; then
+            echo "  [OK] kioto installed via owl install"
+        else
+            echo "  [WARN] owl install kioto failed, falling back to direct download"
+            cd "$TMPDIR"
+            rm -rf kioto-clone
+            git clone --depth 1 --branch "${TAG_KIOTO:-main}" "${KIOTO_URL}" kioto-clone 2>/dev/null \
+                || git clone --depth 1 "${KIOTO_URL}" kioto-clone
+            rm -rf "${OWL_HOME}/libs/kioto"
+            cp -r kioto-clone "${OWL_HOME}/libs/kioto"
+            echo "  installed kioto to ${OWL_HOME}/libs/kioto/ (fallback)"
+        fi
+
+        # Install mire-lib via owl install
+        echo "  installing mire via owl install..."
+        if "${BIN_DIR}/owl" install mire --yes 2>/dev/null; then
+            echo "  [OK] mire installed via owl install"
+        else
+            echo "  [WARN] owl install mire failed, falling back to direct download"
+            MIRE_MIRE_REF="${MIRE_MIRE_REF:-main}"
+            MIRE_STDLIB_URL="${MIRE_MIRE_URL:-${BASE_URL}/${REPO_MIRE}/archive/refs/heads/${MIRE_MIRE_REF}.tar.gz}"
+            curl -fsSL "$MIRE_STDLIB_URL" -o "$TMPDIR/mire-lib.tar.gz" 2>/dev/null || true
+            if [ -f "$TMPDIR/mire-lib.tar.gz" ] && [ -s "$TMPDIR/mire-lib.tar.gz" ]; then
+                mkdir -p "$TMPDIR/mirelib-x"
+                tar xzf "$TMPDIR/mire-lib.tar.gz" -C "$TMPDIR/mirelib-x" 2>/dev/null
+                SRC=""
+                for d in "$TMPDIR"/mirelib-x/*/; do
+                    if [ -f "$d/owl.toml" ] && { [ -d "$d/core" ] || [ -d "$d/code" ]; }; then
+                        SRC="$d" && break
+                    fi
+                done
+                if [ -n "$SRC" ]; then
+                    mkdir -p "${OWL_HOME}/libs"
+                    rm -rf "${OWL_HOME}/libs/mire"
+                    cp -r "$SRC" "${OWL_HOME}/libs/mire"
+                    echo "  installed mire stdlib to ${OWL_HOME}/libs/mire/ (fallback)"
+                fi
+            fi
+        fi
+
+        # Create symlinks for default versions
+        mkdir -p "${OWL_HOME}/libs"
+        if [ -d "${OWL_HOME}/libs/kioto@3.1.0" ]; then
+            ln -sfn "kioto@3.1.0" "${OWL_HOME}/libs/kioto"
+        fi
+        if [ -d "${OWL_HOME}/libs/mire@2.0.0-beta" ]; then
+            ln -sfn "mire@2.0.0-beta" "${OWL_HOME}/libs/mire"
+        fi
+
+        echo ""
+        echo "  ─────────────────────────────────────────────────────────────────"
+        echo "  library install complete"
+        echo ""
+        echo "  kioto:   ${OWL_HOME}/libs/kioto  ->  ${OWL_HOME}/libs/kioto@3.1.0"
+        echo "  mire:    ${OWL_HOME}/libs/mire   ->  ${OWL_HOME}/libs/mire@2.0.0-beta"
+        echo ""
     else
-        echo "  error: git is required for kioto-only install"
-        exit 1
+        echo ""
+        echo "  ── Installing kioto (owl not available, direct download) ───────"
+        echo "  downloading kioto ${TAG_KIOTO:-latest}..."
+        set -e
+        cd "$TMPDIR"
+        rm -rf kioto-clone
+        if command -v git >/dev/null 2>&1; then
+            git clone --depth 1 --branch "${TAG_KIOTO:-main}" "${KIOTO_URL}" kioto-clone 2>/dev/null \
+                || git clone --depth 1 "${KIOTO_URL}" kioto-clone
+        else
+            echo "  error: git is required for kioto-only install"
+            exit 1
+        fi
+        rm -rf "${OWL_HOME}/libs/kioto"
+        cp -r kioto-clone "${OWL_HOME}/libs/kioto"
+        echo "  installed kioto to ${OWL_HOME}/libs/kioto/"
+        echo ""
+        echo "  ─────────────────────────────────────────────────────────────────"
+        echo "  kioto install complete"
+        echo ""
+        exit 0
     fi
-
-    rm -rf "${OWL_HOME}/libs/kioto"
-    cp -r kioto-clone "${OWL_HOME}/libs/kioto"
-
-    echo "  installed kioto to ${OWL_HOME}/libs/kioto/"
-    echo ""
-    echo "  ─────────────────────────────────────────────────────────────────"
-    echo "  kioto install complete"
-    echo ""
-    echo "  Owl will resolve kioto from ${OWL_HOME}/libs/kioto/"
-    echo ""
-    exit 0
 fi
 
 # ── Install owl + kioto ───────────────────────────────────────────────
@@ -1033,12 +1117,17 @@ CONFIG
 fi
 
 # ── mire stdlib (best-effort) ────────────────────────────────────────
-# The ``mire`` package (mire-lang/mire-lib) is required to build projects
-# that `load mire` / `load kioto`. Download the source archive from the
-# repository (mirrorable via MIRE_MIRE_URL / MIRE_MIRE_REF). Not fatal:
-# standalone `mire build` of plain programs (no `load`) works without it.
+# The ``mire`` package (mire-lang/mire-lib) is installed via owl install.
+# The direct download below is kept only as a fallback when owl is not available.
 if [ "$INSTALL_KIOTO" = "1" ] && [ "$KIOTO_ONLY" != "1" ] && [ -z "$MIRE_NO_STDLIB" ]; then
-    if [ ! -d "${OWL_HOME}/libs/mire" ]; then
+    if [ ! -d "${OWL_HOME}/libs/mire" ] && [ ! -d "${OWL_HOME}/libs/mire@2.0.0-beta" ] && [ ! -d "${OWL_HOME}/libs/mire@1.2.4" ]; then
+        if command -v "${BIN_DIR}/owl" >/dev/null 2>&1; then
+            echo ""
+            echo "  ── Installing mire stdlib via owl install ──────────────────────"
+            "${BIN_DIR}/owl" install mire --yes 2>/dev/null || true
+        fi
+    fi
+    if [ ! -d "${OWL_HOME}/libs/mire" ] && [ ! -d "${OWL_HOME}/libs/mire@2.0.0-beta" ]; then
         echo ""
         echo "  ── Installing mire stdlib (mire-lang/mire-lib) ───────────────"
         MIRE_MIRE_REF="${MIRE_MIRE_REF:-main}"
@@ -1062,7 +1151,7 @@ if [ "$INSTALL_KIOTO" = "1" ] && [ "$KIOTO_ONLY" != "1" ] && [ -z "$MIRE_NO_STDL
                 mkdir -p "${OWL_HOME}/libs"
                 rm -rf "${OWL_HOME}/libs/mire"
                 cp -r "$SRC" "${OWL_HOME}/libs/mire"
-                echo "  installed mire stdlib to ${OWL_HOME}/libs/mire/"
+                echo "  installed mire stdlib to ${OWL_HOME}/libs/mire/ (fallback)"
             else
                 echo "  note: mire stdlib archive had an unexpected layout; skipping"
             fi
