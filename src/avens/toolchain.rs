@@ -538,12 +538,18 @@ fn run_tcc_link(tcc_path: &str, args: &[std::ffi::OsString]) -> Result<std::proc
 /// because every versioned symbol at or above 2.29 lives in libm/libmvec and
 /// the base 2.2.5 set is plain libc.
 fn missing_symbols_resolve_to_libm(link_error: &str) -> bool {
-    if !link_error.contains("undefined symbol") {
+    // tcc says "undefined symbol 'sin'"; ld/clang say "undefined reference to `sin'".
+    let mentions_missing = |line: &str| {
+        line.contains("undefined symbol")
+            || line.contains("unresolved reference to")
+            || line.contains("undefined reference to")
+    };
+    if !link_error.lines().any(mentions_missing) {
         return false;
     }
     link_error
         .lines()
-        .filter(|line| line.contains("undefined symbol"))
+        .filter(|line| mentions_missing(line))
         .any(|line| {
             libm_version_tags().any(|tag| line.contains(tag)) || line_names_libm_symbol(line)
         })
@@ -569,11 +575,13 @@ const LIBM_SYMBOLS: &[&str] = &[
 /// Pull the symbol name out of a linker's `undefined symbol 'NAME'` diagnostic
 /// and report whether libm defines it.
 fn line_names_libm_symbol(line: &str) -> bool {
-    let Some(start) = line.find('\'') else {
+    // Handles both `undefined symbol 'sin'` (tcc) and
+    // `undefined reference to \`sin'` (ld/clang).
+    let Some(start) = line.find(['\'', '`']) else {
         return false;
     };
     let rest = &line[start + 1..];
-    let Some(end) = rest.find('\'') else {
+    let Some(end) = rest.find(['\'', '`']) else {
         return false;
     };
     LIBM_SYMBOLS.contains(&&rest[..end])
