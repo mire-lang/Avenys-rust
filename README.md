@@ -1,4 +1,4 @@
-# Avenys v4.4.9
+# Avenys v4.4.13
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -244,6 +244,47 @@ cd myproject
 owl info
 owl run
 ```
+
+### Library status() function
+
+Every official Mire library (mire, kioto, sdl, sqlite, wasm) exposes a
+`pub fn status: () :str` function that returns a phpinfo-style console report.
+Use it to inspect what a loaded library provides:
+
+```bash
+# In any Mire program that loads a library:
+use dasu(mire::status())
+use dasu(kioto::status())
+use dasu(sdl::status())
+use dasu(sqlite::status())
+```
+
+Or from the shell via `owl`:
+
+```bash
+# After loading a library in a project, export will verify status():
+owl export          # warns if status() is missing (does not block)
+owl export -e       # same as above (short flag)
+```
+
+### MOR registry (Mire Official Registry)
+
+The official package registry lives at `mire-lang/libs`. It tracks package
+versions, default symlinks, and install paths.
+
+| Package | Versions | Default | Symlink |
+|---------|----------|---------|---------|
+| kioto | 2.5.0, 3.1.0 | 3.1.0 | `kioto -> kioto@3.1.0` |
+| mire | 1.2.4, 2.0.0-beta | 2.0.0-beta | `mire -> mire@2.0.0-beta` |
+| sdl | 1.0.1 | 1.0.1 | - |
+| sqlite | 0.1.0 | 0.1.0 | - |
+| wasm | 0.2.0 | 0.2.0 | - |
+| avenys | 4.4.12 | 4.4.12 | - |
+| owl | 1.3.0 | 1.3.0 | - |
+
+Multi-version packages use version-suffixed directories:
+`~/.owl/libs/kioto@3.1.0`, `~/.owl/libs/mire@2.0.0-beta`, etc.
+The installer creates default symlinks automatically.
 
 ---
 

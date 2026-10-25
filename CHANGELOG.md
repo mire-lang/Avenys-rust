@@ -1,5 +1,58 @@
 # Changelog
 
+## 4.4.13 - 2026-10-25
+### Library status() function (phpinfo-style console report)
+- **status() added to mire, kioto, sdl, sqlite, wasm libraries.** Each library now
+  exposes `pub fn status: () :str` returning a formatted report with name, version,
+  description, runtime tier, exports, and status. Usage: `use dasu(mire::status())`
+  or `use mire::status()` to inspect what a loaded library provides.
+- **owl export / owl -e now verifies status().** The export command checks whether
+  the library being exported defines a `status()` function. If missing, it prints a
+  warning (does not block export): "Mire Lang organization recommends adding a
+  `status()` function to libraries..." with guidance on how to add it.
+
+### MOR registry (mire-lang/libs)
+- **kioto: 2.5.0 (stable, branch release/2.5.0) + 3.1.0 (latest, default).** Symlink
+  `kioto -> kioto@3.1.0`. The 2.5.0 branch is maintained separately and will lose
+  support in the future.
+- **mire: 1.2.4 (stable, branch release/1.2.4) + 2.0.0-beta (latest, default).**
+  Symlink `mire -> mire@2.0.0-beta`. The 1.2.4 branch is maintained separately.
+- **sdl, sqlite, wasm, avenys, owl: latest version only.**
+- Registry index at `mire-lang/libs/reg/index.toml` with `default` flags and
+  `install_path` for version-suffixed directories.
+
+### CI/CD and installation
+- **Install script always gets latest versions.** Uses `get_latest_tag` for owl,
+  compiler, and kioto. No hardcoded version pins.
+- **Install script uses `owl install` for libraries.** After installing owl +
+  compiler, libraries (kioto, mire) are installed via `owl install` using the MOR
+  registry, with direct download as fallback.
+- **Install script configures MOR registry.** Creates `~/.owl/registries/mor/`
+  with `index.toml` defining package versions, branches, and default symlinks.
+
+## 4.4.12 - 2026-10-24
+### CI/CD fixes
+- **CI: remove missing archive.c from owl build config.** The generated
+  `mire-config.toml` for the `build-owl` job referenced `native/archive.c`, which
+  does not exist in the Owl repository. Removed the missing source and the unused
+  `archive`/`zstd` libs.
+- **CI: install pal runtime directory in build-owl.** The owl build job now copies
+  `dist/mire/pal` to `/usr/local/lib/mire/` so the compiler can locate PAL C
+  sources at link time.
+- **CI: add compiler dependencies (gcc, g++, make, llvm-22, clang-22, lld-22) for
+  tcc-based C object compilation.** The `build-owl` job installs a full C toolchain
+  so tcc can compile runtime C sources.
+- **CI: remove `-Wl,--disable-new-dtags`/`-Wl,-rpath` cflags from owl
+  mire-config.toml.** These linker flags were being passed to `tcc -c` for C object
+  compilation, causing failures.
+- **Fix tcc error parsing for crypto library auto-detection.** Mire's linker retry
+  logic only recognized ld-style `undefined symbol` in tcc's stderr. tcc 0.9.28rc
+  emits `unresolved reference to` instead. Both forms are now recognized.
+- **install.sh: default repositories changed to `mire-lang/` org.** `REPO_OWL`,
+  `REPO_COMPILER`, and `REPO_KIOTO` now default to `mire-lang/owl`,
+  `mire-lang/Avenys-rust`, and `mire-lang/Kioto` respectively. `Evelynx-Dev/*`
+  references removed.
+
 ## 4.4.11 - 2026-10-24
 ### CI/CD and installation
 - **CI: remove missing archive.c from owl build config.** The generated `mire-config.toml` for the `build-owl` job referenced `native/archive.c`, which does not exist in the Owl repository. Removed the missing source and the unused `archive`/`zstd` libs.
