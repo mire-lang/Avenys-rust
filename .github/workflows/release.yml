@@ -13,9 +13,9 @@ permissions:
 #   mire-compiler-<triple>.tar.gz   compiler/{mire,runtime,pal} + .sha256
 #   owl-<triple>.tar.gz             owl/{owl,kioto,lib/libsodium.so.23*} + .sha256
 # for <triple> in x86_64-unknown-linux-gnu (amd64), aarch64-unknown-linux-gnu
-# (arm64). riscv64 is built under QEMU emulation and is experimental: the
-# riscv64 jobs use continue-on-error, so a riscv64 failure never blocks the
-# release (the containered release job simply has nothing to collect).
+# (arm64). riscv64 is experimental and therefore lives in experimental.yml,
+# which builds under QEMU emulation and attaches its assets separately so a
+# slow/failing riscv64 build never holds up or reddens a release.
 #
 # The owl jobs synthesize native/mire-config.toml in-workflow: the owl fork's
 # checked-in copy carries local-only RPATH tweaks, so the release cannot rely
@@ -95,49 +95,6 @@ jobs:
           path: |
             mire-compiler-${{ matrix.triple }}.tar.gz
             mire-compiler-${{ matrix.triple }}.sha256
-
-  compiler-riscv64:
-    name: compiler (riscv64-unknown-linux-gnu, experimental)
-    needs: validate-protocol
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Enable QEMU binfmt
-        run: docker run --rm --privileged tonistiigi/binfmt --install all
-
-      - name: Build mire in a riscv64 container (QEMU)
-        run: |
-          docker run --rm --platform linux/riscv64 \
-            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
-            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc compiler
-
-      - name: Package compiler tarball (riscv64)
-        run: |
-          mkdir -p dist/compiler
-          cp target/release/mire dist/compiler/mire
-          cp -r src/runtime dist/compiler/runtime
-          cp -r src/pal dist/compiler/pal
-          test -f dist/compiler/runtime/core/strings.c
-          test -f dist/compiler/runtime/core/time.c
-          test -f dist/compiler/runtime/collections/map/maps.c
-          test -f dist/compiler/runtime/memory/allocator/managed.c
-          test -f dist/compiler/runtime/std/input/input.c
-          test -f dist/compiler/runtime/std/output/output.c
-          test -f dist/compiler/runtime/std/error/error.c
-          cd dist
-          tar czf ../mire-compiler-riscv64-unknown-linux-gnu.tar.gz compiler/
-          cd ..
-          sha256sum mire-compiler-riscv64-unknown-linux-gnu.tar.gz > mire-compiler-riscv64-unknown-linux-gnu.sha256
-
-      - name: Upload compiler tarball (riscv64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: mire-compiler-riscv64-unknown-linux-gnu
-          path: |
-            mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-            mire-compiler-riscv64-unknown-linux-gnu.sha256
 
   owl:
     name: owl (${{ matrix.triple }})
@@ -265,72 +222,6 @@ jobs:
           path: |
             owl-${{ matrix.triple }}.tar.gz
             owl-${{ matrix.triple }}.sha256
-
-  owl-riscv64:
-    name: owl (riscv64-unknown-linux-gnu, experimental)
-    needs: compiler-riscv64
-    if: needs.compiler-riscv64.result == 'success'
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: mire-compiler-riscv64-unknown-linux-gnu
-          path: compiler-artifacts
-
-      - uses: actions/checkout@v4
-
-      - name: Enable QEMU binfmt
-        run: docker run --rm --privileged tonistiigi/binfmt --install all
-
-      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/Kioto
-          path: kioto-src
-          ref: master
-
-      - name: Checkout owl source (official mire-lang/owl main)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/owl
-          path: owl-src
-          ref: main
-
-      - name: Checkout mire stdlib (mire@2.0.0-beta)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/mire-lib
-          path: mire-src
-          ref: main
-
-      - name: Build owl in a riscv64 container (QEMU)
-        env:
-          MIRE_TARBALL: /buildsrc/compiler-artifacts/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-        run: |
-          docker run --rm --platform linux/riscv64 \
-            -e MIRE_TARBALL \
-            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
-            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc owl
-
-      - name: Package owl tarball (riscv64)
-        run: |
-          mkdir -p dist/owl/lib
-          cp owl-src/bin/main dist/owl/owl
-          cp -r kioto-src dist/owl/kioto
-          find owl-src/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \; 2>/dev/null || true
-          cd dist
-          tar czf ../owl-riscv64-unknown-linux-gnu.tar.gz owl/
-          cd ..
-          sha256sum owl-riscv64-unknown-linux-gnu.tar.gz > owl-riscv64-unknown-linux-gnu.sha256
-
-      - name: Upload owl tarball (riscv64)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owl-riscv64-unknown-linux-gnu
-          path: owl-riscv64-unknown-linux-gnu.tar.gz
-          if-no-files-found: ignore
 
   release:
     name: Create Release

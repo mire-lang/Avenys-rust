@@ -1,0 +1,145 @@
+name: Experimental (riscv64)
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "B*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# riscv64 builds run under QEMU emulation and are slow. They are kept out of
+# release.yml so they never hold up or redden a release. When they succeed
+# their assets are attached to the tag's release; when they fail, nothing is
+# lost (both jobs are continue-on-error and the release already exists).
+
+jobs:
+  compiler-riscv64:
+    name: compiler (riscv64-unknown-linux-gnu, experimental)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable QEMU binfmt
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+
+      - name: Build mire in a riscv64 container (QEMU)
+        run: |
+          docker run --rm --platform linux/riscv64 \
+            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
+            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc compiler
+
+      - name: Package compiler tarball (riscv64)
+        run: |
+          mkdir -p dist/compiler
+          cp target/release/mire dist/compiler/mire
+          cp -r src/runtime dist/compiler/runtime
+          cp -r src/pal dist/compiler/pal
+          test -f dist/compiler/runtime/core/strings.c
+          test -f dist/compiler/runtime/core/time.c
+          test -f dist/compiler/runtime/collections/map/maps.c
+          test -f dist/compiler/runtime/memory/allocator/managed.c
+          test -f dist/compiler/runtime/std/input/input.c
+          test -f dist/compiler/runtime/std/output/output.c
+          test -f dist/compiler/runtime/std/error/error.c
+          cd dist
+          tar czf ../mire-compiler-riscv64-unknown-linux-gnu.tar.gz compiler/
+          cd ..
+          sha256sum mire-compiler-riscv64-unknown-linux-gnu.tar.gz > mire-compiler-riscv64-unknown-linux-gnu.sha256
+
+      - name: Upload compiler tarball (riscv64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mire-compiler-riscv64-unknown-linux-gnu
+          path: |
+            mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+            mire-compiler-riscv64-unknown-linux-gnu.sha256
+
+      - name: Attach compiler to release (riscv64)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          overwrite_files: true
+          files: |
+            mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+            mire-compiler-riscv64-unknown-linux-gnu.sha256
+
+  owl-riscv64:
+    name: owl (riscv64-unknown-linux-gnu, experimental)
+    needs: compiler-riscv64
+    if: needs.compiler-riscv64.result == 'success'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mire-compiler-riscv64-unknown-linux-gnu
+          path: compiler-artifacts
+
+      - uses: actions/checkout@v4
+
+      - name: Enable QEMU binfmt
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+
+      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/Kioto
+          path: kioto-src
+          ref: master
+
+      - name: Checkout owl source (official mire-lang/owl main)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/owl
+          path: owl-src
+          ref: main
+
+      - name: Checkout mire stdlib (mire@2.0.0-beta)
+        uses: actions/checkout@v4
+        with:
+          repository: mire-lang/mire-lib
+          path: mire-src
+          ref: main
+
+      - name: Build owl in a riscv64 container (QEMU)
+        env:
+          MIRE_TARBALL: /buildsrc/compiler-artifacts/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+        run: |
+          docker run --rm --platform linux/riscv64 \
+            -e MIRE_TARBALL \
+            -v "$PWD":/buildsrc riscv64/ubuntu:26.04 \
+            /buildsrc/.github/scripts/riscv64-build.sh /buildsrc owl
+
+      - name: Package owl tarball (riscv64)
+        run: |
+          mkdir -p dist/owl/lib
+          cp owl-src/bin/main dist/owl/owl
+          cp -r kioto-src dist/owl/kioto
+          find owl-src/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \; 2>/dev/null || true
+          cd dist
+          tar czf ../owl-riscv64-unknown-linux-gnu.tar.gz owl/
+          cd ..
+          sha256sum owl-riscv64-unknown-linux-gnu.tar.gz > owl-riscv64-unknown-linux-gnu.sha256
+
+      - name: Upload owl tarball (riscv64)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owl-riscv64-unknown-linux-gnu
+          path: owl-riscv64-unknown-linux-gnu.tar.gz
+          if-no-files-found: ignore
+
+      - name: Attach owl to release (riscv64)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          overwrite_files: true
+          files: |
+            owl-riscv64-unknown-linux-gnu.tar.gz
+            owl-riscv64-unknown-linux-gnu.sha256
