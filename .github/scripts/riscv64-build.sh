@@ -77,6 +77,20 @@ case "$MODE" in
         [ -d kioto-src ] || { echo "error: kioto-src checkout missing" >&2; exit 1; }
         [ -d mire-src ] || { echo "error: mire-src checkout missing" >&2; exit 1; }
 
+        echo "== riscv64 build: installing base toolchain (owl) =="
+        apt-get update -qq
+        apt-get install -y -qq \
+            tcc libtcc-dev \
+            llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev \
+            || { echo "error: apt install failed" >&2; exit 1; }
+
+        # mire invokes clang/llc/opt/ld.lld by their plain names; provide wrappers.
+        for t in clang clang++ llc opt llvm-config llvm-ar llvm-nm llvm-objcopy llvm-ranlib llvm-strip ld.lld; do
+            if [ -x "/usr/bin/${t}-22" ]; then
+                ln -sf "${t}-22" "/usr/bin/${t}"
+            fi
+        done
+
         echo "== riscv64 build: generating avenys config (owl) =="
         cat > owl-src/native/mire-config.toml <<'EOF'
 [project]
