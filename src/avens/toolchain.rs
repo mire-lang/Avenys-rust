@@ -279,14 +279,28 @@ pub(super) fn compile_binary_from_ir(
         !static_executable,
     )?;
 
-    let tcc_path = build_support::find_tcc().ok_or_else(|| {
-        MireError::new(ErrorKind::Runtime {
-            span: crate::error::Span::unknown(),
-            message: "libtcc (tcc) not found. Install tcc or set the TCC_PATH environment variable. Native linking requires libtcc."
-                .to_string(),
-        })
-    })?;
-    let mut linker = Command::new(&tcc_path);
+    // On aarch64/riscv64 tcc's linker rejects the GOT relocations emitted by
+    // LLVM, so drive the link with clang there instead (it understands the
+    // object and supplies the CRT). Elsewhere tcc stays the link driver.
+    let link_program = if static_executable {
+        "clang".to_string()
+    } else {
+        build_support::find_tcc().ok_or_else(|| {
+            MireError::new(ErrorKind::Runtime {
+                span: crate::error::Span::unknown(),
+                message: "libtcc (tcc) not found. Install tcc or set the TCC_PATH environment variable. Native linking requires libtcc."
+                    .to_string(),
+            })
+        })?
+    };
+    let mut linker = Command::new(&link_program);
+    if static_executable {
+        // The IR was lowered non-PIC; pairing it with a PIE link would fail.
+        linker.arg("-no-pie");
+        if let Some(triple) = c_defs.target.as_deref() {
+            linker.arg(format!("--target={triple}"));
+        }
+    }
     let mut seen_objects = std::collections::HashSet::new();
 
     // Pass the LLVM object and native objects to the target-aware linker.
@@ -440,9 +454,9 @@ pub(super) fn compile_binary_from_ir(
         .get_args()
         .map(|a| a.to_os_string())
         .collect::<Vec<_>>();
-    let mut output = run_tcc_link(&tcc_path, &link_args)?;
+    let mut output = run_tcc_link(&link_program, &link_args)?;
     if link_failed_on_gnu_stack_note(&output) {
-        output = retry_link_without_gnu_stack_note(&tcc_path, &link_args, &ir_object)?;
+        output = retry_link_without_gnu_stack_note(&link_program, &link_args, &ir_object)?;
     }
     // Only now add the crypto libraries, and only if the link without them
     // failed for want of a crypto symbol. `link_crypto_libs` is the caller's
@@ -451,7 +465,10 @@ pub(super) fn compile_binary_from_ir(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mut extra: Vec<&str> = Vec::new();
-        if stderr.contains("undefined symbol") || stderr.contains("unresolved reference to") {
+        if stderr.contains("undefined symbol")
+            || stderr.contains("unresolved reference to")
+            || stderr.contains("undefined reference to")
+        {
             // Ask which library could define what is missing rather than
             // guessing: a real error leaves both lists empty and is reported
             // unchanged below.
@@ -465,7 +482,7 @@ pub(super) fn compile_binary_from_ir(
         if !extra.is_empty() {
             let mut retry = link_args.clone();
             retry.extend(extra.iter().map(|lib| std::ffi::OsString::from(*lib)));
-            output = run_tcc_link(&tcc_path, &retry)?;
+            output = run_tcc_link(&link_program, &retry)?;
         }
     }
 
