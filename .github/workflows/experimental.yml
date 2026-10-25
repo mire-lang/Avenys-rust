@@ -75,11 +75,6 @@ jobs:
     runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: mire-compiler-riscv64-unknown-linux-gnu
-          path: compiler-artifacts
-
       - uses: actions/checkout@v4
 
       - name: Enable QEMU binfmt
@@ -105,6 +100,12 @@ jobs:
           repository: mire-lang/mire-lib
           path: mire-src
           ref: main
+
+      - name: Download compiler artifact for owl build
+        uses: actions/download-artifact@v4
+        with:
+          name: mire-compiler-riscv64-unknown-linux-gnu
+          path: compiler-artifacts
 
       - name: Build owl in a riscv64 container (QEMU)
         env:
