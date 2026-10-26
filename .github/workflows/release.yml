@@ -13,9 +13,9 @@ permissions:
 #   mire-compiler-<triple>.tar.gz   compiler/{mire,runtime,pal} + .sha256
 #   owl-<triple>.tar.gz             owl/{owl,kioto,lib/libsodium.so.23*} + .sha256
 # for <triple> in x86_64-unknown-linux-gnu (amd64), aarch64-unknown-linux-gnu
-# (arm64). riscv64 is experimental and therefore lives in experimental.yml,
-# which builds under QEMU emulation and attaches its assets separately so a
-# slow/failing riscv64 build never holds up or reddens a release.
+# (arm64). riscv64-unknown-linux-gnu is compatible but problematic from precompilation;
+# it must be built and installed by hand (no automated CI publishing). 
+# Automated riscv64 builds have been removed from CI/CD.
 #
 # The owl jobs synthesize native/mire-config.toml in-workflow: the owl fork's
 # checked-in copy carries local-only RPATH tweaks, so the release cannot rely
@@ -225,8 +225,6 @@ jobs:
 
   release:
     name: Create Release
-    # riscv64 is experimental: never block the release on the QEMU builds.
-    # Whatever riscv64 artifacts happen to be ready are collected too.
     needs: [compiler, owl]
     if: always() && needs.compiler.result == 'success'
     runs-on: ubuntu-24.04
