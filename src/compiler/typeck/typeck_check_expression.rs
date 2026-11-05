@@ -811,10 +811,28 @@ impl TypeChecker {
                 data_type,
             } => {
                 let target_type = self.check_expression(target)?;
+                // Indexing auto-derefs references, mirroring member access:
+                // `v[i]` on `&vec[T]`/`&mut vec[T]` reaches the vector itself.
+                let target_type = match target_type {
+                    DataType::Ref { inner } | DataType::RefMut { inner }
+                        if matches!(
+                            inner.as_ref(),
+                            DataType::Array { .. }
+                                | DataType::Slice { .. }
+                                | DataType::Vector { .. }
+                                | DataType::List
+                                | DataType::Map { .. }
+                                | DataType::Dict
+                        ) =>
+                    {
+                        *inner
+                    }
+                    other => other,
+                };
                 let index_type = self.check_expression(index)?;
 
                 if !Self::is_numeric(&index_type)
-                    && !matches!(target_type, DataType::Dict)
+                    && !matches!(target_type, DataType::Dict | DataType::Map { .. })
                     && index_type != DataType::Unknown
                 {
                     return Err(type_error_at_span(

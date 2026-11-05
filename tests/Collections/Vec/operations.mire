@@ -127,3 +127,60 @@ pub fn vector_clone_is_independent_of_the_original: () :bool {
     if vec::get::i64(source 0) != 1 { return false }
     return vec::get::i64(copy 2) == 99
 }
+
+fn sum_through_reference: (values :&vec[i64]) :i64 {
+    set total = 0 :i64 mut
+    set index = 0 :i64 mut
+    set count = vec::len(values)
+    while index < count {
+        set total += values[index]
+        set index += 1
+    }
+    return total
+}
+
+fn double_through_reference: (values :&mut vec[i64]) {
+    set index = 0 :i64 mut
+    set count = vec::len(values)
+    while index < count {
+        set values[index] = values[index] * 2
+        set index += 1
+    }
+}
+
+@[test]
+pub fn vector_index_reads_through_a_reference: () :bool {
+    // `values` is `&vec[i64]`, not a value: indexing must auto-deref and still
+    // produce the element rather than the vector pointer.
+    set values = [7 11 13] :vec[i64]
+    return sum_through_reference(values) == 31
+}
+
+@[test]
+pub fn vector_index_writes_through_a_mutable_reference: () :bool {
+    set values = [1 2 3] :vec[i64] mut
+    double_through_reference(values)
+    return values[0] == 2 && values[1] == 4 && values[2] == 6
+}
+
+@[test]
+pub fn vector_sort_orders_in_place: () :bool {
+    set values = [5 -1 4 4 2] :vec[i64] mut
+    vec::sort(values)
+    return values[0] == -1 && values[1] == 2 && values[2] == 4
+        && values[3] == 4 && values[4] == 5
+}
+
+@[test]
+pub fn vector_sort_empty_is_a_noop: () :bool {
+    set values = [] :vec[i64] mut
+    vec::sort(values)
+    return vec::len(values) == 0
+}
+
+@[test]
+pub fn vector_sort_single_element_stays_put: () :bool {
+    set values = [42] :vec[i64] mut
+    vec::sort(values)
+    return vec::len(values) == 1 && values[0] == 42
+}

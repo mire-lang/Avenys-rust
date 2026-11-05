@@ -1,5 +1,57 @@
 # Changelog
 
+## 4.4.14 - 2026-11-05
+### Compiler & Runtime Performance
+- **Indexing auto-derefs collection references.** `v[i]` now works when `v` is
+  `&vec[T]` or `&mut vec[T]`, for both reads and indexed assignment, matching
+  the existing auto-deref on member access. Previously this failed type checking
+  with `Type Ref { inner: Vector ... } is not indexable`.
+- **Map indexing supports non-numeric keys and keeps the returned map.** Reads
+  and writes through `&map`/`&dict` auto-deref, and `m[k] = v` with a string key
+  is no longer rejected. Indexed assignment now stores the pointer returned by
+  the runtime, so the first insertion into an untyped `{}` (which fixes the
+  key/value kinds and may allocate) is not lost. The inferred key/value kinds
+  are also recorded, so later `m[k]` reads use the same runtime entry points
+  and string values compare by content.
+- **The incremental cache includes the compiler binary.** The fingerprint used
+  `CARGO_PKG_VERSION` alone, so rebuilding the compiler without bumping the
+  version could serve an executable produced by the previous build. It now also
+  hashes the running executable's size and modification time.
+- **Vector bounds checks no longer call the runtime per element.** Indexed reads
+  and writes load the length word directly from the vector header and lower the
+  bounds test inline; the old path called `rt_list_len` (and, for writes,
+  `rt_check_bounds_i64`) once per access. `sort_introsort` dropped from 473 ms
+  to 174 ms before the sort itself moved (see below).
+- **`vec::sort` is implemented in Mire and compiled by LLVM.** The C runtime's
+  insertion sort was compiled by `tcc`, which does not optimize its nested loop.
+  The Mire implementation walks the buffer through `rt_ptr_add`/raw-pointer
+  indexing so the hot loop needs no per-element bounds check. `sort_introsort`
+  went from 292 ms to 102 ms (C reference: 52 ms).
+- **`rt_i64_to_string` writes digits directly.** Removed the `snprintf` call in
+  favor of a 20-byte buffer and unsigned magnitude handling for `INT64_MIN`.
+  `numeric_format` went from 487 ms to 274 ms, now slightly faster than the C
+  reference (280 ms).
+- **`str::index::from` added.** Resumes a substring search at a byte offset
+  without slicing the remaining input. The `string_scan` kernel, which built a
+  new tail string per match, went from 3677 ms to 17 ms.
+- **`ptr`/string comparisons compare contents.** A raw `ptr` produced by helpers
+  such as `result::unwrap::str::or` now compares against a string by content;
+  two raw pointers still compare as addresses. This fixes the two
+  `tests/Result/Generics` failures.
+- **`mire::status()` added to the library root** for parity with the installed
+  package copy.
+
+### Installation & Tooling Fixes
+- **Fixed libsodium dependency issue**: Installation script now properly handles bundled `libsodium.so.23` by setting RPATH via `patchelf` or creating a wrapper script with `LD_LIBRARY_PATH`.
+- **Added tcc auto-installation**: The installer now attempts to install `tcc` (required for C object compilation) via package manager on apt/pacman/dnf/zypper systems.
+- **Created complete uninstaller** (`install/uninstall.sh`): Removes binaries, libraries, configuration, and PATH entries with options for `--force`, `--dry-run`, `--keep-libs`, `--keep-config`, `--keep-path`.
+
+### Owl Project Template Changes
+- **Project directory renamed**: `code/` → `src/` (matches standard conventions)
+- **Output directory hardcoded**: Binary output always goes to `bin/` (removed `[paths].output` from `owl.toml`)
+- **New entry point config**: Added support for `[project].input` as alternative to `[project].entry` (input takes precedence)
+- **CLI file override preserved**: `owl run src/main.mire` still works and overrides config
+
 ## 4.4.13 - 2026-10-25
 ### Library status() function (phpinfo-style console report)
 - **status() added to mire, kioto, sdl, sqlite, wasm libraries.** Each library now

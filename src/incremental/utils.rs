@@ -32,6 +32,33 @@ pub fn source_hash2(source: &str) -> u64 {
     hasher.finish()
 }
 
+/// Identity of the running compiler binary.
+///
+/// The package version alone is not enough: during development the version
+/// often stays put while the compiler changes, and a cache keyed only on
+/// `CARGO_PKG_VERSION` then serves artifacts produced by the previous build.
+/// Use the executable's size and modification time so a rebuilt compiler
+/// invalidates every cache derived from it.
+fn compiler_fingerprint() -> u64 {
+    static FINGERPRINT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *FINGERPRINT.get_or_init(|| {
+        let Ok(exe) = std::env::current_exe() else {
+            return 0;
+        };
+        let Ok(metadata) = fs::metadata(exe) else {
+            return 0;
+        };
+        let mut hasher = FxHasher::new();
+        metadata.len().hash(&mut hasher);
+        if let Ok(modified) = metadata.modified()
+            && let Ok(age) = modified.duration_since(std::time::UNIX_EPOCH)
+        {
+            age.as_nanos().hash(&mut hasher);
+        }
+        hasher.finish()
+    })
+}
+
 pub fn build_fingerprint(
     source_path: &Path,
     files: &HashMap<PathBuf, LoadedFile>,
@@ -48,6 +75,7 @@ pub fn build_fingerprint(
     opt_level.hash(&mut hasher);
     emit_binary.hash(&mut hasher);
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    compiler_fingerprint().hash(&mut hasher);
     c_sources_combined.hash(&mut hasher);
 
     let mut file_entries: Vec<_> = files.iter().collect();
@@ -87,16 +115,18 @@ pub(crate) fn mir_cache_key(
     opt_level: OptLevel,
 ) -> String {
     format!(
-        "{}::mir::{}::{:#x}::opt={opt_level:?}",
+        "{}::mir::{}::{:#x}::opt={opt_level:?}::c={:#x}",
         normalize_path_key(source_path),
         fn_name,
         body_hash,
+        compiler_fingerprint(),
     )
 }
 
 pub fn dependency_fingerprint(files: &HashMap<PathBuf, LoadedFile>) -> u64 {
     let mut hasher = FxHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    compiler_fingerprint().hash(&mut hasher);
 
     let mut file_entries: Vec<_> = files.iter().collect();
     file_entries.sort_by_key(|(left, _)| *left);

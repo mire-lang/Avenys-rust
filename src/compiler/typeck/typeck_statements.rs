@@ -132,11 +132,24 @@ impl TypeChecker {
             ));
         }
 
+        // `m[k] = v` on an untyped `{}` establishes the key/value kinds; record
+        // them so later reads of `m[k]` typecheck as the stored element rather
+        // than `Unknown`. Resolve the owner before borrowing `target`.
+        let indexed_owner = match &*target {
+            AssignmentTarget::Index { .. } => target.binding_name().map(str::to_owned),
+            _ => None,
+        };
+
         match target {
             AssignmentTarget::Field(path) => {
                 self.check_field_assignment(path, value, &value_type)?
             }
-            AssignmentTarget::Index { .. } => {}
+            AssignmentTarget::Index { index, .. } => {
+                if let Some(owner) = indexed_owner.as_deref() {
+                    let key_type = self.expression_type_hint(index);
+                    self.refine_indexed_var_type(owner, &key_type, &value_type);
+                }
+            }
             // A store through a pointer introduces no binding to refresh.
             AssignmentTarget::Dereference { .. } => {}
             AssignmentTarget::Variable(name) => {

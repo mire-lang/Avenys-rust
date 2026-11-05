@@ -154,6 +154,7 @@ char   *rt_strings_trim(const char *input);
 char   *rt_strings_split_list(const char *input, const char *delimiter);
 char   *rt_strings_join(char **parts, int64_t count, const char *delimiter);
 int64_t rt_strings_index_of(const char *s, const char *sub);
+int64_t rt_strings_index_of_from(const char *s, const char *sub, int64_t start);
 int64_t rt_strings_char_at(const char *s, int64_t index);
 char *rt_str_from_byte(int64_t byte_value);
 

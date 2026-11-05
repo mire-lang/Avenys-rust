@@ -24,6 +24,18 @@ fn is_string_comparison_type(t: &DataType) -> bool {
     }
 }
 
+/// A raw `ptr` is how several Mire helpers return a borrowed string (for
+/// example `result::unwrap::str::or`). Comparing one against a string value or
+/// literal is a content comparison; comparing two raw pointers stays an
+/// address comparison.
+fn is_string_comparison(left: &DataType, right: &DataType) -> bool {
+    if is_string_comparison_type(left) && is_string_comparison_type(right) {
+        return true;
+    }
+    (matches!(left, DataType::Pointer(_)) && is_string_comparison_type(right))
+        || (matches!(right, DataType::Pointer(_)) && is_string_comparison_type(left))
+}
+
 /// Returns true if both operands of a binary / or % are integer types
 /// (i.e. the operation should be lowered with a div-by-zero check instead of fdiv/frem).
 fn is_int_division(left: &Expression, right: &Expression) -> bool {
@@ -286,8 +298,10 @@ impl MirLower {
                 // here so equal strings allocated independently still compare
                 // by content; generic pointer comparisons remain address-based.
                 if matches!(operator.as_str(), "==" | "!=")
-                    && is_string_comparison_type(&extract_data_type(left))
-                    && is_string_comparison_type(&extract_data_type(right))
+                    && is_string_comparison(
+                        &extract_data_type(left),
+                        &extract_data_type(right),
+                    )
                 {
                     let lower_string_operand = |this: &mut Self, expr: &Expression| {
                         // A borrowed string parameter already is the string
@@ -1150,26 +1164,21 @@ impl MirLower {
                 }
                 let target_val = self.lower_expression(target);
                 let index_val = self.lower_expression(index);
-                let target_type = extract_data_type(target);
+                // Indexing auto-derefs a reference to a collection, so a
+                // `v :&vec[T]` parameter uses the same direct load/store path
+                // as an owned `vec[T]` binding instead of an extern call per
+                // element.
+                let target_type = match extract_data_type(target) {
+                    DataType::Ref { inner } | DataType::RefMut { inner } => *inner,
+                    other => other,
+                };
                 let last = self.current_block;
 
                 // Determine the upper bound (array size constant or vec len)
                 let upper_bound = match &target_type {
                     DataType::Array { size, .. } => MirValue::Const(MirConst::Int(*size as i64)),
                     DataType::Vector { .. } | DataType::List => {
-                        let len_val = self.new_temp();
-                        self.func.blocks[last].push(
-                            Some(len_val),
-                            MirOp::Call(
-                                MirValue::Global("rt_list_len".to_string()),
-                                vec![target_val.clone()],
-                                MirType {
-                                    data_type: DataType::I64,
-                                },
-                            ),
-                            loc,
-                        );
-                        MirValue::temp(len_val)
+                        self.emit_collection_len(target_val.clone(), loc)
                     }
                     _ => {
                         // Non-indexable type; skip bounds check (code already type-checked)
@@ -1183,70 +1192,10 @@ impl MirLower {
                 );
 
                 if need_check {
-                    let pre_block = self.current_block;
-
-                    // Create blocks: check_upper (index < upper), bounds_panic, bounds_ok, bounds_cont
-                    let check_upper_block = self.new_block("bounds_upper");
-                    let panic_block = self.new_block("bounds_panic");
-                    let ok_block = self.new_block("bounds_ok");
-                    let cont_block = self.new_block("bounds_cont");
-
-                    // Check 1: index < 0
-                    let is_neg = self.new_temp();
-                    self.func.blocks[pre_block].push(
-                        Some(is_neg),
-                        MirOp::ICmp(
-                            MirCmp::Lt,
-                            index_val.clone(),
-                            MirValue::Const(MirConst::Int(0)),
-                        ),
-                        loc,
-                    );
-                    self.func.blocks[pre_block].terminator = MirTerminator::BrCond(
-                        MirValue::temp(is_neg),
-                        panic_block,
-                        check_upper_block,
-                    );
-
-                    // Check 2: index >= upper_bound
-                    self.current_block = check_upper_block;
-                    let is_oob = self.new_temp();
-                    self.func.blocks[check_upper_block].push(
-                        Some(is_oob),
-                        MirOp::ICmp(MirCmp::Ge, index_val.clone(), upper_bound),
-                        loc,
-                    );
-                    self.func.blocks[check_upper_block].terminator =
-                        MirTerminator::BrCond(MirValue::temp(is_oob), panic_block, ok_block);
-
-                    // Panic block: for runtime none, just unreachable; otherwise call rt_panic_loc
-                    self.current_block = panic_block;
-                    if matches!(self.runtime_tier, RuntimeTier::None) {
-                        self.func.blocks[panic_block].terminator = MirTerminator::Unreachable;
-                    } else {
-                        self.func.blocks[panic_block].push(
-                            None,
-                            MirOp::Call(
-                                MirValue::Global("rt_panic_loc".to_string()),
-                                vec![
-                                    MirValue::Const(MirConst::Str(
-                                        "index out of bounds".to_string(),
-                                    )),
-                                    MirValue::Const(MirConst::Int(loc.0 as i64)),
-                                    MirValue::Const(MirConst::Int(loc.1 as i64)),
-                                    MirValue::Const(MirConst::Str(self.filename.clone())),
-                                ],
-                                MirType {
-                                    data_type: DataType::None,
-                                },
-                            ),
-                            loc,
-                        );
-                        self.func.blocks[panic_block].terminator = MirTerminator::Unreachable;
-                    }
+                    let cont_block = self.emit_bounds_check(index_val.clone(), upper_bound, loc);
 
                     // OK block: GEP + Load (the actual memory access)
-                    self.current_block = ok_block;
+                    let ok_block = self.current_block;
                     let gep = self.new_temp();
                     let elem_llvm = llvm_elem_type_str(data_type);
                     let adjusted_index =

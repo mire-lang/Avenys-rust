@@ -8,18 +8,16 @@ pub fn main: () :i32 {
     set seed = SEED_OPACA mut
     set haystack = str::repeat("the quick brown fox jumps over the lazy dog. " 20000)
     set needle = "lazy dog"
-    set hlen = str::len(haystack)
     set round = 0 :i64 mut
     while round < 20 {
         set hits = 0 :i64 mut
+        // `index::from` keeps scanning the same string instead of slicing the
+        // tail on every hit. The C and Rust legs advance a pointer/cursor,
+        // so the allocation-free form is the equivalent calculation.
         set found = str::index(haystack needle) mut
         while found >= 0 {
             set hits += 1
-            set start = found + 1
-            set restlen = hlen - start
-            set rest = str::substr(haystack start restlen)
-            set nxt = str::index(rest needle) mut
-            set found = if nxt >= 0 { start + nxt } else { -1 :i64 }
+            set found = str::index::from(haystack needle found + 1)
         }
         set seed = (seed + hits) % 1000003
         set round += 1

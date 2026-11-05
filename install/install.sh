@@ -44,10 +44,10 @@ Options:
 Examples:
   # Default quick install
   curl -fsSL .../install.sh | sh -s -- --mireup
-  
+
   # Interactive selection
   curl -fsSL .../install.sh | sh -s -- --interactive
-  
+
   # From source
   curl -fsSL .../install.sh | sh -s -- --from-source
 USAGE
@@ -83,6 +83,7 @@ echo ""
 
 # Ensure directories
 mkdir -p "$BIN_DIR" "$OWL_HOME" "$OWL_HOME/libs" "$OWL_HOME/modules" "$MIRE_HOME"
+mkdir -p "$PREFIX/lib/mire"
 
 if [ "$INTERACTIVE" = "1" ]; then
     echo "Select what to install (space separated or comma separated):"
@@ -115,38 +116,78 @@ if [ "$INTERACTIVE" = "1" ]; then
     echo ""
 fi
 
+# Function to fix binary RPATH for bundled libraries
+fix_binary_rpath() {
+    local binary="$1"
+    local lib_dir="$2"
+
+    # Calculate relative path from binary to lib directory
+    # binary is at $BIN_DIR/owl, lib_dir is at $PREFIX/lib/mire
+    # relative path: ../lib/mire
+    local rel_path='$ORIGIN/../lib/mire'
+
+    if command -v patchelf >/dev/null 2>&1; then
+        patchelf --set-rpath "$rel_path" "$binary" 2>/dev/null && return 0
+    fi
+
+    # Fallback: create a wrapper script that sets LD_LIBRARY_PATH
+    # Rename original binary to .bin and create wrapper with original name
+    local real_binary="${binary}.bin"
+    mv "$binary" "$real_binary"
+    cat > "$binary" << WRAPEOF
+#!/bin/sh
+# Wrapper for $(basename "$binary") - sets library path for bundled libsodium
+export LD_LIBRARY_PATH="${lib_dir}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "${real_binary}" "\$@"
+WRAPEOF
+    chmod +x "$binary"
+    return 0
+}
+
 if [ "$FROM_SOURCE" = "1" ]; then
     echo "=== Building from source ==="
     echo "Installing dependencies..."
     if command -v apt-get >/dev/null 2>&1; then
         if [ "$IS_ROOT" = "1" ]; then
-            apt-get update -qq && apt-get install -y -qq curl git build-essential clang llvm lld pkg-config libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc
+            apt-get update -qq && apt-get install -y -qq curl git build-essential clang llvm lld pkg-config libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc patchelf
         else
-            sudo apt-get update -qq && sudo apt-get install -y -qq curl git build-essential clang llvm lld pkg-config libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc
+            sudo apt-get update -qq && sudo apt-get install -y -qq curl git build-essential clang llvm lld pkg-config libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc patchelf
         fi
     elif command -v pacman >/dev/null 2>&1; then
         if [ "$IS_ROOT" = "1" ]; then
-            pacman -S --needed --noconfirm curl git base-devel clang llvm lld openssl libsodium zlib zstd libarchive tcc
+            pacman -S --needed --noconfirm curl git base-devel clang llvm lld openssl libsodium zlib zstd libarchive tcc patchelf
         else
-            sudo pacman -S --needed --noconfirm curl git base-devel clang llvm lld openssl libsodium zlib zstd libarchive tcc
+            sudo pacman -S --needed --noconfirm curl git base-devel clang llvm lld openssl libsodium zlib zstd libarchive tcc patchelf
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        if [ "$IS_ROOT" = "1" ]; then
+            dnf install -y curl git gcc gcc-c++ clang llvm llvm-devel lld cargo pkgconf-pkg-config openssl-devel libsodium-devel zlib-devel zstd-devel libarchive-devel patchelf
+        else
+            sudo dnf install -y curl git gcc gcc-c++ clang llvm llvm-devel lld cargo pkgconf-pkg-config openssl-devel libsodium-devel zlib-devel zstd-devel libarchive-devel patchelf
+        fi
+    elif command -v zypper >/dev/null 2>&1; then
+        if [ "$IS_ROOT" = "1" ]; then
+            zypper install -y curl git gcc gcc-c++ clang llvm llvm-devel lld rust cargo libopenssl-devel libsodium-devel zlib-devel libzstd-devel libarchive-devel patchelf
+        else
+            sudo zypper install -y curl git gcc gcc-c++ clang llvm llvm-devel lld rust cargo libopenssl-devel libsodium-devel zlib-devel libzstd-devel libarchive-devel patchelf
         fi
     fi
-    
+
     # Install Rust if needed
     if ! command -v rustc >/dev/null 2>&1; then
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
-    
+
     TMPDIR_SRC=$(mktemp -d)
     cd "$TMPDIR_SRC"
-    
+
     echo "Cloning repositories..."
     git clone --depth 1 https://github.com/mire-lang/Avenys-rust avenys 2>/dev/null || true
     git clone --depth 1 https://github.com/mire-lang/owl owl 2>/dev/null || true
     git clone --depth 1 https://github.com/mire-lang/Kioto kioto 2>/dev/null || true
     git clone --depth 1 https://github.com/mire-lang/mire-lib mire-lib 2>/dev/null || true
-    
+
     if [ -d avenys ]; then
         echo "Building mire compiler..."
         cd avenys
@@ -161,7 +202,7 @@ if [ "$FROM_SOURCE" = "1" ]; then
         fi
         cd ..
     fi
-    
+
     if [ -d owl ]; then
         echo "Building owl..."
         export PATH="$BIN_DIR:$PATH"
@@ -196,12 +237,14 @@ CFGEOF
             if [ -f bin/main ] || [ -f bin/release/main ]; then
                 [ -f bin/release/main ] && cp bin/release/main "$BIN_DIR/owl" || cp bin/main "$BIN_DIR/owl"
                 chmod +x "$BIN_DIR/owl"
+                # Fix RPATH for owl built from source (links against system libsodium)
+                fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
                 echo "owl installed"
             fi
             cd ..
         fi
     fi
-    
+
     rm -rf "$TMPDIR_SRC"
 else
     # Download from releases
@@ -211,7 +254,7 @@ else
         aarch64) TRIPLE="aarch64-unknown-linux-gnu" ;;
         *) TRIPLE="x86_64-unknown-linux-gnu" ;;
     esac
-    
+
     if [ "$INSTALL_OWL" = "1" ] && [ "$MIREUP" = "1" -o -z "$(command -v owl 2>/dev/null)" ]; then
         echo "Installing owl..."
         LATEST_OWL=$(curl -s "https://api.github.com/repos/mire-lang/owl/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
@@ -222,15 +265,17 @@ else
                 if [ -f /tmp/owl/owl ]; then
                     cp /tmp/owl/owl "$BIN_DIR/owl"
                     chmod +x "$BIN_DIR/owl"
-                    [ -d /tmp/owl/lib ] && mkdir -p "$PREFIX/lib/mire" && cp /tmp/owl/lib/* "$PREFIX/lib/mire/" 2>/dev/null || true
+                    [ -d /tmp/owl/lib ] && cp /tmp/owl/lib/* "$PREFIX/lib/mire/" 2>/dev/null || true
                     [ -d /tmp/owl/kioto ] && cp -r /tmp/owl/kioto "$OWL_HOME/libs/" 2>/dev/null || true
+                    # Fix RPATH so owl can find bundled libsodium
+                    fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
                     echo "owl installed"
                 fi
                 rm -rf /tmp/owl /tmp/owl.tar.gz
             fi
         fi
     fi
-    
+
     if [ "$INSTALL_COMPILER" = "1" ]; then
         echo "Installing mire compiler..."
         LATEST_COMP=$(curl -s "https://api.github.com/repos/mire-lang/Avenys-rust/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
@@ -248,6 +293,39 @@ else
                 fi
                 rm -rf /tmp/compiler /tmp/mire.tar.gz
             fi
+        fi
+    fi
+
+    # Install tcc for C object compilation (required by mire compiler)
+    if ! command -v tcc >/dev/null 2>&1; then
+        echo "Installing tcc (required for C object compilation)..."
+        TCC_INSTALLED=0
+        if [ "$IS_ROOT" = "1" ]; then
+            if command -v apt-get >/dev/null 2>&1; then
+                apt-get update -qq && apt-get install -y -qq tcc && TCC_INSTALLED=1
+            elif command -v pacman >/dev/null 2>&1; then
+                pacman -S --needed --noconfirm tcc && TCC_INSTALLED=1
+            elif command -v dnf >/dev/null 2>&1; then
+                dnf install -y tcc && TCC_INSTALLED=1
+            elif command -v zypper >/dev/null 2>&1; then
+                zypper install -y tcc && TCC_INSTALLED=1
+            fi
+        else
+            if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+                if command -v apt-get >/dev/null 2>&1; then
+                    sudo apt-get update -qq && sudo apt-get install -y -qq tcc && TCC_INSTALLED=1
+                elif command -v pacman >/dev/null 2>&1; then
+                    sudo pacman -S --needed --noconfirm tcc && TCC_INSTALLED=1
+                elif command -v dnf >/dev/null 2>&1; then
+                    sudo dnf install -y tcc && TCC_INSTALLED=1
+                elif command -v zypper >/dev/null 2>&1; then
+                    sudo zypper install -y tcc && TCC_INSTALLED=1
+                fi
+            fi
+        fi
+        if [ "$TCC_INSTALLED" != "1" ]; then
+            echo "WARNING: tcc not installed. The mire compiler requires tcc for C object compilation."
+            echo "         Install tcc manually (e.g., 'sudo pacman -S tcc') or use --from-source to install it automatically."
         fi
     fi
 fi

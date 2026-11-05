@@ -1,4 +1,4 @@
-# Avenys v4.4.13
+# Avenys v4.4.14
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -46,6 +46,33 @@ It always uses `owl install` for libraries and configures the MOR registry autom
 
 **Supported architectures:** x86_64, aarch64 (riscv64 is compatible but must be built by hand).
 
+## Uninstallation
+
+To completely remove the Mire toolchain (compiler, owl, libraries, and configuration):
+
+```bash
+# Interactive uninstall (prompts for confirmation)
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+
+# Force uninstall everything without prompts
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
+
+# Dry run to see what would be removed
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
+
+# Keep libraries (~/.owl/libs, ~/.mire) but remove binaries and config
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-libs
+
+# Keep configuration (~/.owl/config.toml, registry) but remove binaries and libs
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-config
+```
+
+The uninstaller removes:
+- Binaries: `mire` and `owl` from `$PREFIX/bin/`
+- Libraries: `$PREFIX/lib/mire/`, `~/.owl/libs/`, `~/.mire/`
+- Configuration: `~/.owl/config.toml`, `~/.owl/reg/`, `~/.owl/cache/`
+- PATH entries from shell profiles (`.bashrc`, `.zshrc`, `.profile`)
+
 ## Quick Start
 
 ```bash
@@ -91,6 +118,54 @@ The official registry is at `mire-lang/libs`. Multi-version support:
 - `kioto@2.5.0`, `kioto@3.1.0` (default: 3.1.0)
 - `mire@1.2.4`, `mire@2.0.0-beta` (default: 2.0.0-beta)
 - `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`
+
+## Version History
+
+### v4.4.14 - 2026-11-05
+**Compiler & Runtime Performance**
+- **Indexing auto-derefs collection references.** `v[i]` works for `&vec[T]`/`&mut vec[T]`, reads and writes.
+- **Map indexing handles string keys and untyped `{}`.** `m[k] = v` stores the map pointer returned by the runtime and records the inferred key/value kinds, so kind-fixing insertions are kept and later reads use the same path.
+- **Incremental cache key includes the compiler binary**, so rebuilding the compiler invalidates artifacts from the previous build.
+- **Vector bounds checks are inline.** Reads and writes load the header length directly instead of calling `rt_list_len`/`rt_check_bounds_i64` per element.
+- **`vec::sort` is Mire code compiled by LLVM.** The hot loop walks the buffer through a raw pointer; `sort_introsort` fell from 292 ms to 102 ms.
+- **`rt_i64_to_string` writes digits directly** (no `snprintf`); `numeric_format` fell from 487 ms to 274 ms, now slightly faster than the C reference.
+- **`str::index::from`** enables allocation-free resumable search; `string_scan` fell from 3677 ms to 17 ms.
+- **`ptr`/string comparisons compare contents**, fixing the `Result::Generics` tests.
+- **`mire::status()`** added to the library root.
+
+**Installation & Tooling Fixes**
+- **Fixed libsodium dependency issue**: Installation script now properly handles bundled `libsodium.so.23` by setting RPATH via `patchelf` or creating a wrapper script with `LD_LIBRARY_PATH`.
+- **Added tcc auto-installation**: The installer now attempts to install `tcc` (required for C object compilation) via package manager on apt/pacman/dnf/zypper systems.
+- **Created complete uninstaller** (`install/uninstall.sh`): Removes binaries, libraries, configuration, and PATH entries with options for `--force`, `--dry-run`, `--keep-libs`, `--keep-config`, `--keep-path`.
+
+**Owl Project Template Changes**
+- **Project directory renamed**: `code/` → `src/` (matches standard conventions)
+- **Output directory hardcoded**: Binary output always goes to `bin/` (removed `[paths].output` from `owl.toml`)
+- **New entry point config**: Added support for `[project].input` as alternative to `[project].entry` (input takes precedence)
+- **CLI file override preserved**: `owl run src/main.mire` still works and overrides config
+
+### v4.4.13 - 2026-10-25
+**Library status() function**
+- **status() added to mire, kioto, sdl, sqlite, wasm libraries.** Each library now exposes `pub fn status: () :str` returning a formatted report.
+- **owl export / owl -e now verifies status().** The export command checks whether the library being exported defines a `status()` function.
+
+**MOR registry (mire-lang/libs)**
+- **kioto: 2.5.0 (stable) + 3.1.0 (latest, default)**
+- **mire: 1.2.4 (stable) + 2.0.0-beta (latest, default)**
+- **sdl, sqlite, wasm, avenys, owl: latest version only**
+
+**CI/CD and installation**
+- Install script always gets latest versions via `get_latest_tag`
+- Install script uses `owl install` for libraries with MOR registry
+- Install script configures MOR registry automatically
+
+### v4.4.12 - 2026-10-24
+**CI/CD fixes**
+- Fixed missing archive.c from owl build config
+- Install pal runtime directory in build-owl
+- Add compiler dependencies for tcc-based C object compilation
+- Fix tcc error parsing for crypto library auto-detection
+- Install script default repositories changed to `mire-lang/` org
 
 ## License
 

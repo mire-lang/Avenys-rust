@@ -79,13 +79,20 @@ fn null_ptr(lower: &mut MirLower) -> MirValue {
 }
 
 fn effective_data_type(lower: &MirLower, expr: &Expression) -> DataType {
-    match expr {
+    let ty = match expr {
         Expression::Identifier(id) => lower
             .var_types
             .get(&id.name)
             .cloned()
             .unwrap_or_else(|| id.data_type.clone()),
         _ => extract_data_type(expr),
+    };
+    // Indexing auto-derefs a reference to a collection, so `m[k]` on a
+    // `&map`/`&dict` reaches the map instead of falling through to the scalar
+    // index path.
+    match ty {
+        DataType::Ref { inner } | DataType::RefMut { inner } => *inner,
+        other => other,
     }
 }
 
@@ -137,16 +144,36 @@ pub(crate) fn lower_index_read(
         DataType::Map {
             key_type,
             value_type,
-        } => (key_type.as_ref(), value_type.as_ref()),
-        DataType::Dict => (&DataType::Str, result_type),
-        DataType::Unknown if matches!(index_type, DataType::Str) => (&DataType::Str, result_type),
+        } => (key_type.as_ref().clone(), value_type.as_ref().clone()),
+        DataType::Dict => (DataType::Str, result_type.clone()),
+        DataType::Unknown if matches!(index_type, DataType::Str) => {
+            (DataType::Str, result_type.clone())
+        }
         _ => return None,
+    };
+    // A map whose keys were still unknown at declaration reveals its key kind
+    // from the index expression, exactly as a write would.
+    let key_type = if matches!(key_type, DataType::Unknown | DataType::Anything)
+        && !matches!(index_type, DataType::Unknown)
+    {
+        index_type.clone()
+    } else {
+        key_type
+    };
+    // The AST node type is Unknown while the map was untyped; the map's own
+    // value kind (filled in by refine_indexed_target_type) is more precise.
+    let result_type = if matches!(result_type, DataType::Unknown)
+        && !matches!(value_type, DataType::Unknown | DataType::Anything)
+    {
+        value_type.clone()
+    } else {
+        result_type.clone()
     };
 
     let loc = expression_location(target).to_tuple();
     let target_val = lower.lower_expression(target);
     let index_val = lower.lower_expression(index);
-    let key_kind = data_type_to_kind(key_type);
+    let key_kind = data_type_to_kind(&key_type);
     let key_i64 = if key_kind >= 3 {
         MirValue::Const(MirConst::Int(0))
     } else {
@@ -159,7 +186,7 @@ pub(crate) fn lower_index_read(
     };
     let last = lower.current_block;
 
-    if is_pointer_valued_type(value_type) || is_pointer_valued_type(result_type) {
+    if is_pointer_valued_type(&value_type) || is_pointer_valued_type(&result_type) {
         let result = lower.new_temp();
         let default_ptr = null_ptr(lower);
         lower.func.blocks[last].push(
@@ -202,9 +229,55 @@ pub(crate) fn lower_index_read(
         Some(narrow_scalar_result(
             lower,
             MirValue::temp(result),
-            result_type,
+            &result_type,
         ))
     }
+}
+
+/// Fill in the key/value kinds of an untyped `{}` once an indexed write
+/// reveals them. `set m = {}` has no annotation, so lowering starts from
+/// `Unknown`; without this, a later `m["key"]` read has no key/value kinds and
+/// falls back to the scalar path, reading an i64 slot where the runtime stored
+/// a pointer (or vice versa).
+fn refine_indexed_target_type(
+    lower: &mut MirLower,
+    target: &Expression,
+    key_type: &DataType,
+    value_type: &DataType,
+) {
+    let Expression::Identifier(id) = target else {
+        return;
+    };
+    let Some(current) = lower.var_types.get(&id.name).cloned() else {
+        return;
+    };
+    let refine = |declared: &DataType, inferred: &DataType| -> DataType {
+        if matches!(declared, DataType::Unknown | DataType::Anything) {
+            inferred.clone()
+        } else {
+            declared.clone()
+        }
+    };
+    let refined = match current {
+        DataType::Unknown => {
+            if matches!(key_type, DataType::Unknown | DataType::Anything) {
+                return;
+            }
+            DataType::Map {
+                key_type: Box::new(key_type.clone()),
+                value_type: Box::new(value_type.clone()),
+            }
+        }
+        DataType::Map {
+            key_type: declared_key,
+            value_type: declared_value,
+        } => DataType::Map {
+            key_type: Box::new(refine(&declared_key, key_type)),
+            value_type: Box::new(refine(&declared_value, value_type)),
+        },
+        _ => return,
+    };
+    lower.var_types.insert(id.name.clone(), refined);
 }
 
 pub(crate) fn lower_index_write(
@@ -216,17 +289,25 @@ pub(crate) fn lower_index_write(
 ) -> bool {
     let target_type = effective_data_type(lower, target);
     let index_type = effective_data_type(lower, index);
-    let key_type = match &target_type {
-        DataType::Map { key_type, .. } => key_type.as_ref(),
-        DataType::Dict => &DataType::Str,
-        DataType::Unknown if matches!(index_type, DataType::Str) => &DataType::Str,
+    // An untyped `{}` has no key kind of its own. When the index is a string,
+    // the runtime stores a string-keyed dict; use that kind here instead of
+    // defaulting Unknown to the integer kind.
+    let key_type: DataType = match &target_type {
+        DataType::Map { key_type, .. }
+            if !matches!(**key_type, DataType::Unknown | DataType::Anything) =>
+        {
+            (**key_type).clone()
+        }
+        DataType::Map { .. } => index_type.clone(),
+        DataType::Dict => DataType::Str,
+        DataType::Unknown if matches!(index_type, DataType::Str) => DataType::Str,
         _ => return false,
     };
 
     let loc = expression_location(target).to_tuple();
     let target_val = lower.lower_expression(target);
     let index_val = lower.lower_expression(index);
-    let key_kind = data_type_to_kind(key_type);
+    let key_kind = data_type_to_kind(&key_type);
     let key_i64 = if key_kind >= 3 {
         MirValue::Const(MirConst::Int(0))
     } else {
@@ -271,5 +352,22 @@ pub(crate) fn lower_index_write(
         ),
         loc,
     );
+    // The runtime may return a different map when the target was still an
+    // untyped `{}` (the first insertion fixes the key/value kinds). Indexed
+    // assignment has no rebind expression, so write the returned pointer back
+    // into the identifier's slot; otherwise the insertion is lost.
+    if let Expression::Identifier(id) = target
+        && let Some(&slot) = lower.vars.get(&id.name)
+    {
+        let last = lower.current_block;
+        lower.func.blocks[last].push(
+            None,
+            MirOp::Store(MirValue::temp(slot), MirValue::temp(result)),
+            loc,
+        );
+    }
+    // Remember the kinds this write established, so subsequent `m[k]` reads
+    // use the same runtime entry points as the write.
+    refine_indexed_target_type(lower, target, &index_type, value_type);
     true
 }

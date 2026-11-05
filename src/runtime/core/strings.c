@@ -111,7 +111,28 @@ char *rt_string_append_owned(char *value, const char *suffix) {
 }
 
 char *rt_i64_to_string(int64_t value) {
-    return rt_managed_printf_i64("%lld", (long long)value);
+    // Format directly instead of going through snprintf. The two snprintf
+    // calls this used to make (one to size, one to write) were measurable in
+    // the numeric_format kernel: it runs two million of these conversions and
+    // the C leg formats into a stack buffer. A 20-digit buffer is the whole
+    // problem, so do the division here and allocate once.
+    char buf[21];
+    int n = 0;
+    int neg = value < 0;
+    // Negating INT64_MIN would overflow; convert through its unsigned
+    // magnitude the same way rt_i128_to_string does.
+    uint64_t u = neg ? (uint64_t)(-(value + 1)) + 1 : (uint64_t)value;
+    do {
+        buf[n++] = (char)('0' + (int)(u % 10));
+        u /= 10;
+    } while (u != 0);
+    if (neg) buf[n++] = '-';
+    for (int i = 0; i < n / 2; i++) {
+        char tmp = buf[i];
+        buf[i] = buf[n - 1 - i];
+        buf[n - 1 - i] = tmp;
+    }
+    return rt_managed_from_slice(buf, (size_t)n);
 }
 
 char *rt_bool_to_string(int64_t value) {
@@ -447,6 +468,23 @@ int64_t rt_strings_index_of(const char *s, const char *sub) {
     if (!s || !sub) return -1;
     if (*sub == '\0') return 0;
     const char *pos = strstr(s, sub);
+    if (!pos) return -1;
+    return (int64_t)(pos - s);
+}
+
+// Search from a byte offset. The previous public surface only exposed the
+// first match, so a caller scanning a long string had to slice the rest with
+// `substr` on every hit: that copies the entire remaining tail and turns a
+// linear scan into O(n^2) work. This is the primitive the C and Rust legs of
+// the string_scan kernel already use (`strstr(found + 1, ...)`,
+// `haystack[pos..].find(...)`), expressed without allocating.
+int64_t rt_strings_index_of_from(const char *s, const char *sub, int64_t start) {
+    if (!s || !sub) return -1;
+    size_t len = str_byte_len(s);
+    if (start < 0) start = 0;
+    if ((size_t)start > len) return -1;
+    if (*sub == '\0') return start;
+    const char *pos = strstr(s + start, sub);
     if (!pos) return -1;
     return (int64_t)(pos - s);
 }

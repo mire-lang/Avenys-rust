@@ -341,6 +341,11 @@ impl MirLower {
                         } else {
                             extract_data_type(target)
                         };
+                        // Indexed stores auto-deref references, matching reads.
+                        let target_type = match target_type {
+                            DataType::Ref { inner } | DataType::RefMut { inner } => *inner,
+                            other => other,
+                        };
                         let value_type = extract_data_type(value);
                         if lower_index_write(self, target, index, v.clone(), &value_type) {
                             return;
@@ -348,10 +353,11 @@ impl MirLower {
 
                         let target_val = self.lower_expression(target);
                         let index_val = self.lower_expression(index);
-                        let last = self.current_block;
+                        let mut merge_block: Option<usize> = None;
 
                         match &target_type {
                             DataType::Array { size, .. } => {
+                                let last = self.current_block;
                                 self.func.blocks[last].push(
                                     None,
                                     MirOp::Call(
@@ -371,39 +377,14 @@ impl MirLower {
                                 );
                             }
                             DataType::Vector { .. } | DataType::List => {
-                                let len_val = self.new_temp();
-                                self.func.blocks[last].push(
-                                    Some(len_val),
-                                    MirOp::Call(
-                                        MirValue::Global("rt_list_len".to_string()),
-                                        vec![target_val.clone()],
-                                        MirType {
-                                            data_type: DataType::I64,
-                                        },
-                                    ),
-                                    loc,
-                                );
-                                self.func.blocks[last].push(
-                                    None,
-                                    MirOp::Call(
-                                        MirValue::Global("rt_check_bounds_i64".to_string()),
-                                        vec![
-                                            index_val.clone(),
-                                            MirValue::temp(len_val),
-                                            MirValue::Const(MirConst::Int(loc.0 as i64)),
-                                            MirValue::Const(MirConst::Int(loc.1 as i64)),
-                                            MirValue::Const(MirConst::Str(self.filename.clone())),
-                                        ],
-                                        MirType {
-                                            data_type: DataType::None,
-                                        },
-                                    ),
-                                    loc,
-                                );
+                                let len_val = self.emit_collection_len(target_val.clone(), loc);
+                                merge_block =
+                                    Some(self.emit_bounds_check(index_val.clone(), len_val, loc));
                             }
                             _ => {}
                         }
 
+                        let last = self.current_block;
                         let gep = self.new_temp();
                         let elem_ty = self.get_target_elem_type(target);
                         let adjusted_index =
@@ -433,6 +414,11 @@ impl MirLower {
                             MirOp::Store(MirValue::temp(gep), v),
                             loc,
                         );
+                        if let Some(cont) = merge_block {
+                            let last = self.current_block;
+                            self.func.blocks[last].terminator = MirTerminator::Br(cont);
+                            self.current_block = cont;
+                        }
                     }
                     AssignmentTarget::Dereference { target } => {
                         // `*p = v` is a direct store. The pointer expression

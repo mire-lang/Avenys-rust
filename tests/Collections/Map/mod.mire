@@ -37,3 +37,48 @@ pub fn map_rebinding_preserves_mutated_dictionary: () :bool {
         && map::get::i64(values "beta") == 20
         && map::len(values) == 2
 }
+
+fn lookup_through_reference: (values :&map[str i64], key :str) :i64 {
+    return values[key]
+}
+
+fn set_through_reference: (values :&mut map[str i64], key :str, value :i64) {
+    set values[key] = value
+}
+
+@[test]
+pub fn map_index_reads_through_a_reference: () :bool {
+    set values = {} :map[str i64] mut
+    set values = map::set::i64(values "answer" 42)
+    return lookup_through_reference(values, "answer") == 42
+}
+
+@[test]
+pub fn map_index_writes_through_a_mutable_reference: () :bool {
+    // Seed the map so its key/value kinds are fixed; the first insertion into
+    // a kind-less `{}` returns a different pointer and is only visible through
+    // the map::set result.
+    set values = {} :map[str i64] mut
+    set values = map::set::i64(values "seed" 0)
+    set_through_reference(values, "answer", 42)
+    return map::get::i64(values, "answer") == 42
+        && map::get::i64(values, "seed") == 0
+}
+
+@[test]
+pub fn untyped_map_index_infers_string_key_and_i64_value: () :bool {
+    // No annotation: the first indexed write has to establish both kinds and
+    // the following reads must use the same runtime path.
+    set values = {} mut
+    set values["alpha"] = 1
+    set values["beta"] = 2
+    return values["alpha"] == 1 && values["beta"] == 2
+}
+
+@[test]
+pub fn untyped_map_index_infers_pointer_values: () :bool {
+    set names = {} mut
+    set names["first"] = "one"
+    set names["second"] = "two"
+    return names["first"] == "one" && names["second"] == "two"
+}

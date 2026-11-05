@@ -79,6 +79,51 @@ impl TypeChecker {
         }
     }
 
+    /// Fill in the kinds of an untyped `{}` after an indexed write reveals
+    /// them. `set m = {}` has no annotation, so its declared type starts as
+    /// `Unknown`; binding the key/value types here lets later `m[k]` reads
+    /// resolve to the real element type (and compare strings by content).
+    pub(super) fn refine_indexed_var_type(
+        &mut self,
+        name: &str,
+        key_type: &DataType,
+        value_type: &DataType,
+    ) {
+        let refine = |declared: &DataType, inferred: &DataType| -> DataType {
+            if matches!(declared, DataType::Unknown | DataType::Anything) {
+                inferred.clone()
+            } else {
+                declared.clone()
+            }
+        };
+        for scope in self.scopes.iter_mut().rev() {
+            let Some((declared, _)) = scope.get_mut(name) else {
+                continue;
+            };
+            let refined = match declared {
+                DataType::Unknown => {
+                    if matches!(key_type, DataType::Unknown | DataType::Anything) {
+                        return;
+                    }
+                    DataType::Map {
+                        key_type: Box::new(key_type.clone()),
+                        value_type: Box::new(value_type.clone()),
+                    }
+                }
+                DataType::Map {
+                    key_type: declared_key,
+                    value_type: declared_value,
+                } => DataType::Map {
+                    key_type: Box::new(refine(declared_key, key_type)),
+                    value_type: Box::new(refine(declared_value, value_type)),
+                },
+                _ => return,
+            };
+            *declared = refined;
+            return;
+        }
+    }
+
     pub(super) fn is_constant(&self, name: &str) -> bool {
         for (variables, constants) in self.scopes.iter().zip(&self.constant_scopes).rev() {
             if variables.contains_key(name) {
@@ -339,6 +384,23 @@ impl TypeChecker {
                 let mut target_expr = index_target.clone();
                 let mut index_expr = index.clone();
                 let target_type = self.check_expression(&mut target_expr)?;
+                // Indexed assignment auto-derefs references, matching reads.
+                let target_type = match target_type {
+                    DataType::Ref { inner } | DataType::RefMut { inner }
+                        if matches!(
+                            inner.as_ref(),
+                            DataType::Array { .. }
+                                | DataType::Slice { .. }
+                                | DataType::Vector { .. }
+                                | DataType::List
+                                | DataType::Map { .. }
+                                | DataType::Dict
+                        ) =>
+                    {
+                        *inner
+                    }
+                    other => other,
+                };
                 let index_type = self.check_expression(&mut index_expr)?;
 
                 let element_type = match target_type {

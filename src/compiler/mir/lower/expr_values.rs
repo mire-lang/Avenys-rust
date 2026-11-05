@@ -1,13 +1,117 @@
 use super::MirLower;
 use super::types::llvm_elem_type_str;
+use crate::avens::config::RuntimeTier;
 use crate::compiler::mir::*;
 use crate::parser::ast::{DataType, Expression, Literal};
 
 impl MirLower {
+    /// Read a collection's length word directly instead of calling
+    /// `rt_list_len`. The length is the first word at the collection pointer,
+    /// so indexed loops avoid a function call per element.
+    pub(crate) fn emit_collection_len(
+        &mut self,
+        collection: MirValue,
+        loc: (usize, usize),
+    ) -> MirValue {
+        let last = self.current_block;
+        let header = self.new_temp();
+        self.func.blocks[last].push(
+            Some(header),
+            MirOp::Gep(
+                collection,
+                vec![MirValue::Const(MirConst::Int(0))],
+                "i64".to_string(),
+            ),
+            loc,
+        );
+        let len = self.new_temp();
+        self.func.blocks[last].push(
+            Some(len),
+            MirOp::Load(
+                MirValue::temp(header),
+                MirType {
+                    data_type: DataType::I64,
+                },
+            ),
+            loc,
+        );
+        MirValue::temp(len)
+    }
+
+    /// Emit an inlined bounds check `0 <= index < len`, returning the block
+    /// control continues in on success. The failure path reports a panic (or
+    /// is unreachable in freestanding builds). Callers that need to merge back
+    /// after the guarded operation branch to the returned block.
+    pub(crate) fn emit_bounds_check(
+        &mut self,
+        index: MirValue,
+        len: MirValue,
+        loc: (usize, usize),
+    ) -> usize {
+        let pre_block = self.current_block;
+        let check_upper_block = self.new_block("bounds_upper");
+        let panic_block = self.new_block("bounds_panic");
+        let ok_block = self.new_block("bounds_ok");
+        let cont_block = self.new_block("bounds_cont");
+
+        let is_neg = self.new_temp();
+        self.func.blocks[pre_block].push(
+            Some(is_neg),
+            MirOp::ICmp(
+                MirCmp::Lt,
+                index.clone(),
+                MirValue::Const(MirConst::Int(0)),
+            ),
+            loc,
+        );
+        self.func.blocks[pre_block].terminator =
+            MirTerminator::BrCond(MirValue::temp(is_neg), panic_block, check_upper_block);
+
+        self.current_block = check_upper_block;
+        let is_oob = self.new_temp();
+        self.func.blocks[check_upper_block].push(
+            Some(is_oob),
+            MirOp::ICmp(MirCmp::Ge, index, len),
+            loc,
+        );
+        self.func.blocks[check_upper_block].terminator =
+            MirTerminator::BrCond(MirValue::temp(is_oob), panic_block, ok_block);
+
+        self.current_block = panic_block;
+        if matches!(self.runtime_tier, RuntimeTier::None) {
+            self.func.blocks[panic_block].terminator = MirTerminator::Unreachable;
+        } else {
+            self.func.blocks[panic_block].push(
+                None,
+                MirOp::Call(
+                    MirValue::Global("rt_panic_loc".to_string()),
+                    vec![
+                        MirValue::Const(MirConst::Str("index out of bounds".to_string())),
+                        MirValue::Const(MirConst::Int(loc.0 as i64)),
+                        MirValue::Const(MirConst::Int(loc.1 as i64)),
+                        MirValue::Const(MirConst::Str(self.filename.clone())),
+                    ],
+                    MirType {
+                        data_type: DataType::None,
+                    },
+                ),
+                loc,
+            );
+            self.func.blocks[panic_block].terminator = MirTerminator::Unreachable;
+        }
+
+        self.current_block = ok_block;
+        cont_block
+    }
+
     pub(crate) fn get_target_elem_type(&self, target: &Expression) -> String {
         if let Expression::Identifier(id) = target
             && let Some(ty) = self.var_types.get(&id.name)
         {
+            let ty = match ty {
+                DataType::Ref { inner } | DataType::RefMut { inner } => inner.as_ref(),
+                other => other,
+            };
             match ty {
                 DataType::Array { element_type, .. }
                 | DataType::Vector { element_type, .. }
