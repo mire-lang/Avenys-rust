@@ -27,6 +27,14 @@
   identical instruction counts, and adding one instruction to an unrelated
   library function was enough to trigger it. Builds are now reproducible and
   the benchmark is stable.
+- **Sorting lives in Mire and sorts in O(n log n).** `vec::sort` moved from the
+  tcc-compiled runtime into Mire and then replaced the insertion sort with an
+  in-tree quicksort using a Lomuto partition, so the hot partition walks are
+  compiled by LLVM instead of running through the C backend. `sort_introsort`
+  fell from 59 ms (insertion sort in Mire, after the 64-bit GEP fix) to 13 ms
+  against the same insertion-sort C leg, and from 292 ms (before the sort moved
+  into Mire) to 13 ms. Benchmarks: `bench/kernels/{map_ops,hash_mix}.{mire,rs,c}`
+  and the `sort_introsort` rework above.
 
 ## 4.4.14 - 2026-11-05
 ### Compiler & Runtime Performance

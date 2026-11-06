@@ -1,0 +1,17 @@
+// H3: integer hash throughput. Difficulty: easy.
+// Multiply-heavy integer hash chain over an i64 (fibonacci-style mixing),
+// then a modular fold into a checksum. Measures the pure integer hash
+// arithmetic without allocation or container overhead.
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 20000000 {
+        set z = (i * 2654435761) + 1
+        set h = z * 33 + z * 7
+        set acc = acc + (h % 1000003)
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

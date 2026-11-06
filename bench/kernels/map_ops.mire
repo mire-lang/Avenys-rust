@@ -1,0 +1,28 @@
+// M7: hash map insert + lookup. Difficulty: hard.
+// Builds a string-keyed map with a fixed key set, then runs a hot loop of
+// lookups over it. The C and Rust legs use their own hash maps; the Mire leg
+// goes through the runtime map, so this is the map-focused counterpart of the
+// vector kernels: an associative container measured with real hot-path traffic.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set values = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    while i < 1024 {
+        set k = str::concat("key", str::from::i64(i))
+        set v = i * 7 + 1
+        set values = map::set::i64(values k v)
+        set i += 1
+    }
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 2000000 {
+        set k = str::concat("key", str::from::i64(i % 1024))
+        set acc = (acc + map::get::i64(values k)) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

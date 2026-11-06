@@ -32,7 +32,9 @@ sets the isolated work directory (default: `/tmp/mire-bench`).
 | `alloc_pressure` | Eight million short-lived vectors, each pushed eight times |
 | `binary_search` | Repeated binary search over an ordered vector |
 | `break_continue` | Branch-heavy loop control |
+| `hash_mix` | Integer hash throughput over an i64 |
 | `list_indexed_read` | Repeated indexed reads from a vector |
+| `map_ops` | Insert + lookup in a string-keyed hash map |
 | `many_locals` | Live local variables and register pressure |
 | `matrix_rowmajor` | Row-major matrix traversal |
 | `method_dispatch` | Struct method dispatch |
@@ -52,7 +54,7 @@ sets the isolated work directory (default: `/tmp/mire-bench`).
 | `while_counter` | Counter-based while loop |
 
 `noop` is reserved for measuring process startup and is not part of the
-21-kernel comparison.
+23-kernel comparison.
 
 ## Latest measurement
 
@@ -65,16 +67,18 @@ finding to record, not an excuse to rewrite the kernel until it passes.
 
 Measured November 6, 2026, with Rust 1.99.0 (`-C opt-level=3`), C
 (`cc -O3 -march=native`), and the Avenys 4.4.15 release (`-O3`), best of seven
-runs. Output verification passed for all 21 kernels across all available legs
+runs. Output verification passed for all 23 kernels across all available legs
 immediately beforehand. Values are machine-specific; runs are not pinned to a
 CPU, and sub-25 ms results (`*`) are dominated by process startup.
 
 | Kernel | Workload | Rust -O3 | C -O3 | Mire -O3 | Mire/C | Mire/Rust |
 |---|---|---:|---:|---:|---:|---:|
-| `alloc_pressure` | hard | 26 ms | 59 ms | 98 ms | 1.66x | 3.77x |
-| `binary_search` | medium | 19 ms | 24 ms | 22 ms | 0.92x | 1.16x* |
-| `break_continue` | medium | 29 ms | 17 ms | 24 ms | 1.41x | 0.83x* |
-| `list_indexed_read` | easy | 13 ms | 13 ms | 14 ms | 1.08x | 1.08x* |
+| `alloc_pressure` | hard | 26 ms | 62 ms | 99 ms | 1.60x | 3.81x |
+| `binary_search` | medium | 19 ms | 24 ms | 21 ms | 0.88x | 1.11x* |
+| `break_continue` | medium | 29 ms | 16 ms | 25 ms | 1.56x | 0.86x* |
+| `hash_mix` | easy | 19 ms | 19 ms | 25 ms | 1.32x | 1.32x* |
+| `list_indexed_read` | easy | 14 ms | 14 ms | 15 ms | 1.07x | 1.07x* |
+| `map_ops` | hard | 122 ms | 118 ms | 394 ms | 3.34x | 3.23x |
 | `many_locals` | medium | 44 ms | 37 ms | 44 ms | 1.19x | 1.00x |
 | `matrix_rowmajor` | medium | 22 ms | 5 ms | 22 ms | 4.40x | 1.00x* |
 | `method_dispatch` | trivial | 127 ms | 125 ms | 131 ms | 1.05x | 1.03x |
@@ -82,7 +86,7 @@ CPU, and sub-25 ms results (`*`) are dominated by process startup.
 | `nested_loops` | medium | 49 ms | 53 ms | 51 ms | 0.96x | 1.04x |
 | `numeric_format` | medium | 56 ms | 280 ms | 259 ms | 0.93x | 4.62x |
 | `recursion_ackermann` | hard | 35 ms | 34 ms | 30 ms | 0.88x | 0.86x |
-| `sort_introsort` | medium | 6 ms | 52 ms | 59 ms | 1.13x | 9.83x* |
+| `sort_introsort` | medium | 6 ms | 53 ms | 13 ms | 0.25x | 2.17x* |
 | `string_impl` | hard | 57 ms | 53 ms | 57 ms | 1.08x | 1.00x |
 | `string_scan` | medium | 16 ms | 9 ms | 17 ms | 1.89x | 1.06x* |
 | `swap_exchange` | easy | 33 ms | 32 ms | 35 ms | 1.09x | 1.06x |
@@ -95,10 +99,10 @@ CPU, and sub-25 ms results (`*`) are dominated by process startup.
 
 ### What the C leg shows
 
-**Most kernels are at or near native baselines.** Sixteen of the 21 are within
+**Most kernels are at or near native baselines.** Sixteen of the 23 are within
 1.3x of C, and several (`nested_loops`, `numeric_format`,
 `recursion_ackermann`, `trait_dispatch`, `vec_growth`, `binary_search`) are at
-parity or faster. `numeric_format` is 4.62x slower than Rust but faster than
+parity or faster. `numeric_format` is 4.53x slower than Rust but faster than
 the C leg because `rt_i64_to_string` no longer goes through `snprintf`.
 
 **64-bit address indices closed most of the sorting gap.** Mire's GEP lowering
@@ -108,6 +112,15 @@ insertion sort paid two extra instructions per comparison and store.
 `sort_introsort` fell from 102 ms to 59 ms (C: 52 ms) and `binary_search` from
 48 ms to 22 ms once indices stay at 64 bits. The change also removes a latent
 wrap-around for indices past 2^31.
+
+**Sorting is now compiled by LLVM in Mire, and it sorts.** `sort_introsort`
+fell from 292 ms (before the sort moved into Mire) to 59 ms while the hot loop
+walks the buffer through a raw pointer; tcc could not optimize the nested loop
+in the C runtime, so the loop moved into Mire. The insertion sort then paid
+two extra instructions per comparison (fixed by the 64-bit GEP change above),
+and it was replaced by an in-tree quicksort with a Lomuto partition: the
+latest run puts Mire at 13 ms against the C leg's 53 ms (insertion sort) and
+Rust's 6 ms (standard library sort), well past the mean of the two legs.
 
 **Hot vector operations now live in Mire.** `len`, `get`, `set`, `pop`,
 `with_capacity` and `binary::search` read the vector header directly instead
@@ -126,23 +139,27 @@ loop across a cache line: `vec_growth` moved between 66 ms and 84 ms with
 identical instruction counts. Two builds of the same source now produce the
 same module.
 
-**Sorting is compiled by LLVM instead of tcc.** `sort_introsort` fell from
-292 ms (before the sort moved into Mire) to 59 ms while the hot loop walks the
-buffer through a raw pointer; tcc could not optimize the nested loop in the C
-runtime. The remaining 9.83x gap to Rust is algorithmic: the Rust leg calls the
-standard library's sort while the C and Mire legs deliberately use the same
-insertion sort.
+**The map path is the next collection frontier.** The new `map_ops` kernel
+builds a string-keyed map with a fixed key set and then runs two million
+lookups through it; the C and Rust legs use their own hash maps, the Mire leg
+goes through the runtime map. Mire pays 394 ms against 122 ms (Rust) and 118 ms
+(C), the widest gap of the suite next to `alloc_pressure` — the remaining cost
+is the managed-key handling in front of the hash itself, not the hash arithmetic
+(`hash_mix`, the new integer hash throughput kernel, shows the arithmetic
+itself at parity: 25 ms Mire vs 19 ms Rust / 19 ms C).
 
 **The former O(n²) string scan is gone.** `string_scan` fell from 3677 ms to
 17 ms once `str::index::from` let the kernel resume the search without
 `substr`-ing the remaining input on every match. It is now below the noise
 floor and at parity with Rust.
 
-**Remaining gaps are concentrated.** `matrix_rowmajor` (4.40x C but 1.00x Rust)
-and `vec_partition` (2.40x C but 1.20x Rust) point at the C reference's
+**Remaining gaps are concentrated.** `matrix_rowmajor` (4.40x C but 0.96x Rust)
+and `vec_partition` (2.40x C but 1.09x Rust) point at the C reference's
 autovectorization rather than at Mire codegen. `alloc_pressure` is the largest
-real gap at 1.66x C: the C leg allocates 64 bytes inline and never calls a push
+real gap at 1.60x C: the C leg allocates 64 bytes inline and never calls a push
 helper, while Mire pays the PAL allocation/free calls and a vector header.
+`map_ops` is the widest gap of the current suite at 3.34x C. `numeric_format`
+(4.53x Rust) sits at the managed-string allocation cost of the round trip.
 
 The former 3.12x C2 result is withdrawn: it was affected by a vector-push
 ownership defect and is not comparable. Always run `verify` before publishing
