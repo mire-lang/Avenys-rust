@@ -881,9 +881,13 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> InstCompile {
                     .map(|i| {
                         let (v, t) = resolve_typed(i, ctx);
                         if t == "i64" && v.starts_with("%t") {
-                            let trunc = tmp_extra(ctx, "i32");
-                            extra.push(format!("{} = trunc i64 {} to i32", trunc, v));
-                            format!("i32 {}", trunc)
+                            // Keep the index at 64 bits. Truncating to i32
+                            // forced LLVM to re-extend it for every address
+                            // computation (`trunc`/`sext` around a shift), and
+                            // it silently wrapped indices past 2^31. Struct
+                            // field indices are constants and stay i32 below,
+                            // which is the only place LLVM requires it.
+                            format!("i64 {}", v)
                         } else {
                             format!("i32 {}", v)
                         }

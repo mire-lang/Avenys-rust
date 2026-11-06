@@ -84,6 +84,13 @@ pub fn mir_to_llvm_with_filename(
         extern_fn_names.insert(ext.name.clone());
     }
     let used_extern_wrappers = collect_used_extern_wrappers(program, &extern_fn_names);
+    // HashSet iteration order is randomised per process. Emitting wrappers in
+    // that order made otherwise identical builds place their functions at
+    // different addresses, which is visible in benchmarks and makes build
+    // output non-reproducible. Sort so two runs of the compiler produce the
+    // same module.
+    let mut used_extern_wrappers: Vec<String> = used_extern_wrappers.into_iter().collect();
+    used_extern_wrappers.sort();
     let extern_wrapper_names: HashMap<String, String> = used_extern_wrappers
         .iter()
         .map(|name| {
@@ -195,8 +202,16 @@ pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) ->
 
     let mut parts = Vec::new();
     let noinline_attr = if func.noinline { " noinline" } else { "" };
+    // Align every function entry. Function bodies are emitted one after
+    // another, so without a fixed alignment the address of a later function
+    // (and every loop inside it) depends on the exact size of all previous
+    // ones: adding one instruction to an unrelated library function can move
+    // the hot loop of `main` across a cache-line boundary and change a
+    // benchmark by double digits with identical instruction counts. A fixed
+    // entry alignment keeps that layout deterministic and gives hot loops a
+    // predictable starting point.
     parts.push(format!(
-        "define {} {}({}){} {{",
+        "define {} {}({}){} align 32 {{",
         ret_type,
         llvm_name,
         param_strs.join(", "),

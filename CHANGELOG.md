@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.4.15 - 2026-11-06
+### Compiler & Runtime Performance
+- **Array indices stay 64-bit in LLVM IR.** The generic `getelementptr` path
+  truncated every `i64` index to `i32` and sign-extended it again at each
+  access, which prevented LLVM from strength-reducing the address arithmetic.
+  Indices now stay `i64` (struct field indices, which must be constants, still
+  use `i32`). `sort_introsort` fell from 102 ms to 59 ms, `binary_search` from
+  48 ms to 22 ms, and the change also removes a latent wrap-around past 2^31.
+- **Hot vector operations are implemented in Mire.** `vec::len`,
+  `vec::get::i64`, `vec::set::i64`, `vec::pop::i64`,
+  `vec::with::capacity::i64` and `vec::binary::search` now read the vector
+  header directly instead of calling the tcc-compiled runtime, so LLVM can
+  inline them into callers. The layout (`capacity` at `base[-1]`, `length` at
+  `base[0]`, data from `base[1]`) is unchanged and `rt_list_free` still owns
+  deallocation. `alloc_pressure` fell from 150 ms to 98 ms,
+  `binary_search` from 48 ms to 22 ms and `vec_pop_drain` from 55 ms to 49 ms.
+  `vec::push::i64` deliberately stays a thin extern call: the MIR code
+  generator already expands `rt_vecs_push_i64` into an inline fast path plus a
+  cold growth call, and a larger Mire body measured neutral or slower.
+- **Deterministic, cache-line-aligned code layout.** Every function is emitted
+  with `align 32`, extern wrappers are generated in sorted order instead of
+  `HashSet` order, and `llc` aligns non-fall-through blocks to 64 bytes. Before
+  this, two builds of the same source could place a hot loop on different
+  sides of a cache line: `vec_growth` moved between 66 ms and 84 ms with
+  identical instruction counts, and adding one instruction to an unrelated
+  library function was enough to trigger it. Builds are now reproducible and
+  the benchmark is stable.
+
 ## 4.4.14 - 2026-11-05
 ### Compiler & Runtime Performance
 - **Indexing auto-derefs collection references.** `v[i]` now works when `v` is

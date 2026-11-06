@@ -684,6 +684,15 @@ fn lower_ir_to_object(
         .arg("-o")
         .arg(output)
         .arg(opt_level.as_opt_flag())
+        // Align every block that has no fall-through predecessor (loop
+        // headers, join points, branch targets) to a 64-byte cache line.
+        // LLVM's default leaves them at whatever offset the surrounding code
+        // produces, so adding a few instructions to an unrelated function can
+        // move a hot loop across a cache line and change its throughput by
+        // double digits even though the executed instructions are identical.
+        // A 42-byte loop that straddles a line boundary is the common case
+        // here; aligning the header keeps the whole loop in one line.
+        .arg("--align-all-nofallthru-blocks=6")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());

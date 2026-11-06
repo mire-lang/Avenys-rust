@@ -2,7 +2,7 @@
 
 > Complete reference for the Avenys compiler, the Mire programming language, and the PAL/runtime infrastructure.
 
-Version: **4.4.14**
+Version: **4.4.15**
 Status: **Stable**
 
 ---

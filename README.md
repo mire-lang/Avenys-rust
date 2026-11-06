@@ -1,4 +1,4 @@
-# Avenys v4.4.14
+# Avenys v4.4.15
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -120,6 +120,12 @@ The official registry is at `mire-lang/libs`. Multi-version support:
 - `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`
 
 ## Version History
+
+### v4.4.15 - 2026-11-06
+**Compiler & Runtime Performance**
+- **64-bit GEP indices.** Array/vector addresses no longer truncate the index to `i32` and re-extend it; `sort_introsort` 102 → 59 ms and `binary_search` 48 → 22 ms, and indices past 2^31 no longer wrap.
+- **Hot vector operations moved into Mire.** `len`, `get`, `set`, `pop`, `with_capacity` and `binary::search` read the header directly and inline; `alloc_pressure` 150 → 98 ms, `binary_search` 48 → 22 ms, `vec_pop_drain` 55 → 49 ms. `push` stays a thin extern because codegen already expands it to an inline fast path.
+- **Deterministic, cache-line-aligned layout.** Functions are emitted `align 32`, extern wrappers are sorted, and `llc` aligns non-fall-through blocks to 64 bytes. Identical source now produces identical code placement, removing 20 % swings from `vec_growth`.
 
 ### v4.4.14 - 2026-11-05
 **Compiler & Runtime Performance**
