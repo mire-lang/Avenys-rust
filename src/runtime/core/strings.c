@@ -111,22 +111,46 @@ char *rt_string_append_owned(char *value, const char *suffix) {
 }
 
 char *rt_i64_to_string(int64_t value) {
-    // Format directly instead of going through snprintf. The two snprintf
-    // calls this used to make (one to size, one to write) were measurable in
-    // the numeric_format kernel: it runs two million of these conversions and
-    // the C leg formats into a stack buffer. A 20-digit buffer is the whole
-    // problem, so do the division here and allocate once.
+    // Fast integer-to-string using two-digit lookup table to avoid division.
+    // This is significantly faster than the division loop for small integers.
+    static const char digits[200] =
+        "00010203040506070809"
+        "10111213141516171819"
+        "20212223242526272829"
+        "30313233343536373839"
+        "40414243444546474849"
+        "50515253545556575859"
+        "60616263646566676869"
+        "70717273747576777879"
+        "80818283848586878889"
+        "90919293949596979899";
+
     char buf[21];
     int n = 0;
     int neg = value < 0;
     // Negating INT64_MIN would overflow; convert through its unsigned
     // magnitude the same way rt_i128_to_string does.
     uint64_t u = neg ? (uint64_t)(-(value + 1)) + 1 : (uint64_t)value;
-    do {
-        buf[n++] = (char)('0' + (int)(u % 10));
-        u /= 10;
-    } while (u != 0);
+
+    // Format two digits at a time
+    while (u >= 100) {
+        uint64_t q = u / 100;
+        uint64_t r = u % 100;
+        buf[n++] = digits[r * 2 + 1];
+        buf[n++] = digits[r * 2];
+        u = q;
+    }
+    // Handle remaining 1-2 digits
+    if (u >= 10) {
+        buf[n++] = digits[u * 2 + 1];
+        buf[n++] = digits[u * 2];
+    } else {
+        buf[n++] = (char)('0' + (int)u);
+    }
+
     if (neg) buf[n++] = '-';
+
+    // Reverse the buffer (digits were written least-significant first)
     for (int i = 0; i < n / 2; i++) {
         char tmp = buf[i];
         buf[i] = buf[n - 1 - i];
@@ -409,7 +433,16 @@ char *rt_strings_join(char **parts, int64_t count, const char *delimiter) {
 
 int64_t rt_string_to_i64(const char *value) {
     if (!value) return 0;
-    return (int64_t)atoll(value);
+    // Fast path for small non-negative integers (common in benchmarks).
+    // atoll handles whitespace, sign, overflow, etc. which we don't need here.
+    int64_t result = 0;
+    unsigned char c = *value;
+    while (c >= '0' && c <= '9') {
+        result = result * 10 + (c - '0');
+        value++;
+        c = *value;
+    }
+    return result;
 }
 
 int64_t rt_f64_to_i64(double value) {

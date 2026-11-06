@@ -43,11 +43,17 @@ static int arena_ensure_initialized(void) {
 
 // ── Size class helpers ────────────────────────────────────────────────────
 
+// SIZE_CLASSES are 16 * 2^i for i=0..8. Compute index directly using bit ops.
+// For total_size <= 16: idx 0; <= 32: idx 1; ... <= 4096: idx 8; > 4096: idx 8.
 static inline int size_class_index(size_t total_size) {
-    for (int i = 0; i < NUM_SIZE_CLASSES; i++) {
-        if (total_size <= SIZE_CLASSES[i]) return i;
-    }
-    return NUM_SIZE_CLASSES - 1; // largest class for oversized allocations
+    if (total_size <= 16) return 0;
+    // Find position of highest set bit in (total_size - 1) / 16
+    // Equivalent to: floor(log2((total_size + 15) / 16))
+    size_t adjusted = (total_size + 15) >> 4;  // divide by 16, round up
+    // Count leading zeros to find highest bit position
+    int idx = 63 - __builtin_clzll(adjusted);
+    if (idx > 8) idx = 8;
+    return idx;
 }
 
 // ── Free list management ────────────────────────────────────────────────
@@ -62,8 +68,24 @@ static inline void free_list_add(char *header_ptr, size_t total_size) {
     free_lists[idx] = header_ptr;  // free list stores header pointers
 }
 
+// Fast path: pop from free list without size check (caller ensures correct size class)
+static inline char *free_list_pop_fast(int idx) {
+    char *header_ptr = free_lists[idx];
+    if (header_ptr) {
+        MireManagedString *hdr = (MireManagedString *)header_ptr;
+        char *data_area = (char *)(hdr + 1);
+        FreeBlock *block = (FreeBlock *)data_area;
+        free_lists[idx] = block->next;
+    }
+    return header_ptr;
+}
+
 static char *free_list_find(size_t need) {
     int idx = size_class_index(need);
+    // Fast path: if there's a block in the exact size class, use it without size check
+    char *fast = free_list_pop_fast(idx);
+    if (fast) return fast;
+    // Slow path: search for a block that fits (for oversized allocations)
     char **prev = (char **)&free_lists[idx];
     while (*prev) {
         char *header_ptr = *prev;
@@ -188,12 +210,13 @@ char *rt_managed_alloc(size_t len) {
     total = (total + 15) & ~(size_t)15;
 
     // Try to find a free block first
-    char *ptr = free_list_find(total);
+    int idx = size_class_index(total);
+    char *ptr = free_list_pop_fast(idx);
     if (ptr) {
         MireManagedString *header = (MireManagedString *)ptr;
         header->len = len;
         header->cap = cap;
-        header->flags = MIRE_STR_MANAGED;
+        // flags is already MIRE_STR_MANAGED from previous use
         header->utf8_cp = 0;
         header->refs = 1;
         header->data[len] = '\0';
