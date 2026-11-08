@@ -1,0 +1,12 @@
+// S6: word count. Difficulty: medium.
+// Splits a long string into words and counts them.
+load mire::str
+load mire::vec
+
+pub fn main: () :i32 {
+    set text = "the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog" mut
+    set words = str::split(text " ")
+    set count = vec::len(words)
+    dasu(str(count))
+    return 0 :i32
+}

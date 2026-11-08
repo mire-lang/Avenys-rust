@@ -1,0 +1,40 @@
+// C2: string search benchmark. Difficulty: medium.
+// Pattern search in long strings with various patterns.
+// Measures search algorithm performance.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set haystack = str::repeat("abcdefghijklmnopqrstuvwxyz0123456789 " 2000)
+    // Multiple patterns to search
+    set patterns = vec::with::capacity::str(8) mut
+    set i = 0 :i64 mut
+    while i < 8 {
+        set patterns = vec::push::str(patterns str::concat_literal_i64("pattern" i))
+        set i += 1
+    }
+    // Also add some literal patterns that exist/do not exist
+    set patterns = vec::push::str(patterns "xyz01")
+    set patterns = vec::push::str(patterns "mnopq")
+    set patterns = vec::push::str(patterns "notfound")
+    set patterns = vec::push::str(patterns "0123")
+    set round = 0 :i64 mut
+    while round < 100 {
+        set j = 0 :i64 mut
+        while j < vec::len(patterns) {
+            set pat = vec::get::str(patterns j)
+            set hits = 0 :i64 mut
+            set found = str::index(haystack pat) mut
+            while found >= 0 {
+                set hits += 1
+                set found = str::index::from(haystack pat found + 1)
+            }
+            set seed = (seed + hits) % 1000003
+            set j += 1
+        }
+        set round += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

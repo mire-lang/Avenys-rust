@@ -392,6 +392,53 @@ void   *rt_maps_get(void *map, const char *key) {
 int64_t rt_maps_get_i64(void *map, const char *key) {
     return rt_dict_get_i64(map, 3, 0, (void *)key, 0);
 }
+
+// Single-call lookup for the common `map[str i64]` shape.
+//
+// The generic path goes public API -> dict -> hash key -> hash string ->
+// string length -> managed check, and then the probe -> key equals -> string
+// length x2 -> managed check x2. tcc does not inline any of that, so a hot
+// lookup pays roughly ten calls. This version keeps the same table layout and
+// the same FNV-1a hash (including the length seed) but does the whole probe in
+// one function, so the benchmark measures the probe rather than the call graph.
+// Any other key/value shape falls back to the generic implementation.
+int64_t rt_maps_get_i64_fast(void *map, const char *key) {
+    MireDict *dict = (MireDict *)map;
+    if (!dict || !key) return 0;
+    if (dict->key_kind != MIRE_KIND_STR || dict->value_kind != MIRE_KIND_SCALAR ||
+        dict->key_size != 8 || dict->value_size != 8) {
+        return rt_dict_get_i64(map, 3, 0, (void *)key, 0);
+    }
+    if (dict->bucket_cap <= 0) return 0;
+
+    // mire_str_len, inlined: managed strings carry the length in the header.
+    size_t klen = rt_managed_is_managed(key) ? rt_string_header(key)->len : strlen(key);
+
+    uint64_t h = 1469598103934665603ULL;
+    h ^= (uint64_t)klen;
+    h *= 1099511628211ULL;
+    const unsigned char *kp = (const unsigned char *)key;
+    for (size_t i = 0; i < klen; i++) {
+        h ^= (uint64_t)kp[i];
+        h *= 1099511628211ULL;
+    }
+
+    // bucket_cap is always a power of two (8 and doubling), so masking is the
+    // same as the generic path's unsigned modulo.
+    int64_t idx = dict->buckets[h & (uint64_t)(dict->bucket_cap - 1)];
+    MireDictEntry *entries = dict->entries;
+    while (idx >= 0) {
+        MireDictEntry *entry = &entries[idx];
+        if ((uint64_t)entry->hash == h && entry->key_i64 == (int64_t)klen) {
+            const char *stored = *(const char **)(dict->key_storage + idx * dict->key_size);
+            if (memcmp(stored, key, klen) == 0) {
+                return *(const int64_t *)(dict->value_storage + idx * dict->value_size);
+            }
+        }
+        idx = entry->next;
+    }
+    return 0;
+}
 void   *rt_maps_set(void *map, const char *key, void *value) {
     return rt_dict_set_ptr(map, 3, map ? ((MireDict *)map)->value_kind : 3, 0, (void *)key, value);
 }

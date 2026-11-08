@@ -71,11 +71,10 @@ kernels() {
 difficulty() {
   case "$1" in
     while_counter|method_dispatch) echo "trivial" ;;
-    list_indexed_read|swap_exchange) echo "easy" ;;
-    nested_loops|break_continue|many_locals|trait_dispatch|mixed_int_float) echo "medium" ;;
-    string_impl|recursion_ackermann|alloc_pressure|map_ops) echo "hard" ;;
-    binary_search|matrix_rowmajor|numeric_format|sort_introsort|string_scan|vec_partition) echo "medium" ;;
-    hash_mix) echo "easy" ;;
+    list_indexed_read|swap_exchange|hash_mix|call_overhead|memory_copy) echo "easy" ;;
+    nested_loops|break_continue|many_locals|trait_dispatch|mixed_int_float|binary_search|matrix_rowmajor|numeric_format|sort_introsort|string_scan|vec_partition|map_iter|map_int_keys|branch_prediction|cache_locality|alloc_small_objects|alloc_large_objects|alloc_fragmentation|string_concat|string_search|map_lookup|map_collision|map_resize) echo "medium" ;;
+    string_impl|recursion_ackermann|alloc_pressure|map_ops|map_growth|map_remove|map_mixed|string_builder|vec_strings) echo "hard" ;;
+    word_count|vec_growth|vec_mixed_reads|vec_pop_drain) echo "medium" ;;
     *) echo "-" ;;
   esac
 }
@@ -160,6 +159,63 @@ time_ms() {
   print -r -- "$best"
 }
 
+# Peak resident set size of one run of a program, in kilobytes.
+#
+# `ru_maxrss` from any fork-based launcher is useless here: a forked child
+# starts with its parent's address space mapped copy-on-write, so the number
+# reported for a 3 KB kernel is whatever the launcher itself weighed (a python
+# wrapper reported 13 MB for every binary in the table). `/usr/bin/time` is also
+# not installed everywhere this script runs.
+#
+# Instead a tiny preloaded object reads the kernel's own `VmHWM` from
+# `/proc/self/status` in a destructor, i.e. from inside the measured process
+# just before it exits. The cost is the shared object itself, a few hundred
+# kilobytes mapped into every leg alike, so the columns stay comparable.
+build_rss_helper() {
+  RSS_SO="$WORK/bin/rss.so"
+  [[ -f "$RSS_SO" ]] && return 0
+  cat > "$WORK/logs/rss.c" <<'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+__attribute__((destructor)) static void bench_report_rss(void) {
+    const char *out = getenv("MIRE_RSS_FILE");
+    if (!out) return;
+    long kb = -1;
+    FILE *status = fopen("/proc/self/status", "r");
+    if (status) {
+        char line[256];
+        while (fgets(line, sizeof line, status)) {
+            if (strncmp(line, "VmHWM:", 6) == 0) {
+                if (sscanf(line + 6, "%ld", &kb) != 1) kb = -1;
+                break;
+            }
+        }
+        fclose(status);
+    }
+    FILE *sink = fopen(out, "a");
+    if (!sink) return;
+    fprintf(sink, "%ld\n", kb);
+    fclose(sink);
+}
+EOF
+  $C_COMPILER -O2 -shared -fPIC -o "$RSS_SO" "$WORK/logs/rss.c" >/dev/null 2>&1
+}
+
+peak_rss_kb() {
+  local out="$WORK/logs/rss.$$.$RANDOM"
+  rm -f "$out"
+  MIRE_RSS_FILE="$out" LD_PRELOAD="$RSS_SO" "$1" >/dev/null 2>&1
+  tail -1 "$out" 2>/dev/null
+  rm -f "$out"
+}
+
+# Format a kilobyte count as megabytes with one decimal.
+rss_mb() {
+  awk -v kb="$1" 'BEGIN{ if (kb ~ /^[0-9]+$/ && kb > 0) printf "%.1f", kb/1024; else printf "-" }'
+}
+
 # Time several programs against each other, interleaved.
 #
 # Measuring one leg to completion and then the next compares samples taken
@@ -191,7 +247,7 @@ time_ms_together() {
     i=1
     while (( i <= ${#names[@]} )); do
       s=$(date +%s%N)
-      "${paths[i]}" >/dev/null 2>&1
+      output=$("${paths[i]}" 2>/dev/null)
       e=$(date +%s%N)
       ms=$(( (e - s) / 1000000 ))
       if (( ms < ${best[${names[i]}]} )); then
@@ -214,10 +270,10 @@ cmd_verify() {
     [[ "$k" == "noop" ]] && continue
     build_one "$k" verify || { fail=1; continue; }
     d="$WORK/$k.verify.3"
-    mo=$("$d/code/bin/release/main" 2>&1 | tail -1)
-    ro=$("$WORK/bin/rust_$k" 2>&1 | tail -1)
+    mo=$("$d/code/bin/release/main" 2>/dev/null | tail -1)
+    ro=$("$WORK/bin/rust_$k" 2>/dev/null | tail -1)
     co=""
-    [[ -x "$WORK/bin/c_$k" ]] && co=$("$WORK/bin/c_$k" 2>&1 | tail -1)
+    [[ -x "$WORK/bin/c_$k" ]] && co=$("$WORK/bin/c_$k" 2>/dev/null | tail -1)
     if [[ "$mo" == "$ro" && ( -z "$co" || "$mo" == "$co" ) ]]; then
       printf "  %-19s %-9s %s\n" "$k" "match" "$mo"
     else
@@ -236,11 +292,19 @@ cmd_measure() {
   local only="${1:-}"
   print -r -- "Measuring (best of $MSSEC, Rust ${RUST_OPT[*]}, C $C_COMPILER -O3, Mire -O3)"
   print -r -- ""
-  printf "  %-19s %-9s %10s %10s %10s %10s %10s\n" KERNEL WORKLOAD "Rust -O3" "C -O3" "Mire -O3" "Mire/C" "Mire/Rust"
-  printf "  %-19s %-9s %10s %10s %10s %10s %10s\n" "-------------------" "---------" "----------" "----------" "----------" "--------" "---------"
-  local k d r m c mr mc ratio_c ratio_r flag failed=0
-  local q j value
+  printf "  %-19s %-9s %10s %10s %10s %10s %10s %10s %10s %10s\n" KERNEL WORKLOAD "Rust -O3" "Rust RSS" "C -O3" "C RSS" "Mire -O3" "Mire RSS" "Mire/Rust" "Mire/C"
+  printf "  %-19s %-9s %10s %10s %10s %10s %10s %10s %10s %10s\n" "-------------------" "---------" "----------" "--------" "----------" "------" "----------" "--------" "--------" "--------"
+  local k d r m c mr mc ratio_c ratio_r flag failed=0 rss_m rss_r rss_c
+  local q j value base_m base_r base_c
   local -a leg_names leg_paths leg_args timings
+  build_rss_helper
+  if build_one noop measure >/dev/null 2>&1; then
+    base_m=$(peak_rss_kb "$WORK/noop.measure.3/code/bin/release/main")
+    base_r=$(peak_rss_kb "$WORK/bin/rust_noop")
+    base_c=$(peak_rss_kb "$WORK/bin/c_noop")
+  else
+    base_m=""; base_r=""; base_c=""
+  fi
   for k in $(kernels); do
     [[ "$k" == "noop" ]] && continue
     [[ -n "$only" && "$k" != "$only" ]] && continue
@@ -250,12 +314,8 @@ cmd_measure() {
       continue
     fi
     d="$WORK/$k.measure.3"
-    # Interleaved: one sample of each leg, then the next round. See
-    # time_ms_together for why the legs are not timed one after another.
-    leg_names=(rust mire)
-    leg_paths=("$WORK/bin/rust_$k" "$d/code/bin/release/main")
-    [[ -x "$WORK/bin/c_$k" ]] && leg_names+=(c) && leg_paths+=("$WORK/bin/c_$k")
-    # time_ms_together wants name/path pairs, not two parallel lists.
+    leg_names=(rust c mire)
+    leg_paths=("$WORK/bin/rust_$k" "$WORK/bin/c_$k" "$d/code/bin/release/main")
     leg_args=()
     q=1
     while (( q <= ${#leg_names[@]} )); do
@@ -263,17 +323,20 @@ cmd_measure() {
       q=$(( q + 1 ))
     done
     timings=("${(@f)$(time_ms_together "${leg_args[@]}")}")
-    r="-"; m="-"; c="-"
+    r="-"; c="-"; m="-"
     j=1
     while (( j <= ${#leg_names[@]} )); do
       value="${timings[j]##*$'\t'}"
       case "${leg_names[j]}" in
         rust) r="$value" ;;
-        mire) m="$value" ;;
         c)    c="$value" ;;
+        mire) m="$value" ;;
       esac
       j=$(( j + 1 ))
     done
+    rss_r=$(rss_mb "$(peak_rss_kb "$WORK/bin/rust_$k")")
+    rss_c=$(rss_mb "$(peak_rss_kb "$WORK/bin/c_$k")")
+    rss_m=$(rss_mb "$(peak_rss_kb "$d/code/bin/release/main")")
     if [[ "$c" == "-" ]]; then
       ratio_c="-"
     else
@@ -282,11 +345,14 @@ cmd_measure() {
     ratio_r=$(awk -v m="$m" -v r="$r" 'BEGIN{if(r>0)printf "%.2fx", m/r; else print "-"}')
     flag=""
     (( r < NOISE_FLOOR_MS || m < NOISE_FLOOR_MS )) && flag=" <-- noise"
-    printf "  %-19s %-9s %8s ms %8s ms %8s ms %9s %8s%s\n" "$k" "$(difficulty "$k")" "$r" "$c" "$m" "$ratio_c" "$ratio_r" "$flag"
+    printf "  %-19s %-9s %8s ms %6s MB %8s ms %6s MB %8s ms %6s MB %9s %8s%s\n" "$k" "$(difficulty "$k")" "$r" "$rss_r" "$c" "$rss_c" "$m" "$rss_m" "$ratio_r" "$ratio_c" "$flag"
   done
   print -r -- ""
   print -r -- "  (noise = below ${NOISE_FLOOR_MS} ms; startup dominates)"
-  (( failed )) && print -r -- "  ** some kernels failed to build and are missing from this table **"
+  if [[ -n "$base_m" ]]; then
+    print -r -- "  (RSS = peak resident set size, one run per leg; baseline noop program:"
+    print -r -- "   Mire $(rss_mb "$base_m") MB, Rust $(rss_mb "$base_r") MB, C $(rss_mb "$base_c") MB -- subtract it for the kernel's own footprint)"
+  fi
   return $failed
 }
 

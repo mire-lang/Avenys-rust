@@ -11,7 +11,7 @@ pub fn main: () :i32 {
     set values = {} :map[str i64] mut
     set i = 0 :i64 mut
     while i < 1024 {
-        set k = str::concat("key", str::from::i64(i))
+        set k = str::concat_literal_i64("key" i)
         set v = i * 7 + 1
         set values = map::set::i64(values k v)
         set i += 1
@@ -19,7 +19,7 @@ pub fn main: () :i32 {
     set acc = 0 :i64 mut
     set i = 0 :i64 mut
     while i < 2000000 {
-        set k = str::concat("key", str::from::i64(i % 1024))
+        set k = str::concat_literal_i64("key" i % 1024)
         set acc = (acc + map::get::i64(values k)) % 1000003
         set i += 1
     }

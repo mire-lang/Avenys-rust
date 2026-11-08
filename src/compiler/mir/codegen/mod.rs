@@ -12,6 +12,7 @@ use crate::avens::{collect_used_symbols, filter_pal_decls};
 
 pub(crate) mod builtins;
 pub(crate) mod expr;
+pub(crate) mod push_elide;
 pub(crate) mod resolve;
 pub(crate) mod types;
 pub(crate) mod validate;
@@ -33,6 +34,14 @@ pub(crate) struct LlvmCtx<'a> {
     extern_wrapper_names: HashMap<String, String>,
     struct_types: &'a HashMap<String, Vec<(String, DataType)>>,
     pub(crate) _source_filename: String,
+    /// Current function name being compiled, used for special handling (e.g., main)
+    pub(crate) current_func_name: Option<String>,
+    /// Emit the `rt_print_mem_stats()` call before `main` returns. Set at
+    /// compile time by `MIRE_MEM_STATS=1`; normal builds keep a bare `ret`.
+    pub(crate) mem_stats: bool,
+    /// `vec::push` results that `push_elide` proved fit inside the capacity of
+    /// the vector they append to. Those pushes lower without a capacity test.
+    pub(crate) unchecked_pushes: HashSet<usize>,
 }
 
 pub fn mir_to_llvm(program: &MirProgram) -> (String, Vec<(String, String)>) {
@@ -113,6 +122,9 @@ pub fn mir_to_llvm_with_filename(
         extern_wrapper_names,
         struct_types: &program.struct_types,
         _source_filename: source_filename.to_string(),
+        current_func_name: None,
+        mem_stats: std::env::var_os("MIRE_MEM_STATS").is_some(),
+        unchecked_pushes: HashSet::new(),
     };
 
     for func in &program.functions {
@@ -186,11 +198,13 @@ pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) ->
     let saved_temp_types = std::mem::take(&mut ctx.temp_types);
     let saved_next_tmp = ctx.next_tmp;
     let saved_next_extra = ctx.next_extra;
+    let saved_func_name = std::mem::replace(&mut ctx.current_func_name, Some(func.name.clone()));
 
     let mut param_strs = Vec::new();
     ctx.param_types.clear();
     ctx.next_tmp = 0;
     ctx.next_extra = 0;
+    ctx.unchecked_pushes = push_elide::elided_pushes(func);
     // Every mire function receives an implicit environment pointer as its first argument.
     param_strs.push("ptr %env_ptr".to_string());
     for p in &func.params {
@@ -330,6 +344,7 @@ pub(crate) fn compile_function_to_llvm(func: &MirFunction, ctx: &mut LlvmCtx) ->
     ctx.temp_types = saved_temp_types;
     ctx.next_tmp = saved_next_tmp;
     ctx.next_extra = saved_next_extra;
+    ctx.current_func_name = saved_func_name;
     ctx.param_types.clear();
     parts.join("\n")
 }
@@ -422,9 +437,21 @@ fn compile_terminator(term: &MirTerminator, ctx: &mut LlvmCtx, ret_type: &str) -
                 return default_return_for_type(ret_type);
             }
             let (v, t) = resolve_typed(val, ctx);
-            format!("ret {} {}", t, v)
+            let fname = ctx.current_func_name.as_deref().unwrap_or("unknown");
+            if fname == "main" && ctx.mem_stats {
+                format!("  call void @rt_print_mem_stats()\n  ret {} {}", t, v)
+            } else {
+                format!("ret {} {}", t, v)
+            }
         }
-        MirTerminator::Ret(None) => "ret void".to_string(),
+        MirTerminator::Ret(None) => {
+            let fname = ctx.current_func_name.as_deref().unwrap_or("unknown");
+            if fname == "main" && ctx.mem_stats {
+                format!("  call void @rt_print_mem_stats()\n  ret void")
+            } else {
+                "ret void".to_string()
+            }
+        }
         MirTerminator::Unreachable => "unreachable".to_string(),
     }
 }

@@ -1,0 +1,26 @@
+// M12: map mixed workload. Difficulty: hard.
+// Realistic mix: insert, lookup, remove, iterate - simulates a cache.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set m = {} :map[str i64] mut
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 50000 {
+        set k = str::concat("k", str::from::i64(i % 1000))
+        set v = map::get::i64(m k)
+        if v == 0 {
+            set m = map::set::i64(m k i * 7 + 11)
+        } else {
+            if i % 7 == 0 {
+                map::remove(m k)
+            } else {
+                set acc = (acc + v) % 1000003
+            }
+        }
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

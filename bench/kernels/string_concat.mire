@@ -1,0 +1,30 @@
+// C1: string concatenation benchmark. Difficulty: medium.
+// Two scenarios: without reserved capacity (measures growth + concat)
+// and with reserved capacity (measures pure concat cost).
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    // Scenario 1: without reserved capacity
+    set i = 0 :i64 mut
+    while i < 50000 {
+        set s = "" mut
+        set j = 0 :i64 mut
+        while j < 10 {
+            set s = str::concat(s str::concat_literal_i64("chunk" j))
+            set j += 1
+        }
+        set seed = (seed + str::len(s)) % 1000003
+        set i += 1
+    }
+    // Scenario 2: with reserved capacity (build a long string then reuse)
+    set i = 0 :i64 mut
+    set base = str::repeat("preallocated_base_string_" 100) mut
+    while i < 50000 {
+        set s = str::concat(base str::concat_literal_i64("suffix" i % 10))
+        set seed = (seed + str::len(s)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

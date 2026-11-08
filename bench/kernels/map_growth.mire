@@ -1,0 +1,23 @@
+// M8: map growth and rehashing. Difficulty: hard.
+// Inserts elements one by one, forcing repeated growth and rehash.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set m = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    while i < 20000 {
+        set k = str::concat("key", str::from::i64(i))
+        set m = map::set::i64(m k i * 3 + 7)
+        set i += 1
+    }
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 20000 {
+        set k = str::concat("key", str::from::i64(i))
+        set acc = (acc + map::get::i64(m k)) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

@@ -113,6 +113,9 @@ void *rt_list_push_ptr(void *list_ptr, void *value) {
         list_ptr = list_grow(list_ptr, 8);
         if (!list_ptr) return NULL;
     }
+    if (value && rt_managed_is_managed(value)) {
+        rt_managed_retain(value);
+    }
     ((void **)list_ptr)[len + 1] = value;
     ((int64_t *)list_ptr)[0] = len + 1;
     return list_ptr;
@@ -153,6 +156,19 @@ int64_t rt_list_pop_i64(void *list_ptr) {
     if (len <= 0) return 0;
     header[0] = len - 1;
     return ((int64_t *)list_ptr)[len];
+}
+
+void *rt_list_pop_ptr(void *list_ptr) {
+    if (!list_ptr) return NULL;
+    int64_t *header = (int64_t *)list_ptr;
+    int64_t len = header[0];
+    if (len <= 0) return NULL;
+    header[0] = len - 1;
+    void *value = ((void **)list_ptr)[len];
+    if (value && rt_managed_is_managed(value)) {
+        rt_managed_free(value);
+    }
+    return value;
 }
 
 void *rt_list_concat(void *left_ptr, void *right_ptr) {
@@ -402,6 +418,7 @@ void   *rt_vecs_grow_push_i64(void *vec, int64_t value) {
 }
 
 void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
+void   *rt_vecs_pop_ptr(void *vec) { return rt_list_pop_ptr(vec); }
 void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value) { rt_list_set_i64(vec, index, value); }
 int64_t rt_vecs_pop(void *vec) { return rt_list_pop_i64(vec); }
 void   *rt_vecs_slice(void *vec, int64_t start, int64_t end) { return rt_list_slice(vec, start, end); }

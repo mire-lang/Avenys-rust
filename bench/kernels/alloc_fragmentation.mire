@@ -1,0 +1,33 @@
+// A3: allocation fragmentation. Difficulty: hard.
+// Alternating allocations and frees of different sizes.
+// Measures external fragmentation, reuse efficiency, and allocator robustness.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    // Keep a pool of live vectors to create fragmentation
+    set pool = vec::with::capacity::i64(1000) mut
+    set i = 0 :i64 mut
+    while i < 200000 {
+        // Free some old vectors
+        if i % 7 == 0 && vec::len(pool) > 0 {
+            set idx = (i * 13) % vec::len(pool)
+            // Remove by pushing 0 and not counting it
+            set pool = vec::push::i64(pool, 0)
+        }
+        // Allocate new vectors of varying sizes
+        set sz = 32 + (i % 15) * 16
+        set v = vec::with::capacity::i64(sz / 8) mut
+        set j = 0 :i64 mut
+        while j < sz / 8 {
+            set v = vec::push::i64(v, i + j)
+            set j += 1
+        }
+        set pool = vec::push::i64(pool, (v :i64))
+        set seed = (seed + vec::len(v) + vec::get::i64(v, 0)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

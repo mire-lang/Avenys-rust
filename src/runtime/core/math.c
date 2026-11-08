@@ -178,6 +178,10 @@ double rt_math_sumprod(void *p, void *q) {
     return sum;
 }
 
+// Simple leaf functions for call_overhead benchmark
+int64_t rt_math_leaf_add(int64_t a, int64_t b) { return a + b; }
+int64_t rt_math_leaf_mul(int64_t a, int64_t b) { return a * b; }
+
 int64_t rt_math_sum_i64(void *list) {
     int64_t len = rt_list_len(list);
     int64_t total = 0;

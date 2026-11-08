@@ -118,8 +118,13 @@ void mire_store_key(MireDict *dict, int64_t entry_index,
             }
         }
         // Store a managed copy owned by the map: remove/replace/free release it.
-        char *copy = rt_managed_from_slice((const char *)key_ptr, mire_str_len((const char *)key_ptr));
+        size_t len = mire_str_len((const char *)key_ptr);
+        char *copy = rt_managed_from_slice((const char *)key_ptr, len);
         memcpy(slot, &copy, sizeof(char *));
+        // String entries leave key_i64 unused; keep the key length there so the
+        // Mire-side probe (mire::map::get::i64) can reject length mismatches
+        // without walking the stored key's header.
+        dict->entries[entry_index].key_i64 = (int64_t)len;
         return;
     }
     if (dict->key_kind == MIRE_KIND_MAP || dict->key_kind == MIRE_KIND_PTR) {

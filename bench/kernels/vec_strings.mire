@@ -1,0 +1,29 @@
+// V11: vec of strings. Difficulty: hard.
+// Pushes and pops strings on a vector, measuring allocation and refcount traffic.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set v = vec::with::capacity::str(0) mut
+    set i = 0 :i64 mut
+    while i < 20000 {
+        set s = str::concat("item" str::from::i64(i))
+        set v = vec::push::str(v s)
+        set i += 1
+    }
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set s = vec::pop::str(v)
+        set acc = (acc + str::len(s)) % 1000003
+        set i += 1
+    }
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set s = vec::get::str(v i)
+        set acc = (acc + str::len(s)) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

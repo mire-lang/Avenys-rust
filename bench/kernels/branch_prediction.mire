@@ -1,0 +1,40 @@
+// D2: branch prediction benchmark. Difficulty: medium.
+// Predictable vs random branches over the same data.
+// Measures branch generation, control flow optimization, and processor behavior.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    // Build data array
+    set data = vec::with::capacity::i64(10000) mut
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set data = vec::push::i64(data i * 7 + 13)
+        set i += 1
+    }
+    // Phase 1: predictable branch (always true for first half, always false for second)
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set x = vec::get::i64(data i)
+        if i < 5000 {
+            set seed = (seed + x) % 1000003
+        } else {
+            set seed = (seed + x * 2) % 1000003
+        }
+        set i += 1
+    }
+    // Phase 2: pseudo-random branch (depends on data)
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set x = vec::get::i64(data i)
+        if x % 3 == 0 {
+            set seed = (seed + x) % 1000003
+        } else {
+            set seed = (seed + x * 3) % 1000003
+        }
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

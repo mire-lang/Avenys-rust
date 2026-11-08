@@ -227,6 +227,13 @@ pub(super) fn generate_runtime_declarations(ir: &str) -> String {
         ("declare i32 @printf(", "declare i32 @printf(ptr, ...)"),
         ("declare ptr @ireru(", "declare ptr @ireru(ptr)"),
         ("declare i32 @fflush(", "declare i32 @fflush(ptr)"),
+        // The vec lowering emits direct libc calls: `malloc` for
+        // with_capacity and `free` for a dropped vector. `free` has no Mire
+        // `extern fn` behind it, so it is not in the filtered PAL declaration
+        // set; without this entry the generated module calls an undefined
+        // symbol and `opt` rejects it.
+        ("declare void @free(", "declare void @free(ptr)"),
+        ("declare ptr @malloc(", "declare ptr @malloc(i64)"),
         ("declare i32 @strcmp(", "declare i32 @strcmp(ptr, ptr)"),
         (
             "declare void @rt_managed_free(",
@@ -247,6 +254,10 @@ pub(super) fn generate_runtime_declarations(ir: &str) -> String {
         (
             "declare void @pal_proc_on(",
             "declare void @pal_proc_on(ptr)",
+        ),
+        (
+            "declare void @rt_print_mem_stats(",
+            "declare void @rt_print_mem_stats()",
         ),
         ("@.argc =", "@.argc = global i32 0"),
         ("@.argv =", "@.argv = global ptr null"),

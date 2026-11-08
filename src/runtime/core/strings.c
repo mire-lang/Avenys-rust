@@ -34,6 +34,42 @@ char *rt_string_concat(const char *left, const char *right) {
     return out;
 }
 
+// Fast path for concatenating a literal prefix with a small integer.
+// Avoids the intermediate integer-to-string allocation.
+char *rt_string_concat_literal_i64(const char *prefix, int64_t value) {
+    if (prefix == NULL) prefix = "";
+    if (value >= 0 && value < 10000) {
+        // Use the same cache as rt_i64_to_string
+        static char cache[10000][5];
+        static uint8_t cache_len[10000];
+        static int cache_init = 0;
+        if (!cache_init) {
+            for (int i = 0; i < 10000; i++) {
+                int v = i;
+                int n = 0;
+                char *buf = cache[i];
+                if (v >= 1000) { buf[n++] = '0' + v / 1000; v %= 1000; }
+                if (v >= 100 || n) { buf[n++] = '0' + v / 100; v %= 100; }
+                if (v >= 10 || n) { buf[n++] = '0' + v / 10; v %= 10; }
+                buf[n++] = '0' + v;
+                cache_len[i] = n;
+            }
+            cache_init = 1;
+        }
+        size_t plen = str_byte_len(prefix);
+        size_t vlen = cache_len[value];
+        char *out = rt_managed_alloc(plen + vlen);
+        if (out == NULL) return rt_managed_from_slice("", 0);
+        memcpy(out, prefix, plen);
+        memcpy(out + plen, cache[value], vlen);
+        out[plen + vlen] = '\0';
+        return out;
+    }
+    // Fallback for values outside cache range
+    char *vstr = rt_i64_to_string(value);
+    return rt_string_concat(prefix, vstr);
+}
+
 __attribute__((noinline)) char *rt_string_concat_n(size_t count, const char *const *parts) {
     if (count == 0) return rt_managed_from_slice("", 0);
     if (count == 1) {
@@ -124,6 +160,29 @@ char *rt_i64_to_string(int64_t value) {
         "70717273747576777879"
         "80818283848586878889"
         "90919293949596979899";
+
+    // Cache for small non-negative integers (0-9999).
+    // These cover the common cases in benchmarks like map_ops (i % 1024).
+    static char cache[10000][5];
+    static uint8_t cache_len[10000];
+    static int cache_init = 0;
+    if (!cache_init) {
+        for (int i = 0; i < 10000; i++) {
+            int v = i;
+            int n = 0;
+            char *buf = cache[i];
+            if (v >= 1000) { buf[n++] = '0' + v / 1000; v %= 1000; }
+            if (v >= 100 || n) { buf[n++] = '0' + v / 100; v %= 100; }
+            if (v >= 10 || n) { buf[n++] = '0' + v / 10; v %= 10; }
+            buf[n++] = '0' + v;
+            cache_len[i] = n;
+        }
+        cache_init = 1;
+    }
+
+    if (value >= 0 && value < 10000) {
+        return rt_managed_from_slice(cache[value], cache_len[value]);
+    }
 
     char buf[21];
     int n = 0;

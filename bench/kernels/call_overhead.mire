@@ -1,0 +1,19 @@
+// D1: function call overhead. Difficulty: easy.
+// Millions of direct calls to small functions.
+// Measures ABI, prologues, epilogues, call optimization, and inlining.
+load mire::str
+
+extern fn rt_math_leaf_add: (a :i64, b :i64) :i64 lib "pal"
+extern fn rt_math_leaf_mul: (a :i64, b :i64) :i64 lib "pal"
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set i = 0 :i64 mut
+    while i < 5000000 {
+        set seed = (seed + rt_math_leaf_add(seed i)) % 1000003
+        set seed = (seed + rt_math_leaf_mul(seed i)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

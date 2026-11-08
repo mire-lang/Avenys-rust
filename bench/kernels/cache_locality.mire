@@ -1,0 +1,39 @@
+// D3: cache locality benchmark. Difficulty: medium.
+// Sequential vs random array access patterns.
+// Measures memory locality, access patterns, and cache sensitivity.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    // Build a large array
+    set size = 1000000
+    set data = vec::with::capacity::i64(size) mut
+    set i = 0 :i64 mut
+    while i < size {
+        set data = vec::push::i64(data i * 3 + 7)
+        set i += 1
+    }
+    // Phase 1: sequential access (cache friendly)
+    set i = 0 :i64 mut
+    while i < size {
+        set seed = (seed + vec::get::i64(data i)) % 1000003
+        set i += 1
+    }
+    // Phase 2: strided access (cache unfriendly - stride 256)
+    set i = 0 :i64 mut
+    while i < size {
+        set seed = (seed + vec::get::i64(data i)) % 1000003
+        set i += 256
+    }
+    // Phase 3: random access (cache hostile - LCG)
+    set idx = 12345 :i64 mut
+    set i = 0 :i64 mut
+    while i < size {
+        set idx = (idx * 1103515245 + 12345) % 1000000
+        set seed = (seed + vec::get::i64(data idx)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

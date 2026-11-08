@@ -1,0 +1,24 @@
+// A1: small object allocation pressure. Difficulty: hard.
+// Millions of small allocations (16-64 bytes) followed by frees.
+// Measures allocation overhead, free-list reuse, and fragmentation.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set i = 0 :i64 mut
+    while i < 1000000 {
+        // Allocate varying small sizes: 16, 24, 32, 40, 48, 56, 64 bytes
+        set sz = 16 + (i % 7) * 8
+        set v = vec::with::capacity::i64(sz / 8) mut
+        set j = 0 :i64 mut
+        while j < sz / 8 {
+            set v = vec::push::i64(v, i + j)
+            set j += 1
+        }
+        set seed = (seed + vec::len(v) + vec::get::i64(v, 0)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

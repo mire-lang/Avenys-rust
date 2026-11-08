@@ -1,0 +1,30 @@
+// A4: memory copy benchmark. Difficulty: easy.
+// Copying buffers of different sizes.
+// Measures memcpy performance, codegen, bandwidth, and SIMD optimizations.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set i = 0 :i64 mut
+    while i < 100000 {
+        // Vary buffer size: 64B to 1MB
+        set sz = 64 + (i % 16384) * 64
+        set src = vec::with::capacity::i64(sz / 8) mut
+        set j = 0 :i64 mut
+        while j < sz / 8 {
+            set src = vec::push::i64(src, i + j)
+            set j += 1
+        }
+        set dst = vec::with::capacity::i64(sz / 8) mut
+        set k = 0 :i64 mut
+        while k < sz / 8 {
+            set dst = vec::push::i64(dst, vec::get::i64(src, k))
+            set k += 1
+        }
+        set seed = (seed + vec::len(dst) + vec::get::i64(dst, 0)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

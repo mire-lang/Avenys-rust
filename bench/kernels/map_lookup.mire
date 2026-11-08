@@ -1,0 +1,35 @@
+// B2: hash map lookup benchmark. Difficulty: medium.
+// Two phases: lookup hit (all keys exist) and lookup miss (no keys exist).
+// Measures successful and failed lookup paths separately.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set m = {} :map[str i64] mut
+    // Populate with 4096 keys
+    set i = 0 :i64 mut
+    while i < 4096 {
+        set k = str::concat_literal_i64("lookup_key" i)
+        set m = map::set::i64(m k i * 5 + 1)
+        set i += 1
+    }
+    // Phase 1: lookup hit (all keys exist)
+    set i = 0 :i64 mut
+    while i < 1000000 {
+        set k = str::concat_literal_i64("lookup_key" i % 4096)
+        set v = map::get::i64(m k)
+        set seed = (seed + v) % 1000003
+        set i += 1
+    }
+    // Phase 2: lookup miss (keys don't exist)
+    set i = 0 :i64 mut
+    while i < 1000000 {
+        set k = str::concat_literal_i64("missing_key" i % 4096)
+        set v = map::get::i64(m k)
+        set seed = (seed + v) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

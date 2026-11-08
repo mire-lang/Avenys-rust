@@ -99,6 +99,24 @@ size_t rt_managed_len(const char *value);
 int   rt_managed_contains(const char *data_ptr);
 void  rt_managed_register(char *data_ptr);    // no-op (ABI compat)
 void  rt_managed_unregister(char *data_ptr);  // no-op (ABI compat)
+
+// ── Memory statistics ────────────────────────────────────────────────────
+// Returns total number of allocations since start.
+int64_t rt_mem_alloc_count(void);
+// Returns total bytes allocated since start.
+int64_t rt_mem_alloc_bytes(void);
+// Returns total number of deallocations since start.
+int64_t rt_mem_free_count(void);
+// Returns total bytes deallocated since start.
+int64_t rt_mem_free_bytes(void);
+// Returns current allocated bytes (live).
+int64_t rt_mem_current_bytes(void);
+// Returns peak allocated bytes at any point.
+int64_t rt_mem_peak_bytes(void);
+// Resets all memory counters to zero.
+void rt_mem_reset_stats(void);
+// Prints memory statistics to stdout (called via atexit on program exit).
+void rt_print_mem_stats(void);
 void  rt_managed_retain(char *data_ptr);      // increments refcount
 
 // Raw strings use the PAL allocator and must be released with pal_free().
@@ -114,6 +132,7 @@ MireManagedString *rt_string_header(const char *data);
 
 char *rt_string_copy(const char *value);
 char *rt_string_concat(const char *left, const char *right);
+char *rt_string_concat_literal_i64(const char *prefix, int64_t value);
 char *rt_string_concat_n(size_t count, const char *const *parts);
 char *rt_strings_repeat(const char *input, int64_t count);
 char *rt_string_append_owned(char *value, const char *suffix);
@@ -178,6 +197,7 @@ void *rt_list_push_i64(void *list_ptr, int64_t value);
 void *rt_list_push_ptr(void *list_ptr, void *value);
 void *rt_list_push_scalar(void *list_ptr, int64_t value, int64_t elem_size);
 int64_t rt_list_pop_i64(void *list_ptr);
+void *rt_list_pop_ptr(void *list_ptr);
 void *rt_list_concat(void *left_ptr, void *right_ptr);
 void *rt_list_slice(void *list_ptr, int64_t start, int64_t end);
 void *rt_list_remove(void *list_ptr, int64_t index);
@@ -208,6 +228,7 @@ void   *rt_vecs_push_i64(void *vec, int64_t value);
 /// reallocation, not once per push.
 void   *rt_vecs_grow_push_i64(void *vec, int64_t value);
 void   *rt_vecs_push_ptr(void *vec, void *value);
+void   *rt_vecs_pop_ptr(void *vec);
 void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value);
 int64_t rt_vecs_pop(void *vec);
 void   *rt_vecs_slice(void *vec, int64_t start, int64_t end);
@@ -537,6 +558,10 @@ double  rt_math_median_i64(void *list);
 void   *rt_math_range_i64(int64_t end);
 void   *rt_math_range_between_i64(int64_t start, int64_t end);
 void   *rt_math_range_step_i64(int64_t start, int64_t end, int64_t step);
+
+// Simple leaf functions for call_overhead benchmark
+int64_t rt_math_leaf_add(int64_t a, int64_t b);
+int64_t rt_math_leaf_mul(int64_t a, int64_t b);
 
 // Pseudo-random number generation (xorshift* PRNG)
 void rt_math_random_seed(int64_t seed);

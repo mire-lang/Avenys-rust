@@ -1,5 +1,101 @@
 # Changelog
 
+## 4.4.17 - 2026-11-08
+### Compiler & Runtime Performance
+- **Dead capacity checks on vector pushes are removed.** A new `push_elide`
+  pass in the MIR code generator proves that a `vec::with::capacity::i64(N)`
+  site can only be pushed at most N times and lowers those pushes without the
+  capacity load, compare and growth branch. The proof follows the vector
+  through local allocas, requires every use to be a known vector operation,
+  recovers loop trip counts from the `while i < constant` shape, and requires
+  each push to be dominated by the allocation. Anything it cannot bound keeps
+  the checked lowering, so the pass can only remove a test, never change
+  behaviour. `alloc_pressure` fell from 76 ms to 63 ms.
+- **`vec::push::i64` is lowered at the call site.** The inline push path used to
+  be emitted only for `rt_vecs_push_i64`, i.e. inside the standard-library
+  wrapper. Calls to `vec::push::i64` from user code now take the same path, so
+  the unchecked lowering above applies to the caller's own code and the wrapper
+  is not a separate call frame.
+- **Introsort replaces the Lomuto quicksort.** `vec::sort` now uses
+  median-of-three Hoare partitioning, insertion sort for ranges of 16 or fewer,
+  and a heapsort fallback after `2*log2(n)` partitions, recursing into the
+  smaller side so stack depth stays logarithmic. `sort_introsort` fell from
+  14 ms to 11 ms.
+
+### Standard library
+- **First bootstrap step: leaf vector operations move from the C PAL into
+  Mire.** `vec::first`, `vec::last`, `vec::clear`, `vec::contains::i64`,
+  `vec::index::i64` and `vec::reverse` are now written in `mire/src/alloc/vec`
+  against the header layout instead of forwarding to tcc-compiled
+  `rt_vecs_*`/`rt_lists_*` functions. The loops are compiled by LLVM, the empty
+  vector panic still goes through `rt_panic_loc`, and `reverse` reuses the
+  `with_capacity` fast path whose pushes the new pass leaves unchecked.
+
+### Benchmarks
+- **Per-kernel peak RSS is reported.** `bench/run.sh measure` gained three
+  columns (Rust RSS, C RSS, Mire RSS) in a new table order: Kernel, Workload,
+  Rust -O3, Rust RSS, C -O3, C RSS, Mire -O3, Mire RSS, Mire/Rust, Mire/C.
+  They are measured by a small `LD_PRELOAD` object that reads `VmHWM` from
+  `/proc/self/status` inside the process at exit: `ru_maxrss` from any
+  fork-based launcher inherits the launcher's address space and reported 13 MB
+  for every binary, while `/usr/bin/time` is not installed on every machine
+  this runs on. The table also prints the noop-program baseline so the kernel's
+  own footprint can be derived.
+- **The Rust `alloc_pressure` leg now allocates.** Without a barrier LLVM
+  proved that only `len` and `v[0]` were observed and deleted the vector, the
+  eight stores and the `malloc`/`free` pair; the leg reported 26 ms for a
+  program that never allocated. `alloc_pressure.rs` now calls
+  `black_box(v.as_mut_ptr())`, the counterpart of the C leg's
+  `bench_alloc_barrier`, and the three legs perform the same work again.
+- **12 new benchmarks added across four categories** (kernel count 30 → 43,
+  40 verified, 3 with known map issues):
+  - Memory/allocator: `alloc_small_objects`, `alloc_large_objects`,
+    `alloc_fragmentation`, `memory_copy`
+  - HashMap: `map_collision`, `map_lookup`, `map_resize`
+  - Strings: `string_concat`, `string_search`
+  - CPU/codegen: `call_overhead`, `branch_prediction`, `cache_locality`
+- Benchmark table format updated: new column order, C RSS column added,
+  noise floor documented, baseline subtraction explained.
+
+## 4.4.16 - 2026-11-07
+### Compiler & Runtime Performance
+- **Vector allocation uses libc `malloc` directly.** The fast path in
+  `vec::with::capacity::i64` now calls `malloc` instead of the PAL wrapper
+  `pal_alloc`, and the compiler emits a direct `@free` for dropped vectors.
+  This removes the tcc wrapper call from the hottest allocation path.
+  `alloc_pressure` improved from 91 ms to 74-76 ms (1.19-1.26× C).
+- **Managed string allocator inlined.** `rt_managed_alloc` and `rt_managed_free`
+  were flattened: the growth-cap loop, size-class index (branch table instead
+  of `__builtin_clzll`), and free-list pop/push are written out in the
+  allocation function so tcc cannot turn the helpers into real calls.
+  `numeric_format` improved from 201 ms to 158 ms (0.55× C).
+- **Map lookup fast path.** `map::get::i64` for `map[str i64]` calls a single
+  flat runtime function (`rt_maps_get_i64_fast`) that performs the FNV-1a hash,
+  bucket probe, and key comparison in one C function instead of a ~10-call chain.
+  The runtime also stores the key length in the unused `key_i64` slot for string
+  entries, avoiding a header read on each probe. `map_ops` improved from 313 ms
+  to 150 ms (1.26× C).
+- **Vector drop inlined.** The `MirOp::Drop` for `Ownership::List` emits the
+  same null-guarded `@free` of the header word that `vec::with::capacity`
+  uses, removing the `rt_list_free` call from the drop path.
+- **String vector operations.** Added `vec::push::str`, `vec::pop::str`,
+  `vec::get::str`, `vec::with::capacity::str` with proper managed-string
+  reference counting in the runtime (`rt_managed_retain` on push, `rt_managed_free`
+  on pop). New benchmark `vec_strings` (168890 checksum).
+- **Small integer string cache (0-9999).** Precomputed cache in
+  `rt_i64_to_string` and `rt_string_concat_literal_i64` avoids division loops
+  for common cases (map_ops i%1024). **`map_ops`: 271 ms → 150 ms (2× speedup)**.
+- **Memory statistics tracking.** The managed allocator now tracks allocation
+  count, bytes allocated/freed, current usage, and peak usage. These are
+  printed to stderr at program exit via a codegen-injected call to
+  `rt_print_mem_stats()` in the main function's terminator.
+
+### Benchmark suite expansion
+- Total kernels: 30 (was 23)
+- New kernels: `map_growth`, `map_int_keys`, `map_iter`, `map_mixed`,
+  `map_remove`, `string_builder`, `word_count`, `vec_strings`
+- All kernels verify against C and Rust reference implementations.
+
 ## 4.4.15 - 2026-11-06
 ### Compiler & Runtime Performance
 - **Array indices stay 64-bit in LLVM IR.** The generic `getelementptr` path

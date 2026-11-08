@@ -69,7 +69,7 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> InstCompile {
             Some(n) => n,
             None => "",
         };
-        if name == "rt_vecs_push_i64" && args.len() == 2 {
+        if (name == "rt_vecs_push_i64" || name == "vec.push.i64") && args.len() == 2 {
             return compile_vec_push_i64(inst, ctx, args);
         }
         if name == "rt_vecs_len" && args.len() == 1 {
@@ -85,6 +85,17 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> InstCompile {
             return compile_vec_free(ctx, args);
         }
         let _ = ret_ty;
+    }
+
+    // A dropped vector is the same null-guarded `free` of the header word that
+    // an explicit `rt_list_free` call lowers to. Take that path here too: the
+    // drop used to emit a plain `call @rt_list_free`, which is a tcc-compiled
+    // function and stays an out-of-line call even though it only forwards to
+    // `free`. A loop that allocates and drops a vector per iteration
+    // (alloc_pressure does it eight million times) then pays that call on
+    // every pass for nothing.
+    if let MirOp::Drop(val, Ownership::List) = &inst.op {
+        return compile_vec_free(ctx, std::slice::from_ref(val));
     }
 
     let mut extra = Vec::new();
@@ -1146,6 +1157,12 @@ fn compile_vec_free(ctx: &mut LlvmCtx, args: &[MirValue]) -> InstCompile {
     let null_label = format!("bb_free_null_{}", null_bb);
     let free_label = format!("bb_free_call_{}", free_bb);
     let done_label = format!("bb_free_done_{}", done_bb);
+    // Defined without the sigil, referenced with it: see the note in
+    // compile_vec_push_i64. The bare name in a `br` makes `opt` reject the
+    // module with "expected value token".
+    let null_ref = format!("%{}", null_label);
+    let free_ref = format!("%{}", free_label);
+    let done_ref = format!("%{}", done_label);
 
     let is_null = tmp_extra(ctx, "i1");
     let before = vec![format!(
@@ -1154,7 +1171,7 @@ fn compile_vec_free(ctx: &mut LlvmCtx, args: &[MirValue]) -> InstCompile {
     )];
     let term = format!(
         "br i1 {}, label {}, label {}",
-        is_null, null_label, free_label
+        is_null, null_ref, free_ref
     );
 
     // A list pointer addresses the length word, so the block the PAL owns is
@@ -1170,8 +1187,8 @@ fn compile_vec_free(ctx: &mut LlvmCtx, args: &[MirValue]) -> InstCompile {
         before,
         term,
         successors: vec![
-            (null_label, Vec::new(), Some(format!("br label {}", done_label))),
-            (free_label, free_lines, Some(format!("br label {}", done_label))),
+            (null_label, Vec::new(), Some(format!("br label {}", done_ref))),
+            (free_label, free_lines, Some(format!("br label {}", done_ref))),
             (done_label, Vec::new(), None),
         ],
     }
@@ -1202,6 +1219,44 @@ fn compile_vec_push_i64(
     let (vec_s, _) = resolve_typed(&args[0], ctx);
     let (val_s, _) = resolve_typed(&args[1], ctx);
     let result = format!("%t{}", tmp_result(ctx, "ptr", inst.result));
+
+    // `push_elide` proves that this push cannot exceed the capacity of the
+    // vector it appends to (its allocation site reserved at least as many
+    // elements as the push site can execute). In that case the capacity load,
+    // the compare and the growth branch are all dead: append unconditionally.
+    // The vector stays heap allocated; only the test disappears. On
+    // `alloc_pressure` -- eight million fresh vectors of eight elements -- the
+    // test is the entire gap against the equivalent C loop.
+    let unchecked = inst
+        .result
+        .map(|r| ctx.unchecked_pushes.contains(&r))
+        .unwrap_or(false);
+    if unchecked {
+        let data_tmp = tmp_extra(ctx, "ptr");
+        let len_tmp = tmp_extra(ctx, "i64");
+        let slot_tmp = tmp_extra(ctx, "ptr");
+        let new_len_tmp = tmp_extra(ctx, "i64");
+        let mut lines = Vec::new();
+        lines.push(format!("{} = load i64, ptr {}", len_tmp, vec_s));
+        lines.push(format!(
+            "{} = getelementptr ptr, ptr {}, i64 1",
+            data_tmp, vec_s
+        ));
+        lines.push(format!(
+            "{} = getelementptr i64, ptr {}, i64 {}",
+            slot_tmp, data_tmp, len_tmp
+        ));
+        lines.push(format!("store i64 {}, ptr {}", val_s, slot_tmp));
+        lines.push(format!("{} = add i64 {}, 1", new_len_tmp, len_tmp));
+        lines.push(format!("store i64 {}, ptr {}", new_len_tmp, vec_s));
+        // The result is the same pointer the caller passed in. `getelementptr
+        // ... i64 0` is a zero-offset copy of it; LLVM folds the two together.
+        lines.push(format!(
+            "{} = getelementptr i8, ptr {}, i64 0",
+            result, vec_s
+        ));
+        return InstCompile::Normal(lines);
+    }
 
     let slow_bb = ctx.next_extra;
     ctx.next_extra += 1;

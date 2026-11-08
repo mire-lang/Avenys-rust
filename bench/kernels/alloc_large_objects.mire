@@ -1,0 +1,24 @@
+// A2: large object allocation. Difficulty: hard.
+// Allocations of large blocks (4KB-1MB).
+// Measures performance of large allocations, mmap, and page management.
+load mire::vec
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set i = 0 :i64 mut
+    while i < 50000 {
+        // Vary size from 4KB to 1MB
+        set sz = 4096 + (i % 252) * 4096
+        set v = vec::with::capacity::i64(sz / 8) mut
+        set j = 0 :i64 mut
+        while j < 8 {
+            set v = vec::push::i64(v, i + j)
+            set j += 1
+        }
+        set seed = (seed + vec::len(v) + vec::get::i64(v, 0)) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

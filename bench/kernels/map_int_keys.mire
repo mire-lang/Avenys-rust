@@ -1,0 +1,23 @@
+// M10: map with string keys (integer-like). Difficulty: medium.
+// Uses string keys with integer content, exercises the string-key path.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set m = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    while i < 100000 {
+        set k = str::from::i64(i)
+        set m = map::set::i64(m k i * 13 + 17)
+        set i += 1
+    }
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 100000 {
+        set k = str::from::i64(i)
+        set acc = (acc + map::get::i64(m k)) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

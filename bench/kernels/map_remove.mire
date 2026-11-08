@@ -1,0 +1,36 @@
+// M11: map remove + insert mix. Difficulty: hard.
+// Alternates insert and remove, then verifies survivors.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set m = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    while i < 5000 {
+        set k = str::concat("key", str::from::i64(i))
+        set m = map::set::i64(m k i * 2 + 3)
+        set i += 1
+    }
+    set i = 0 :i64 mut
+    while i < 2500 {
+        set k = str::concat("key", str::from::i64(i))
+        map::remove(m k)
+        set i += 1
+    }
+    set i = 5000 :i64 mut
+    while i < 7500 {
+        set k = str::concat("key", str::from::i64(i))
+        set m = map::set::i64(m k i * 2 + 3)
+        set i += 1
+    }
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    while i < 7500 {
+        set k = str::concat("key", str::from::i64(i))
+        set v = map::get::i64(m k)
+        set acc = (acc + v) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

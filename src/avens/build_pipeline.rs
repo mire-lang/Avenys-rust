@@ -505,6 +505,25 @@ let (mut c_source_files, c_sources_hash) = if options.emit_binary {
                     }
                 }
             }
+            // `MIRE_DUMP_MIR=<name substring>` prints the optimized MIR of the
+            // matching functions (all of them for an empty value). It is the
+            // debugging counterpart of `MIRE_DUMP_IR` and, like it, inert
+            // unless the variable is set.
+            if let Ok(filter) = std::env::var("MIRE_DUMP_MIR") {
+                for f in &mir.functions {
+                    if !filter.is_empty() && !f.name.contains(filter.as_str()) {
+                        continue;
+                    }
+                    eprintln!("[MIR] function: {} ({} blocks)", f.name, f.blocks.len());
+                    for b in &f.blocks {
+                        eprintln!("  block {} ({}):", b.id, b.label);
+                        for inst in &b.insts {
+                            eprintln!("    {:?} -> {:?}", inst.result, inst.op);
+                        }
+                        eprintln!("    term: {:?}", b.terminator);
+                    }
+                }
+            }
             let (ir, extern_libs) =
                 mir_to_llvm_with_filename(&mir, source_filename, options.c_defs.runtime);
             phase_mir_time = build_start.elapsed().as_millis() as u64;
@@ -523,6 +542,14 @@ let (mut c_source_files, c_sources_hash) = if options.emit_binary {
             (ir, extern_libs)
         }
     };
+    // `MIRE_DUMP_IR=<path>` writes the generated LLVM module for inspection.
+    // It is a debugging aid for codegen work (this is the only place the IR is
+    // materialised before `opt`), and is inert unless the variable is set.
+    if let Ok(path) = std::env::var("MIRE_DUMP_IR") {
+        if let Err(e) = std::fs::write(&path, &ir) {
+            eprintln!("[MIR] could not write {}: {}", path, e);
+        }
+    }
     // Scan IR for used symbols (used for both tier enforcement and selective .c compilation).
     let mut used = collect_used_symbols(&ir);
     // The generated native entry point initializes the sandbox before calling

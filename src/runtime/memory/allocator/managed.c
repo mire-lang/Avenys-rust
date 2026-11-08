@@ -32,6 +32,15 @@ static size_t arena_pos = 0;    // bytes used
 static size_t arena_cap = 0;    // bytes allocated (always ARENA_MAX_SIZE after init)
 static char *free_lists[NUM_SIZE_CLASSES] = {NULL};
 
+// ── Memory statistics ────────────────────────────────────────────────────
+static int64_t mem_alloc_count = 0;
+static int64_t mem_free_count = 0;
+static int64_t mem_alloc_bytes = 0;
+static int64_t mem_free_bytes = 0;
+static int64_t mem_peak_bytes = 0;
+static int64_t mem_current_bytes = 0;
+static int mem_stats_printed = 0;
+
 static int arena_ensure_initialized(void) {
     if (arena_base) return 1;
     arena_base = (char *)pal_memory_reserve((int64_t)ARENA_MAX_SIZE);
@@ -43,17 +52,17 @@ static int arena_ensure_initialized(void) {
 
 // ── Size class helpers ────────────────────────────────────────────────────
 
-// SIZE_CLASSES are 16 * 2^i for i=0..8. Compute index directly using bit ops.
-// For total_size <= 16: idx 0; <= 32: idx 1; ... <= 4096: idx 8; > 4096: idx 8.
+// SIZE_CLASSES are 16 * 2^i for i=0..8, so the class index is the ceiling of
+// log2(total / 16), clamped to 8. This used to be `63 - __builtin_clzll(...)`,
+// which tcc lowers to a real call to a helper (it has no clz instruction
+// lowering), and that call showed up in allocation profiles. Three compares
+// reach the same index and stay inline.
 static inline int size_class_index(size_t total_size) {
-    if (total_size <= 16) return 0;
-    // Find position of highest set bit in (total_size - 1) / 16
-    // Equivalent to: floor(log2((total_size + 15) / 16))
-    size_t adjusted = (total_size + 15) >> 4;  // divide by 16, round up
-    // Count leading zeros to find highest bit position
-    int idx = 63 - __builtin_clzll(adjusted);
-    if (idx > 8) idx = 8;
-    return idx;
+    if (total_size <= 32) return total_size <= 16 ? 0 : 1;
+    if (total_size <= 128) return total_size <= 64 ? 2 : 3;
+    if (total_size <= 512) return total_size <= 256 ? 4 : 5;
+    if (total_size <= 1024) return 6;
+    return total_size <= 2048 ? 7 : 8;
 }
 
 // ── Free list management ────────────────────────────────────────────────
@@ -204,27 +213,49 @@ char *rt_strdup_raw_n(const char *src, size_t len) {
 // ── Arena allocation with size-class free lists ────────────────────────
 
 char *rt_managed_alloc(size_t len) {
-    size_t cap = rt_string_growth_cap(len);
+    // This function is compiled by tcc, which does not inline the `static
+    // inline` helpers below: every one of them became a real call on the
+    // numeric_format path (two million round trips). The growth-cap loop,
+    // size-class index and free-list pop are written out here so an
+    // allocation stays a single call from the caller.
+    size_t cap = 16;
+    while (cap < len) cap += cap >> 1;
     size_t total = sizeof(MireManagedString) + cap + 1;
-    // Align to 16 bytes for performance
     total = (total + 15) & ~(size_t)15;
 
-    // Try to find a free block first
-    int idx = size_class_index(total);
-    char *ptr = free_list_pop_fast(idx);
-    if (ptr) {
-        MireManagedString *header = (MireManagedString *)ptr;
+    int idx;
+    if (total <= 32) {
+        idx = total <= 16 ? 0 : 1;
+    } else if (total <= 128) {
+        idx = total <= 64 ? 2 : 3;
+    } else if (total <= 512) {
+        idx = total <= 256 ? 4 : 5;
+    } else if (total <= 1024) {
+        idx = 6;
+    } else {
+        idx = total <= 2048 ? 7 : 8;
+    }
+
+    char *header_ptr = free_lists[idx];
+    if (header_ptr) {
+        MireManagedString *header = (MireManagedString *)header_ptr;
+        FreeBlock *block = (FreeBlock *)(header_ptr + sizeof(MireManagedString));
+        free_lists[idx] = block->next;
         header->len = len;
         header->cap = cap;
         // flags is already MIRE_STR_MANAGED from previous use
         header->utf8_cp = 0;
         header->refs = 1;
         header->data[len] = '\0';
+        // Track allocation from free list (reuse)
+        mem_alloc_count++;
+        mem_alloc_bytes += total;
+        mem_current_bytes += total;
+        if (mem_current_bytes > mem_peak_bytes) mem_peak_bytes = mem_current_bytes;
         return header->data;
     }
 
-    // Allocate from arena (ensure initialized first)
-    if (!arena_ensure_initialized()) return NULL;
+    if (!arena_base && !arena_ensure_initialized()) return NULL;
     if (arena_pos + total > arena_cap) return NULL;
     MireManagedString *header = (MireManagedString *)(arena_base + arena_pos);
     arena_pos += total;
@@ -234,6 +265,12 @@ char *rt_managed_alloc(size_t len) {
     header->utf8_cp = 0;
     header->refs = 1;
     header->data[len] = '\0';
+    // Track new arena allocation
+    mem_alloc_count++;
+    mem_alloc_bytes += total;
+    mem_current_bytes += total;
+    if (mem_current_bytes > mem_peak_bytes) mem_peak_bytes = mem_current_bytes;
+
     return header->data;
 }
 
@@ -294,18 +331,42 @@ void rt_managed_retain(char *data_ptr) {
 }
 
 void rt_managed_free(char *value) {
-    if (!value) return;
-    if (!rt_managed_is_managed(value)) return;
-    MireManagedString *hdr = rt_string_header(value);
+    // Flattened for the same reason as rt_managed_alloc: tcc turns every
+    // `static inline` helper into a real call. A drop to zero refs is the
+    // common case for the temporary strings numeric_format creates, so the
+    // managed check, size class and free-list push are written out here.
+    if (!value || !arena_base) return;
+    size_t offset = (size_t)(value - arena_base);
+    if (offset < offsetof(MireManagedString, data) || offset >= arena_pos) return;
+    MireManagedString *hdr = (MireManagedString *)(value - offsetof(MireManagedString, data));
+    if (!(hdr->flags & MIRE_STR_MANAGED)) return;
     if (hdr->refs <= 0) return;
     hdr->refs--;
-    if (hdr->refs == 0) {
-        // Add to free list for reuse
-        MireManagedString *hdr = rt_string_header(value);
-        size_t total = sizeof(MireManagedString) + hdr->cap + 1;
-        total = (total + 15) & ~(size_t)15;
-        free_list_add(value - offsetof(MireManagedString, data), total);
+    if (hdr->refs != 0) return;
+
+    // Add to free list for reuse.
+    size_t total = sizeof(MireManagedString) + hdr->cap + 1;
+    total = (total + 15) & ~(size_t)15;
+    int idx;
+    if (total <= 32) {
+        idx = total <= 16 ? 0 : 1;
+    } else if (total <= 128) {
+        idx = total <= 64 ? 2 : 3;
+    } else if (total <= 512) {
+        idx = total <= 256 ? 4 : 5;
+    } else if (total <= 1024) {
+        idx = 6;
+    } else {
+        idx = total <= 2048 ? 7 : 8;
     }
+    FreeBlock *block = (FreeBlock *)(hdr + 1);
+    block->size = total;
+    block->next = free_lists[idx];
+    free_lists[idx] = (char *)hdr;
+    // Track deallocation
+    mem_free_count++;
+    mem_free_bytes += total;
+    if (mem_current_bytes >= total) mem_current_bytes -= total;
 }
 
 void rt_managed_cleanup_all(void) {
@@ -318,6 +379,34 @@ void rt_managed_cleanup_all(void) {
     for (int i = 0; i < NUM_SIZE_CLASSES; i++) {
         free_lists[i] = NULL;
     }
+}
+
+// ── Memory statistics ────────────────────────────────────────────────────
+
+int64_t rt_mem_alloc_count(void) { return mem_alloc_count; }
+int64_t rt_mem_alloc_bytes(void) { return mem_alloc_bytes; }
+int64_t rt_mem_free_count(void) { return mem_free_count; }
+int64_t rt_mem_free_bytes(void) { return mem_free_bytes; }
+int64_t rt_mem_current_bytes(void) { return mem_current_bytes; }
+int64_t rt_mem_peak_bytes(void) { return mem_peak_bytes; }
+void rt_mem_reset_stats(void) {
+    mem_alloc_count = 0;
+    mem_alloc_bytes = 0;
+    mem_free_count = 0;
+    mem_free_bytes = 0;
+    mem_current_bytes = 0;
+    mem_peak_bytes = 0;
+}
+
+// Print memory statistics to stderr (called via codegen at program exit)
+void rt_print_mem_stats(void) {
+    fprintf(stderr, "MEM: alloc_count=%lld\n", (long long)mem_alloc_count);
+    fprintf(stderr, "MEM: alloc_bytes=%lld\n", (long long)mem_alloc_bytes);
+    fprintf(stderr, "MEM: free_count=%lld\n", (long long)mem_free_count);
+    fprintf(stderr, "MEM: free_bytes=%lld\n", (long long)mem_free_bytes);
+    fprintf(stderr, "MEM: current_bytes=%lld\n", (long long)mem_current_bytes);
+    fprintf(stderr, "MEM: peak_bytes=%lld\n", (long long)mem_peak_bytes);
+    fflush(stderr);
 }
 
 // ── Register / unregister stubs (ABI compat, no-ops) ──────────────────

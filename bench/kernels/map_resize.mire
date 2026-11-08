@@ -1,0 +1,28 @@
+// B3: hash map resize benchmark. Difficulty: hard.
+// Repeatedly inserts until multiple resizes occur.
+// Measures rehashing cost, growth strategy, and resize performance.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set m = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    // Insert 20000 keys, triggering multiple resizes
+    while i < 20000 {
+        set k = str::concat_literal_i64("resize_key" i)
+        set m = map::set::i64(m k i)
+        set seed = (seed + i) % 1000003
+        set i += 1
+    }
+    // Verify by reading all keys
+    set i = 0 :i64 mut
+    while i < 20000 {
+        set k = str::concat_literal_i64("resize_key" i)
+        set v = map::get::i64(m k)
+        set seed = (seed + v) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

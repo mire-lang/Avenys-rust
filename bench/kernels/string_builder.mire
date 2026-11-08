@@ -1,0 +1,14 @@
+// S5: string builder. Difficulty: hard.
+// Repeatedly appends to a string, measuring concatenation throughput.
+load mire::str
+
+pub fn main: () :i32 {
+    set s = "" :str mut
+    set i = 0 :i64 mut
+    while i < 300 {
+        set s = str::concat(s str::from::i64(i))
+        set i += 1
+    }
+    dasu(str::len(s))
+    return 0 :i32
+}

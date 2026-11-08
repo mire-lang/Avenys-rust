@@ -1,0 +1,32 @@
+// M9: map iteration. Difficulty: medium.
+// Iterates over keys and values of a populated map.
+load mire::map
+load mire::str
+load mire::vec
+
+pub fn main: () :i32 {
+    set m = {} :map[str i64] mut
+    set i = 0 :i64 mut
+    while i < 10000 {
+        set k = str::concat("key", str::from::i64(i))
+        set m = map::set::i64(m k i * 5 + 11)
+        set i += 1
+    }
+    set ks = map::keys(m)
+    set vs = map::values::i64(m)
+    set acc = 0 :i64 mut
+    set i = 0 :i64 mut
+    set n = vec::len(ks)
+    while i < n {
+        set acc = (acc + vec::get::i64(vs i)) % 1000003
+        set i += 1
+    }
+    set i = 0 :i64 mut
+    while i < n {
+        set k = vec::get::str(ks i)
+        set acc = (acc + str::len(k)) % 1000003
+        set i += 1
+    }
+    dasu(str(acc))
+    return 0 :i32
+}

@@ -1,0 +1,27 @@
+// B1: hash map collision benchmark. Difficulty: hard.
+// Inserts keys designed to collide, then looks them up.
+// Measures collision handling, probing, and hashing quality.
+load mire::map
+load mire::str
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set m = {} :map[str i64] mut
+    // Insert 2048 keys with colliding hashes (similar prefixes)
+    set i = 0 :i64 mut
+    while i < 2048 {
+        set k = str::concat_literal_i64("key_collision_" i)
+        set m = map::set::i64(m k i * 3)
+        set i += 1
+    }
+    // Lookup all keys
+    set i = 0 :i64 mut
+    while i < 2000000 {
+        set k = str::concat_literal_i64("key_collision_" i % 2048)
+        set v = map::get::i64(m k)
+        set seed = (seed + v) % 1000003
+        set i += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}
