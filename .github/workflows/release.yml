@@ -172,7 +172,7 @@ jobs:
           cat > owl-src/native/mire-config.toml <<'EOF'
           [project]
           name = "owl"
-          version = "1.3.0"
+          version = "1.3.1"
           entry = "code/main.mire"
 
           [build]
