@@ -150,7 +150,7 @@ jobs:
         run: |
           mkdir -p ~/.owl/libs
           cp -a kioto-src ~/.owl/libs/kioto
-          cp -a mire-src ~/.owl/libs/mire
+          cp -a mire-src ~/.owl/libs/mire@2.1.0-beta
 
       - name: Install build prerequisites + libsodium (for bundling)
         run: |

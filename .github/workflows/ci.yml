@@ -98,7 +98,7 @@ jobs:
       - name: Setup local mire stdlib for tests
         run: |
           mkdir -p "$HOME/.owl/libs"
-          cp -a "$GITHUB_WORKSPACE/mire-src" "$HOME/.owl/libs/mire"
+          cp -a "$GITHUB_WORKSPACE/mire-src" "$HOME/.owl/libs/mire@2.1.0-beta"
           cp -a kioto-src "$HOME/.owl/libs/kioto"
 
       - name: Shim libsodium soname for prebuilt test fixtures
@@ -123,7 +123,7 @@ jobs:
           rm -rf "$HOME/.owl/libs" /tmp/avenys-tests-cache
           mkdir -p "$HOME/.owl/libs"
           cp -a kioto-src "$HOME/.owl/libs/kioto"
-          cp -a "$GITHUB_WORKSPACE/mire-src" "$HOME/.owl/libs/mire"
+          cp -a "$GITHUB_WORKSPACE/mire-src" "$HOME/.owl/libs/mire@2.1.0-beta"
           ./target/release/mire test tests -j 8 --release --log \
             --lib-dir "$HOME/.owl/libs" --cache-dir /tmp/avenys-tests-cache
 
