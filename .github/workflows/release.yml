@@ -139,7 +139,7 @@ jobs:
           path: owl-src
           ref: main
 
-      - name: Checkout mire stdlib (mire@2.0.0-beta, PAL bindings + nested namespaces)
+      - name: Checkout mire stdlib (mire@2.1.0-beta, PAL bindings + nested namespaces)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/mire-lib
