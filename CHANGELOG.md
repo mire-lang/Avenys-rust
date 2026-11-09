@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.4.17 - 2026-11-08
+## 4.4.17 - 2026-11-09
 ### Compiler & Runtime Performance
 - **Dead capacity checks on vector pushes are removed.** A new `push_elide`
   pass in the MIR code generator proves that a `vec::with::capacity::i64(N)`
@@ -10,7 +10,7 @@
   recovers loop trip counts from the `while i < constant` shape, and requires
   each push to be dominated by the allocation. Anything it cannot bound keeps
   the checked lowering, so the pass can only remove a test, never change
-  behaviour. `alloc_pressure` fell from 76 ms to 63 ms.
+  behaviour. `alloc_pressure` fell from 76 ms to 64 ms (1.03× C, 0.98× Rust).
 - **`vec::push::i64` is lowered at the call site.** The inline push path used to
   be emitted only for `rt_vecs_push_i64`, i.e. inside the standard-library
   wrapper. Calls to `vec::push::i64` from user code now take the same path, so
@@ -20,7 +20,7 @@
   median-of-three Hoare partitioning, insertion sort for ranges of 16 or fewer,
   and a heapsort fallback after `2*log2(n)` partitions, recursing into the
   smaller side so stack depth stays logarithmic. `sort_introsort` fell from
-  14 ms to 11 ms.
+  14 ms to 12 ms.
 
 ### Standard library
 - **First bootstrap step: leaf vector operations move from the C PAL into
@@ -30,6 +30,8 @@
   `rt_vecs_*`/`rt_lists_*` functions. The loops are compiled by LLVM, the empty
   vector panic still goes through `rt_panic_loc`, and `reverse` reuses the
   `with_capacity` fast path whose pushes the new pass leaves unchecked.
+- **`vec::push_str` added.** In-place string append that reuses the string's
+  buffer when refcount is 1, avoiding allocation for repeated concatenation.
 
 ### Benchmarks
 - **Per-kernel peak RSS is reported.** `bench/run.sh measure` gained three

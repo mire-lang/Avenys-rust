@@ -5,13 +5,13 @@ load mire::str
 
 pub fn main: () :i32 {
     set seed = SEED_OPACA mut
-    // Scenario 1: without reserved capacity
+    // Scenario 1: without reserved capacity - use push_str for in-place growth
     set i = 0 :i64 mut
     while i < 50000 {
         set s = "" mut
         set j = 0 :i64 mut
         while j < 10 {
-            set s = str::concat(s str::concat_literal_i64("chunk" j))
+            set s = str::push_str(s str::concat_literal_i64("chunk" j))
             set j += 1
         }
         set seed = (seed + str::len(s)) % 1000003

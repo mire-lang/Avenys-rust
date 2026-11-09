@@ -100,6 +100,13 @@ __attribute__((noinline)) char *rt_string_concat_n(size_t count, const char *con
     return out;
 }
 
+// Fast memory copy: the compiler lowers this to LLVM memcpy intrinsic
+// for vectorized memcpy. The C fallback is a simple memcpy.
+void rt_memcpy_fast(void *dst, const void *src, int64_t size) {
+    if (size <= 0) return;
+    memcpy(dst, src, (size_t)size);
+}
+
 int64_t rt_strings_char_at(const char *s, int64_t index) {
     if (!s || index < 0) return 0;
     size_t len = str_byte_len(s);

@@ -84,6 +84,10 @@ pub(crate) fn compile_inst(inst: &MirInst, ctx: &mut LlvmCtx) -> InstCompile {
         if name == "rt_list_free" && args.len() == 1 {
             return compile_vec_free(ctx, args);
         }
+        // Fast memory copy: lower to LLVM memcpy intrinsic
+        if name == "rt_memcpy_fast" && args.len() == 3 {
+            return compile_memcpy_fast(inst, ctx, args);
+        }
         let _ = ret_ty;
     }
 
@@ -1191,6 +1195,32 @@ fn compile_vec_free(ctx: &mut LlvmCtx, args: &[MirValue]) -> InstCompile {
             (free_label, free_lines, Some(format!("br label {}", done_ref))),
             (done_label, Vec::new(), None),
         ],
+    }
+}
+
+// Fast memory copy: lower to LLVM memcpy intrinsic for vectorized memcpy.
+// Args: dst ptr, src ptr, size in bytes (i64).
+fn compile_memcpy_fast(
+    _inst: &MirInst,
+    ctx: &mut LlvmCtx,
+    args: &[MirValue],
+) -> InstCompile {
+    let (dst_s, _) = resolve_typed(&args[0], ctx);
+    let (src_s, _) = resolve_typed(&args[1], ctx);
+    let (size_s, _) = resolve_typed(&args[2], ctx);
+
+    // LLVM memcpy intrinsic: void @llvm.memcpy.p0.p0.i64(ptr dst, ptr src, i64 len, i1 is_volatile)
+    // The intrinsic returns void, so we just emit the call.
+    let call = format!(
+        "call void @llvm.memcpy.p0.p0.i64(ptr {}, ptr {}, i64 {}, i1 false)",
+        dst_s, src_s, size_s
+    );
+    // The result is void; the instruction result is just a dummy if needed.
+    if let Some(result) = _inst.result {
+        let dummy = format!("%t{} = call void @llvm.memcpy.p0.p0.i64(ptr {}, ptr {}, i64 {}, i1 false)", tmp_result(ctx, "void", Some(result)), dst_s, src_s, size_s);
+        return InstCompile::Normal(vec![dummy]);
+    } else {
+        return InstCompile::Normal(vec![call]);
     }
 }
 

@@ -59,6 +59,14 @@ MIRE_CPU="${MIRE_CPU:-native}"
 # unquoted scalar into words, so "--cpu native" would arrive as one argument.
 MIRE_CPU_ARGS=(--cpu "$MIRE_CPU")
 
+# CPU affinity for measurement: pin to core 0 if taskset is available.
+# This reduces variance from scheduler migrations on short runs.
+if command -v taskset >/dev/null 2>&1; then
+  TASKSET_PREFIX=(taskset -c 0)
+else
+  TASKSET_PREFIX=()
+fi
+
 # Noise floor: results below this value are not meaningful comparisons.
 NOISE_FLOOR_MS=25
 
@@ -206,7 +214,7 @@ EOF
 peak_rss_kb() {
   local out="$WORK/logs/rss.$$.$RANDOM"
   rm -f "$out"
-  MIRE_RSS_FILE="$out" LD_PRELOAD="$RSS_SO" "$1" >/dev/null 2>&1
+  MIRE_RSS_FILE="$out" LD_PRELOAD="$RSS_SO" "${TASKSET_PREFIX[@]}" "$1" >/dev/null 2>&1
   tail -1 "$out" 2>/dev/null
   rm -f "$out"
 }
@@ -247,7 +255,7 @@ time_ms_together() {
     i=1
     while (( i <= ${#names[@]} )); do
       s=$(date +%s%N)
-      output=$("${paths[i]}" 2>/dev/null)
+      output=$("${TASKSET_PREFIX[@]}" "${paths[i]}" 2>/dev/null)
       e=$(date +%s%N)
       ms=$(( (e - s) / 1000000 ))
       if (( ms < ${best[${names[i]}]} )); then

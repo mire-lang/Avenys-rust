@@ -134,6 +134,8 @@ char *rt_string_copy(const char *value);
 char *rt_string_concat(const char *left, const char *right);
 char *rt_string_concat_literal_i64(const char *prefix, int64_t value);
 char *rt_string_concat_n(size_t count, const char *const *parts);
+// Fast memory copy: lower to LLVM memcpy intrinsic
+void rt_memcpy_fast(void *dst, const void *src, int64_t size);
 char *rt_strings_repeat(const char *input, int64_t count);
 char *rt_string_append_owned(char *value, const char *suffix);
 int64_t rt_strings_len(const char *s);
@@ -393,7 +395,6 @@ typedef struct MireDictEntry {
     int64_t hash;
     int64_t next;
     int64_t key_i64;
-    char *key_str;
 } MireDictEntry;
 
 typedef struct {
