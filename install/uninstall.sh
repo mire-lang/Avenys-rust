@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Mire Toolchain Uninstaller v4.4.21
+# Mire Toolchain Uninstaller v4.4.24
 # Removes all components installed by the Mire installer
 #
 # ============================================================
@@ -9,25 +9,25 @@ set -e
 # ============================================================
 #
 # FULL UNINSTALL (interactive):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash
 #
 # FORCE UNINSTALL (non-interactive):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --force
 #
 # DRY RUN (show what would be removed):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --dry-run
 #
 # KEEP LIBS (remove binaries only):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-libs
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-libs
 #
 # KEEP CONFIG (remove binaries and libs, keep config):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-config
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-config
 #
 # KEEP PATH (don't remove PATH from shell profiles):
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-path
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-path
 #
 # SPECIFIC PREFIX:
-#   curl -fsSL .../uninstall.sh | sh -s -- --prefix /usr/local
+#   curl -fsSL .../uninstall.sh | bash -s -- --prefix /usr/local
 #
 # ============================================================
 # END OF SEPARATE LINKS SECTION
