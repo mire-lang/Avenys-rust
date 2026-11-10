@@ -4,6 +4,32 @@ set -e
 # Mire Toolchain Uninstaller
 # Removes all components installed by the Mire installer
 
+# ============================================================
+# SEPARATE UNINSTALLATION LINKS (copy/paste each as needed)
+# ============================================================
+#
+# 1) FULL UNINSTALL (interactive):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+#
+# 2) FORCE UNINSTALL (non-interactive):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
+#
+# 3) DRY RUN (show what would be removed):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
+#
+# 4) KEEP LIBS (remove binaries only):
+#    curl -fsSL .../uninstall.sh | sh -s -- --keep-libs
+#
+# 5) KEEP CONFIG (remove binaries and libs, keep config):
+#    curl -fsSL .../uninstall.sh | sh -s -- --keep-config
+#
+# 6) KEEP PATH (don't remove PATH from shell profiles):
+#    curl -fsSL .../uninstall.sh | sh -s -- --keep-path
+#
+# ============================================================
+# END OF SEPARATE LINKS SECTION
+# ============================================================
+
 # Default installation paths (same as installer)
 if [ "$(id -u)" = "0" ]; then
     DEFAULT_PREFIX="/usr/local"

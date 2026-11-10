@@ -2,11 +2,65 @@
 set -e
 
 # Mire Toolchain Installer
-# 
-# First command: quick install via mireup
-# curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --mireup
 #
-# Or install manually with options
+# ============================================================
+# SEPARATE INSTALLATION LINKS (copy/paste each as needed)
+# ============================================================
+#
+# 1) QUICK INSTALL (mire + owl + kioto):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --mireup
+#
+# 2) INSTALL MIRE COMPILER ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --compiler
+#
+# 3) INSTALL OWL PACKAGE MANAGER ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --owl
+#
+# 4) INSTALL KIOTO LIBRARY ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --kioto
+#
+# 5) INSTALL SDL LIBRARY ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --sdl
+#
+# 6) INSTALL SQLITE LIBRARY ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --sqlite
+#
+# 7) INSTALL WASM LIBRARY ONLY:
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --wasm
+#
+# 8) FULL INTERACTIVE INSTALL (select components):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --interactive
+#
+# 9) BUILD FROM SOURCE (all components):
+#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --from-source
+#
+# 10) UNINSTALL:
+#     curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+#
+# ============================================================
+# DIRECT RELEASE DOWNLOAD LINKS (for manual installation)
+# ============================================================
+#
+# MIRE COMPILER (latest release):
+#   x86_64:   curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/latest/download/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#   aarch64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/latest/download/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#   riscv64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/latest/download/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#
+# OWL PACKAGE MANAGER (latest release):
+#   x86_64:   curl -fsSL https://github.com/mire-lang/owl/releases/latest/download/owl-linux-x86_64.tar.gz
+#   aarch64:  curl -fsSL https://github.com/mire-lang/owl/releases/latest/download/owl-linux-aarch64.tar.gz
+#
+# LIBRARIES (via owl after installation):
+#   owl install mire       # mire stdlib (v2.1.0-beta)
+#   owl install kioto      # kioto stdlib
+#   owl install sdl        # SDL bindings
+#   owl install sqlite     # SQLite bindings
+#   owl install wasm       # WASM support
+#   owl install ilogical   # ilogical library
+#
+# ============================================================
+# END OF SEPARATE LINKS SECTION
+# ============================================================
 
 SCRIPT_URL="${MIRE_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh}"
 MIREUP_URL="${MIREUP_URL:-${SCRIPT_URL}}"
@@ -33,22 +87,30 @@ Usage:
   install.sh [options]
 
 Options:
-  --mireup              Quick default install (owl + kioto + mire)
+  --mireup              Quick default install (mire + owl + kioto)
   --interactive         Interactive menu to select components
   --from-source         Build everything from source
-  --compiler            Also install Mire compiler
-  --prefix <path>       Install prefix
+  --compiler            Install Mire compiler
+  --owl                 Install Owl package manager
+  --kioto               Install Kioto library
+  --sdl                 Install SDL library
+  --sqlite              Install SQLite library
+  --wasm                Install WASM library
+  --prefix <path>       Install prefix (default: /usr/local or ~/.local)
   --yes, -y             Non-interactive
   --help, -h            Show this help
 
 Examples:
-  # Default quick install
-  curl -fsSL .../install.sh | sh -s -- --mireup
+  # Quick install (mire + owl + kioto)
+  curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --mireup
+
+  # Install specific components
+  curl -fsSL .../install.sh | sh -s -- --compiler --owl --kioto
 
   # Interactive selection
   curl -fsSL .../install.sh | sh -s -- --interactive
 
-  # From source
+  # Build from source
   curl -fsSL .../install.sh | sh -s -- --from-source
 USAGE
 }
@@ -57,8 +119,11 @@ MIREUP=0
 INTERACTIVE=0
 FROM_SOURCE=0
 INSTALL_COMPILER=0
-INSTALL_OWL=1
-INSTALL_KIOTO=1
+INSTALL_OWL=0
+INSTALL_KIOTO=0
+INSTALL_SDL=0
+INSTALL_SQLITE=0
+INSTALL_WASM=0
 YES=0
 
 while [ $# -gt 0 ]; do
@@ -67,6 +132,11 @@ while [ $# -gt 0 ]; do
         --interactive) INTERACTIVE=1; shift ;;
         --from-source) FROM_SOURCE=1; shift ;;
         --compiler) INSTALL_COMPILER=1; shift ;;
+        --owl) INSTALL_OWL=1; shift ;;
+        --kioto) INSTALL_KIOTO=1; shift ;;
+        --sdl) INSTALL_SDL=1; shift ;;
+        --sqlite) INSTALL_SQLITE=1; shift ;;
+        --wasm) INSTALL_WASM=1; shift ;;
         --prefix) PREFIX="$2"; BIN_DIR="${PREFIX}/bin"; shift 2 ;;
         --yes|-y) YES=1; shift ;;
         --help|-h) usage; exit 0 ;;
@@ -122,8 +192,6 @@ fix_binary_rpath() {
     local lib_dir="$2"
 
     # Calculate relative path from binary to lib directory
-    # binary is at $BIN_DIR/owl, lib_dir is at $PREFIX/lib/mire
-    # relative path: ../lib/mire
     local rel_path='$ORIGIN/../lib/mire'
 
     if command -v patchelf >/dev/null 2>&1; then
@@ -131,7 +199,6 @@ fix_binary_rpath() {
     fi
 
     # Fallback: create a wrapper script that sets LD_LIBRARY_PATH
-    # Rename original binary to .bin and create wrapper with original name
     local real_binary="${binary}.bin"
     mv "$binary" "$real_binary"
     cat > "$binary" << WRAPEOF
@@ -214,7 +281,7 @@ if [ "$FROM_SOURCE" = "1" ]; then
             cat > native/mire-config.toml << CFGEOF
 [project]
 name = "owl"
-version = "1.3.0"
+version = "1.6.2"
 entry = "code/main.mire"
 
 [build]
@@ -237,7 +304,6 @@ CFGEOF
             if [ -f bin/main ] || [ -f bin/release/main ]; then
                 [ -f bin/release/main ] && cp bin/release/main "$BIN_DIR/owl" || cp bin/main "$BIN_DIR/owl"
                 chmod +x "$BIN_DIR/owl"
-                # Fix RPATH for owl built from source (links against system libsodium)
                 fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
                 echo "owl installed"
             fi
@@ -255,8 +321,9 @@ else
         *) TRIPLE="x86_64-unknown-linux-gnu" ;;
     esac
 
-    if [ "$INSTALL_OWL" = "1" ] && [ "$MIREUP" = "1" -o -z "$(command -v owl 2>/dev/null)" ]; then
-        echo "Installing owl..."
+    # Install owl package manager
+    if [ "$INSTALL_OWL" = "1" ] || [ "$MIREUP" = "1" ]; then
+        echo "Installing owl package manager..."
         LATEST_OWL=$(curl -s "https://api.github.com/repos/mire-lang/owl/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
         if [ -n "$LATEST_OWL" ]; then
             curl -fsSL "https://github.com/mire-lang/owl/releases/download/${LATEST_OWL}/owl-${TRIPLE}.tar.gz" -o /tmp/owl.tar.gz 2>/dev/null || true
@@ -267,16 +334,16 @@ else
                     chmod +x "$BIN_DIR/owl"
                     [ -d /tmp/owl/lib ] && cp /tmp/owl/lib/* "$PREFIX/lib/mire/" 2>/dev/null || true
                     [ -d /tmp/owl/kioto ] && cp -r /tmp/owl/kioto "$OWL_HOME/libs/" 2>/dev/null || true
-                    # Fix RPATH so owl can find bundled libsodium
                     fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
-                    echo "owl installed"
+                    echo "owl installed (${LATEST_OWL})"
                 fi
                 rm -rf /tmp/owl /tmp/owl.tar.gz
             fi
         fi
     fi
 
-    if [ "$INSTALL_COMPILER" = "1" ]; then
+    # Install mire compiler
+    if [ "$INSTALL_COMPILER" = "1" ] || [ "$MIREUP" = "1" ]; then
         echo "Installing mire compiler..."
         LATEST_COMP=$(curl -s "https://api.github.com/repos/mire-lang/Avenys-rust/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
         if [ -n "$LATEST_COMP" ]; then
@@ -289,7 +356,7 @@ else
                     mkdir -p "$PREFIX/lib/mire"
                     [ -d /tmp/compiler/runtime ] && cp -r /tmp/compiler/runtime "$PREFIX/lib/mire/"
                     [ -d /tmp/compiler/pal ] && cp -r /tmp/compiler/pal "$PREFIX/lib/mire/"
-                    echo "mire installed"
+                    echo "mire installed (${LATEST_COMP})"
                 fi
                 rm -rf /tmp/compiler /tmp/mire.tar.gz
             fi
@@ -325,7 +392,7 @@ else
         fi
         if [ "$TCC_INSTALLED" != "1" ]; then
             echo "WARNING: tcc not installed. The mire compiler requires tcc for C object compilation."
-            echo "         Install tcc manually (e.g., 'sudo pacman -S tcc') or use --from-source to install it automatically."
+            echo "         Install tcc manually (e.g., 'sudo apt-get install tcc') or use --from-source to install it automatically."
         fi
     fi
 fi
@@ -334,10 +401,10 @@ fi
 if command -v owl >/dev/null 2>&1; then
     export PATH="$BIN_DIR:$PATH"
     echo ""
-    echo "Installing libraries..."
+    echo "Installing libraries via owl..."
     # Ensure MOR registry
     owl reg 2>/dev/null || true
-    if [ "$INSTALL_KIOTO" = "1" ]; then owl install kioto 2>/dev/null || true; fi
+    if [ "$INSTALL_KIOTO" = "1" ] || [ "$MIREUP" = "1" ]; then owl install kioto 2>/dev/null || true; fi
     if [ "$INSTALL_SDL" = "1" ]; then owl install sdl 2>/dev/null || true; fi
     if [ "$INSTALL_SQLITE" = "1" ]; then owl install sqlite 2>/dev/null || true; fi
     if [ "$INSTALL_WASM" = "1" ]; then owl install wasm 2>/dev/null || true; fi
@@ -361,8 +428,6 @@ else
                 mire)
                     curl -fsSL "https://github.com/mire-lang/mire-lib/archive/refs/heads/main.tar.gz" -o /tmp/mire.tar.gz 2>/dev/null && \
                     tar xzf /tmp/mire.tar.gz -C /tmp && \
-                    for d in /tmp/mire-lib-*/; do [ -f "$d/owl.toml" ] || true; done && \
-                    # Find the right dir
                     for d in /tmp/mire-lib-*/; do cp -r "$d" "$OWL_HOME/libs/mire" 2>/dev/null && break; done && rm -rf /tmp/mire.tar.gz /tmp/mire-lib-* 2>/dev/null || true
                     ;;
             esac
@@ -385,8 +450,8 @@ echo ""
 echo "=============================================="
 echo "  Installation complete!"
 echo "=============================================="
-if [ -f "$BIN_DIR/owl" ]; then echo "  owl: $(file $BIN_DIR/owl 2>/dev/null | grep -o BuildID.* || echo installed)"; fi
-if [ -f "$BIN_DIR/mire" ]; then echo "  mire: $(file $BIN_DIR/mire 2>/dev/null | grep -o BuildID.* || echo installed)"; fi
+if [ -f "$BIN_DIR/owl" ]; then echo "  owl: installed"; fi
+if [ -f "$BIN_DIR/mire" ]; then echo "  mire: installed"; fi
 echo ""
 echo "Restart your shell or run: export PATH=$BIN_DIR:\$PATH"
 echo ""

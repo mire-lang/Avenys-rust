@@ -11,16 +11,10 @@ permissions:
 
 # Produces, for every pushed release tag:
 #   mire-compiler-<triple>.tar.gz   compiler/{mire,runtime,pal} + .sha256
-#   owl-<triple>.tar.gz             owl/{owl,kioto,lib/libsodium.so.23*} + .sha256
 # for <triple> in x86_64-unknown-linux-gnu (amd64), aarch64-unknown-linux-gnu
 # (arm64). riscv64-unknown-linux-gnu is compatible but problematic from precompilation;
-# it must be built and installed by hand (no automated CI publishing). 
+# it must be built and installed by hand (no automated CI publishing).
 # Automated riscv64 builds have been removed from CI/CD.
-#
-# The owl jobs synthesize native/mire-config.toml in-workflow: the owl fork's
-# checked-in copy carries local-only RPATH tweaks, so the release cannot rely
-# on the repo copy. The RPATH points owl at $ORIGIN/../lib/mire, which is where
-# the installer places the bundled libsodium.so.23.
 
 jobs:
   validate-protocol:
@@ -96,136 +90,9 @@ jobs:
             mire-compiler-${{ matrix.triple }}.tar.gz
             mire-compiler-${{ matrix.triple }}.sha256
 
-  owl:
-    name: owl (${{ matrix.triple }})
-    needs: compiler
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            triple: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
-          - arch: aarch64
-            triple: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: mire-compiler-${{ matrix.triple }}
-          path: compiler-artifacts
-
-      - name: Install mire
-        run: |
-          tar xzf compiler-artifacts/mire-compiler-${{ matrix.triple }}.tar.gz -C /tmp
-          sudo install -m 0755 /tmp/compiler/mire /usr/local/bin/mire
-          sudo mkdir -p /usr/local/lib/mire
-          sudo cp -r /tmp/compiler/runtime /usr/local/lib/mire/runtime
-          sudo cp -r /tmp/compiler/pal /usr/local/lib/mire/pal
-          mire --version
-
-      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/Kioto
-          path: kioto-src
-          ref: master
-
-      - name: Checkout owl source (official mire-lang/owl main)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/owl
-          path: owl-src
-          ref: main
-
-      - name: Checkout mire stdlib (mire@2.1.0-beta, PAL bindings + nested namespaces)
-        uses: actions/checkout@v4
-        with:
-          repository: mire-lang/mire-lib
-          path: mire-src
-          ref: main
-
-      - name: Setup owl dependency paths
-        run: |
-          mkdir -p ~/.owl/libs
-          cp -a kioto-src ~/.owl/libs/kioto
-          cp -a mire-src ~/.owl/libs/mire
-
-      - name: Install build prerequisites + libsodium (for bundling)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            wget ca-certificates pkg-config build-essential gcc g++ make \
-            libsodium23 libsodium-dev libzstd-dev libarchive-dev zlib1g-dev \
-            tcc libtcc-dev
-          # The compiler shells out to unversioned opt/llc/clang/ld.lld.
-          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
-          sudo apt-get install -y -qq \
-            llvm-22 llvm-22-dev llvm-22-tools clang-22 lld-22 libpolly-22-dev
-          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
-          # Ensure libsqlite3-dev is available for SQLite tests
-          sudo apt-get install -y -qq libsqlite3-dev 2>/dev/null || true
-
-      - name: Generate avenys config for the owl build
-        run: |
-          cat > owl-src/native/mire-config.toml <<'EOF'
-          [project]
-          name = "owl"
-          version = "1.3.1"
-          entry = "code/main.mire"
-
-          [build]
-          profile = "release"
-          opt-level = 3
-          artifact = "bin"
-          runtime = "minimal"
-          target = "${{ matrix.triple }}"
-
-          [paths]
-          bin = "${{ github.workspace }}/owl-src/bin"
-          cache = "/tmp/owl-archive-cache"
-
-          [cfg]
-          libs = []
-          sources = []
-          link-dirs = []
-          cflags = []
-          EOF
-
-      - name: Build owl
-        working-directory: owl-src
-        run: |
-          mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs"
-
-      - name: Verify owl
-        working-directory: owl-src
-        run: |
-          chmod +x bin/main
-          ./bin/main -V
-
-      - name: Package owl tarball (${{ matrix.triple }})
-        run: |
-          mkdir -p dist/owl/lib
-          cp owl-src/bin/main dist/owl/owl
-          cp -r kioto-src dist/owl/kioto
-          find /usr/lib -name 'libsodium.so.23*' -exec cp -a {} dist/owl/lib/ \;
-          cd dist
-          tar czf ../owl-${{ matrix.triple }}.tar.gz owl/
-          cd ..
-          sha256sum owl-${{ matrix.triple }}.tar.gz > owl-${{ matrix.triple }}.sha256
-
-      - name: Upload owl tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: owl-${{ matrix.triple }}
-          path: |
-            owl-${{ matrix.triple }}.tar.gz
-            owl-${{ matrix.triple }}.sha256
-
   release:
     name: Create Release
-    needs: [compiler, owl]
+    needs: compiler
     if: always() && needs.compiler.result == 'success'
     runs-on: ubuntu-24.04
     steps:
