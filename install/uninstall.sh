@@ -1,42 +1,65 @@
 #!/bin/bash
 set -e
 
-# Mire Toolchain Uninstaller
+# Mire Toolchain Uninstaller v4.4.18
 # Removes all components installed by the Mire installer
-
+#
 # ============================================================
 # SEPARATE UNINSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
 #
-# 1) FULL UNINSTALL (interactive):
-#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+# FULL UNINSTALL (interactive):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
 #
-# 2) FORCE UNINSTALL (non-interactive):
-#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
+# FORCE UNINSTALL (non-interactive):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
 #
-# 3) DRY RUN (show what would be removed):
-#    curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
+# DRY RUN (show what would be removed):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
 #
-# 4) KEEP LIBS (remove binaries only):
-#    curl -fsSL .../uninstall.sh | sh -s -- --keep-libs
+# KEEP LIBS (remove binaries only):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-libs
 #
-# 5) KEEP CONFIG (remove binaries and libs, keep config):
-#    curl -fsSL .../uninstall.sh | sh -s -- --keep-config
+# KEEP CONFIG (remove binaries and libs, keep config):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-config
 #
-# 6) KEEP PATH (don't remove PATH from shell profiles):
-#    curl -fsSL .../uninstall.sh | sh -s -- --keep-path
+# KEEP PATH (don't remove PATH from shell profiles):
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-path
+#
+# SPECIFIC PREFIX:
+#   curl -fsSL .../uninstall.sh | sh -s -- --prefix /usr/local
 #
 # ============================================================
 # END OF SEPARATE LINKS SECTION
 # ============================================================
 
+# Colors for pretty output
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    BOLD='\033[1m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
+fi
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
 # Default installation paths (same as installer)
 if [ "$(id -u)" = "0" ]; then
     DEFAULT_PREFIX="/usr/local"
     IS_ROOT=1
+    SUDO=""
 else
     DEFAULT_PREFIX="$HOME/.local"
     IS_ROOT=0
+    SUDO="sudo"
 fi
 
 PREFIX="${MIRE_PREFIX:-$DEFAULT_PREFIX}"
@@ -52,7 +75,7 @@ REMOVE_PATH=1
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Uninstaller
+Mire Toolchain Uninstaller v4.4.18
 
 Usage:
   uninstall.sh [options]
@@ -91,11 +114,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-echo "=============================================="
-echo "  Mire Toolchain Uninstaller"
-echo "=============================================="
-echo "Prefix: $PREFIX"
-echo "User: $(whoami)"
+echo -e "${BOLD}${BLUE}================================================${NC}"
+echo -e "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.18${NC}"
+echo -e "${BOLD}${BLUE}================================================${NC}"
+echo ""
+log_info "Prefix: ${BOLD}$PREFIX${NC}"
+log_info "User: $(whoami)"
 echo ""
 
 # Collect items to remove
@@ -115,12 +139,12 @@ if [ -d "$OWL_HOME" ]; then
     if [ "$REMOVE_LIBS" = "1" ] && [ "$REMOVE_CONFIG" = "1" ]; then
         TO_REMOVE+=("$OWL_HOME")
     else
-        # Respect --keep-libs/--keep-config: drop only the parts asked for.
         if [ "$REMOVE_LIBS" = "1" ]; then
             [ -d "$OWL_HOME/libs" ] && TO_REMOVE+=("$OWL_HOME/libs")
             [ -d "$OWL_HOME/cache" ] && TO_REMOVE+=("$OWL_HOME/cache")
             [ -d "$OWL_HOME/tmp" ] && TO_REMOVE+=("$OWL_HOME/tmp")
             [ -d "$OWL_HOME/version" ] && TO_REMOVE+=("$OWL_HOME/version")
+            [ -d "$OWL_HOME/modules" ] && TO_REMOVE+=("$OWL_HOME/modules")
         fi
         if [ "$REMOVE_CONFIG" = "1" ]; then
             [ -f "$OWL_HOME/config.toml" ] && TO_REMOVE+=("$OWL_HOME/config.toml")
@@ -144,24 +168,24 @@ if [ "$REMOVE_PATH" = "1" ]; then
 fi
 
 if [ ${#TO_REMOVE[@]} -eq 0 ]; then
-    echo "Nothing to remove. Mire toolchain not found at $PREFIX"
+    log_info "Nothing to remove. Mire toolchain not found at $PREFIX"
     exit 0
 fi
 
-echo "The following will be removed:"
+echo -e "${CYAN}The following will be removed:${NC}"
 for item in "${TO_REMOVE[@]}"; do
     if [[ "$item" == *":"* ]]; then
         file="${item%:*}"
         pattern="${item#*:}"
-        echo "  - PATH entry '$pattern' from $file"
+        echo -e "  ${YELLOW}-${NC} PATH entry '${BOLD}$pattern${NC}' from $file"
     else
-        echo "  - $item"
+        echo -e "  ${YELLOW}-${NC} $item"
     fi
 done
 echo ""
 
 if [ "$DRY_RUN" = "1" ]; then
-    echo "Dry run complete. No changes made."
+    log_info "Dry run complete. No changes made."
     exit 0
 fi
 
@@ -175,45 +199,42 @@ if [ "$FORCE" != "1" ]; then
 fi
 
 echo ""
-echo "Removing..."
+log_info "Removing..."
 
 # Remove binaries and directories
 for item in "${TO_REMOVE[@]}"; do
     if [[ "$item" == *":"* ]]; then
         file="${item%:*}"
         pattern="${item#*:}"
-        # Remove PATH export line from shell profile. -F keeps the prefix
-        # literal; `|| true` covers a profile whose only line was the PATH
-        # export (grep -v then exits 1 with an empty result).
         grep -vF "$pattern" "$file" > "$file.tmp" || true
         mv "$file.tmp" "$file"
-        echo "  Removed PATH entry from $file"
+        log_success "Removed PATH entry from $file"
     elif [ -f "$item" ]; then
         rm -f "$item"
-        echo "  Removed $item"
+        log_success "Removed $item"
     elif [ -d "$item" ]; then
         rm -rf "$item"
-        echo "  Removed directory $item"
+        log_success "Removed directory $item"
     fi
 done
 
 # Clean up empty parent directories
 if [ -d "$PREFIX/lib" ] && [ -z "$(ls -A "$PREFIX/lib" 2>/dev/null)" ]; then
-    rmdir "$PREFIX/lib" 2>/dev/null && echo "  Removed empty $PREFIX/lib"
+    rmdir "$PREFIX/lib" 2>/dev/null && log_success "Removed empty $PREFIX/lib"
 fi
 
 if [ -d "$BIN_DIR" ] && [ -z "$(ls -A "$BIN_DIR" 2>/dev/null)" ]; then
-    rmdir "$BIN_DIR" 2>/dev/null && echo "  Removed empty $BIN_DIR"
+    rmdir "$BIN_DIR" 2>/dev/null && log_success "Removed empty $BIN_DIR"
 fi
 
 if [ "$IS_ROOT" = "1" ] && [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
-    rmdir "$PREFIX" 2>/dev/null && echo "  Removed empty $PREFIX"
+    rmdir "$PREFIX" 2>/dev/null && log_success "Removed empty $PREFIX"
 fi
 
 echo ""
-echo "=============================================="
-echo "  Uninstallation complete!"
-echo "=============================================="
+echo -e "${BOLD}${GREEN}================================================${NC}"
+echo -e "${BOLD}${GREEN}  Uninstallation complete!${NC}"
+echo -e "${BOLD}${GREEN}================================================${NC}"
 echo ""
-echo "Note: You may need to restart your shell for PATH changes to take effect."
+log_info "You may need to restart your shell for PATH changes to take effect."
 echo ""
