@@ -87,26 +87,65 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
 fi
 
-# Progress indicator
+# Progress indicator - robust, no garbage
 spinner_pid=""
+spinner_active=0
+
+# Clean up spinner on exit
+cleanup_spinner() {
+    if [ "$spinner_active" = "1" ]; then
+        kill "$spinner_pid" 2>/dev/null
+        wait "$spinner_pid" 2>/dev/null
+        # Clear the line
+        printf "\r\033[K"
+        spinner_active=0
+    fi
+}
+trap cleanup_spinner EXIT INT TERM
+
 start_spinner() {
     local msg="$1"
-    echo -ne "${CYAN}[${NC} ${msg} ${CYAN}]${NC} "
-    (while true; do for c in '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'; do echo -ne "\r${CYAN}[${NC} ${c} ${msg} ${CYAN}]${NC} "; sleep 0.1; done; done) &
+    # Only use spinner if stdout is a terminal
+    if [ ! -t 1 ]; then
+        echo -e "${CYAN}[...]${NC} $msg"
+        return
+    fi
+    
+    spinner_active=1
+    printf "${CYAN}[${NC} ${msg} ${CYAN}]${NC} "
+    
+    # Run spinner in background with proper cleanup
+    (
+        local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        local i=0
+        while true; do
+            printf "\r${CYAN}[${NC} %c ${msg} ${CYAN}]${NC} " "${chars:i:1}"
+            i=$(( (i + 1) % ${#chars} ))
+            sleep 0.1
+        done
+    ) &
     spinner_pid=$!
 }
 
 stop_spinner() {
     local success="$1"
-    if [ -n "$spinner_pid" ]; then
+    local msg="$2"
+    
+    if [ "$spinner_active" = "1" ]; then
         kill "$spinner_pid" 2>/dev/null
         wait "$spinner_pid" 2>/dev/null
-        spinner_pid=""
+        spinner_active=0
     fi
+    
+    # Clear line and print result
+    if [ -t 1 ]; then
+        printf "\r\033[K"
+    fi
+    
     if [ "$success" = "0" ]; then
-        echo -e "\r${GREEN}[✓]${NC} $1"
+        echo -e "${GREEN}[✓]${NC} $msg"
     else
-        echo -e "\r${RED}[✗]${NC} $1"
+        echo -e "${RED}[✗]${NC} $msg"
     fi
 }
 
