@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Mire Toolchain Installer v4.4.35
+# Mire Toolchain Installer v4.4.17
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -35,28 +35,28 @@ set -e
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.35:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.35 bash -s -- --compiler
+#   Mire compiler v4.4.17:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.17 bash -s -- --compiler
 #
-#   Owl v1.6.2:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
+#   Owl v1.3.0:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.3.0 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.35 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.17 OWL_VERSION=v1.3.0 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.35/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.35/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.35/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.35
+#     x86_64:   curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.17/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.17/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.17/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.17
 #
 #   Owl Package Manager:
-#     x86_64:   curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
-#     aarch64:  curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
-#     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
+#     x86_64:   curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.3.0/owl-linux-x86_64.tar.gz
+#     aarch64:  curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.3.0/owl-linux-aarch64.tar.gz
+#     All:      https://github.com/mire-lang/owl/releases/tag/v1.3.0
 #
-#   Previous versions: replace v4.4.35/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.17/v1.3.0 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -68,8 +68,9 @@ set -e
 # ============================================================
 
 # Default versions (can be overridden via env vars)
-DEFAULT_MIRE_VERSION="${MIRE_VERSION:-v4.4.35}"
-DEFAULT_OWL_VERSION="${OWL_VERSION:-v1.6.2}"
+# NOTE: Use latest KNOWN WORKING releases (tags may not match binary versions)
+DEFAULT_MIRE_VERSION="${MIRE_VERSION:-v4.4.17}"
+DEFAULT_OWL_VERSION="${OWL_VERSION:-v1.3.0}"
 DEFAULT_KIOTO_VERSION="${KIOTO_VERSION:-master}"
 
 SCRIPT_URL="${MIRE_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh}"
@@ -168,7 +169,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.35
+Mire Toolchain Installer v4.4.17
 
 Usage:
   install.sh [options]
@@ -193,11 +194,11 @@ Environment Variables:
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
 Examples:
-  # Quick install (mire + owl + kioto) - latest versions
+  # Quick install (mire + owl + kioto) - latest working versions
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.35 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.17 OWL_VERSION=v1.3.0 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -241,7 +242,7 @@ done
 
 # Print header
 printf "${BOLD}${BLUE}================================================${NC}\n"
-printf "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.35${NC}\n"
+printf "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.17${NC}\n"
 printf "${BOLD}${BLUE}================================================${NC}\n"
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
