@@ -302,7 +302,7 @@ fix_binary_rpath() {
     local rel_path='$ORIGIN/../lib/mire'
 
     if command -v patchelf >/dev/null 2>&1; then
-        patchelf --set-rpath "$rel_path" "$binary" 2>/dev/null && return 0
+        patchelf --set-rpath "$rel_path" "$binary" 2>/dev/null && return 0 || true
     fi
 
     # Fallback: create a wrapper script that sets LD_LIBRARY_PATH
