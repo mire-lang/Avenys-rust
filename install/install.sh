@@ -308,11 +308,11 @@ fix_binary_rpath() {
     # Fallback: create a wrapper script that sets LD_LIBRARY_PATH
     local real_binary="${binary}.bin"
     mv "$binary" "$real_binary"
-    cat > "$binary" << 'WRAPEOF'
+    cat > "$binary" << WRAPEOF
 #!/bin/sh
 # Wrapper for $(basename "$binary") - sets library path for bundled libsodium
-export LD_LIBRARY_PATH="${lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "${real_binary}" "$@"
+export LD_LIBRARY_PATH="${lib_dir}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "${real_binary}" "\$@"
 WRAPEOF
     chmod +x "$binary"
     return 0
