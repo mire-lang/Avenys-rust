@@ -1,9 +1,9 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Mire Toolchain Uninstaller v4.4.34
+# Mire Toolchain Uninstaller v4.4.36
 # Removes all components installed by the Mire installer
-#
+
 # ============================================================
 # SEPARATE UNINSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -27,7 +27,7 @@ set -e
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-path
 #
 # SPECIFIC PREFIX:
-#   curl -fsSL .../uninstall.sh | bash -s -- --prefix /usr/local
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --prefix /usr/local
 #
 # ============================================================
 # END OF SEPARATE LINKS SECTION
@@ -46,72 +46,10 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
 fi
 
-# Progress indicator - robust, no garbage
-spinner_pid=""
-spinner_active=0
-
-# Clean up spinner on exit
-cleanup_spinner() {
-    if [ "$spinner_active" = "1" ]; then
-        kill "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
-        # Clear the line
-        printf "\r\033[K"
-        spinner_active=0
-    fi
-}
-trap cleanup_spinner EXIT INT TERM
-
-start_spinner() {
-    local msg="$1"
-    # Only use spinner if stdout is a terminal
-    if [ ! -t 1 ]; then
-        echo -e "${CYAN}[...]${NC} $msg"
-        return
-    fi
-    
-    spinner_active=1
-    printf "${CYAN}[${NC} ${msg} ${CYAN}]${NC} "
-    
-    # Run spinner in background with proper cleanup
-    (
-        local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-        local i=0
-        while true; do
-            printf "\r${CYAN}[${NC} %c ${msg} ${CYAN}]${NC} " "${chars:i:1}"
-            i=$(( (i + 1) % ${#chars} ))
-            sleep 0.1
-        done
-    ) &
-    spinner_pid=$!
-}
-
-stop_spinner() {
-    local success="$1"
-    local msg="$2"
-    
-    if [ "$spinner_active" = "1" ]; then
-        kill "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
-        spinner_active=0
-    fi
-    
-    # Clear line and print result
-    if [ -t 1 ]; then
-        printf "\r\033[K"
-    fi
-    
-    if [ "$success" = "0" ]; then
-        echo -e "${GREEN}[✓]${NC} $msg"
-    else
-        echo -e "${RED}[✗]${NC} $msg"
-    fi
-}
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_info() { printf "%s%s%s %s\n" "${BLUE}[INFO]${NC}" " " "$1" " "; }
+log_success() { printf "%s%s%s %s\n" "${GREEN}[OK]${NC}" " " "$1" " "; }
+log_warn() { printf "%s%s%s %s\n" "${YELLOW}[WARN]${NC}" " " "$1" " "; }
+log_error() { printf "%s%s%s %s\n" "${RED}[ERROR]${NC}" " " "$1" " "; }
 
 # Default installation paths (same as installer)
 if [ "$(id -u)" = "0" ]; then
@@ -137,7 +75,7 @@ REMOVE_PATH=1
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Uninstaller v4.4.21
+Mire Toolchain Uninstaller v4.4.36
 
 Usage:
   uninstall.sh [options]
@@ -153,13 +91,13 @@ Options:
 
 Examples:
   # Interactive uninstall
-  curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash
   
   # Force uninstall everything
-  curl -fsSL .../uninstall.sh | sh -s -- --force
+  curl -fsSL .../uninstall.sh | bash -s -- --force
   
   # Dry run to see what would be removed
-  curl -fsSL .../uninstall.sh | sh -s -- --dry-run
+  curl -fsSL .../uninstall.sh | bash -s -- --dry-run
 USAGE
 }
 
@@ -176,13 +114,13 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-echo -e "${BOLD}${BLUE}================================================${NC}"
-echo -e "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.21${NC}"
-echo -e "${BOLD}${BLUE}================================================${NC}"
-echo ""
+printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.36${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
+printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
 log_info "User: $(whoami)"
-echo ""
+printf "\n"
 
 # Collect items to remove
 TO_REMOVE=()
@@ -234,17 +172,17 @@ if [ ${#TO_REMOVE[@]} -eq 0 ]; then
     exit 0
 fi
 
-echo -e "${CYAN}The following will be removed:${NC}"
+printf "%s%s%s\n" "${CYAN}The following will be removed:${NC}" "" ""
 for item in "${TO_REMOVE[@]}"; do
     if [[ "$item" == *":"* ]]; then
         file="${item%:*}"
         pattern="${item#*:}"
-        echo -e "  ${YELLOW}-${NC} PATH entry '${BOLD}$pattern${NC}' from $file"
+        printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "PATH entry '${BOLD}$pattern${NC}' from $file" ""
     else
-        echo -e "  ${YELLOW}-${NC} $item"
+        printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "$item" ""
     fi
 done
-echo ""
+printf "\n"
 
 if [ "$DRY_RUN" = "1" ]; then
     log_info "Dry run complete. No changes made."
@@ -256,11 +194,11 @@ if [ "$FORCE" != "1" ]; then
     read -r confirm
     case "$confirm" in
         [yY][eE][sS]|[yY]) ;;
-        *) echo "Aborted."; exit 1 ;;
+        *) printf "Aborted.\n"; exit 1 ;;
     esac
 fi
 
-echo ""
+printf "\n"
 log_info "Removing..."
 
 # Remove binaries and directories
@@ -268,7 +206,8 @@ for item in "${TO_REMOVE[@]}"; do
     if [[ "$item" == *":"* ]]; then
         file="${item%:*}"
         pattern="${item#*:}"
-        grep -vF "$pattern" "$file" > "$file.tmp" || true
+        # Remove PATH export line from shell profile
+        grep -vF "$pattern" "$file" > "$file.tmp" 2>/dev/null || true
         mv "$file.tmp" "$file"
         log_success "Removed PATH entry from $file"
     elif [ -f "$item" ]; then
@@ -293,10 +232,10 @@ if [ "$IS_ROOT" = "1" ] && [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/nu
     rmdir "$PREFIX" 2>/dev/null && log_success "Removed empty $PREFIX"
 fi
 
-echo ""
-echo -e "${BOLD}${GREEN}================================================${NC}"
-echo -e "${BOLD}${GREEN}  Uninstallation complete!${NC}"
-echo -e "${BOLD}${GREEN}================================================${NC}"
-echo ""
+printf "\n"
+printf "%s%s%s\n" "${BOLD}${GREEN}================================================${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${GREEN}  Uninstallation complete!${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${GREEN}================================================${NC}" "" ""
+printf "\n"
 log_info "You may need to restart your shell for PATH changes to take effect."
-echo ""
+printf "\n"
