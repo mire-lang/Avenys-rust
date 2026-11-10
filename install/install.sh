@@ -482,7 +482,10 @@ install_owl() {
     if [ -f /tmp/owl.tar.gz ]; then
         tar xzf /tmp/owl.tar.gz -C /tmp
         # Find owl binary (might be in subdirectory)
-        OWL_BIN=$(find /tmp -name "owl" -type f -executable 2>/dev/null | head -1)
+        OWL_BIN="/tmp/owl/owl"
+        if [ ! -f "$OWL_BIN" ]; then
+            OWL_BIN=$(find /tmp -name "owl" -type f -executable 2>/dev/null | head -1)
+        fi
         if [ -n "$OWL_BIN" ]; then
             cp "$OWL_BIN" "$BIN_DIR/owl"
             chmod +x "$BIN_DIR/owl"
