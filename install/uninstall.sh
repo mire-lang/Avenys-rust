@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Mire Toolchain Uninstaller v4.4.24
+# Mire Toolchain Uninstaller v4.4.25
 # Removes all components installed by the Mire installer
 #
 # ============================================================
