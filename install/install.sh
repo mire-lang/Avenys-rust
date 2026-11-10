@@ -69,9 +69,13 @@ set -e
 
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases (tags may not match binary versions)
-DEFAULT_MIRE_VERSION="${MIRE_VERSION:-v4.4.17}"
-DEFAULT_OWL_VERSION="${OWL_VERSION:-v1.3.0}"
-DEFAULT_KIOTO_VERSION="${KIOTO_VERSION:-master}"
+DEFAULT_MIRE_VERSION="v4.4.17"
+DEFAULT_OWL_VERSION="v1.3.0"
+DEFAULT_KIOTO_VERSION="master"
+
+MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
+OWL_VERSION="${OWL_VERSION:-$DEFAULT_OWL_VERSION}"
+KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 SCRIPT_URL="${MIRE_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh}"
 
@@ -466,9 +470,9 @@ install_owl() {
     
     ARCH=$(uname -m)
     case "$ARCH" in
-        x86_64) TRIPLE="linux-x86_64" ;;
-        aarch64) TRIPLE="linux-aarch64" ;;
-        *) TRIPLE="linux-x86_64" ;;
+        x86_64) TRIPLE="x86_64-unknown-linux-gnu" ;;
+        aarch64) TRIPLE="aarch64-unknown-linux-gnu" ;;
+        *) TRIPLE="x86_64-unknown-linux-gnu" ;;
     esac
     
     # Download from releases
