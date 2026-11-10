@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Mire Toolchain Installer v4.4.31
+# Mire Toolchain Installer v4.4.32
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -35,28 +35,28 @@ set -e
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.31:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.31 bash -s -- --compiler
+#   Mire compiler v4.4.32:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.32 bash -s -- --compiler
 #
 #   Owl v1.6.2:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.31 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.32 OWL_VERSION=v1.6.2 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.31/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.31/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.31/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.31
+#     x86_64:   curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.32/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.32/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  curl -fsSL https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.32/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.32
 #
 #   Owl Package Manager:
 #     x86_64:   curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
 #     aarch64:  curl -fsSL https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
 #     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
 #
-#   Previous versions: replace v4.4.31/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.32/v1.6.2 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -68,7 +68,7 @@ set -e
 # ============================================================
 
 # Default versions (can be overridden via env vars)
-DEFAULT_MIRE_VERSION="${MIRE_VERSION:-v4.4.31}"
+DEFAULT_MIRE_VERSION="${MIRE_VERSION:-v4.4.32}"
 DEFAULT_OWL_VERSION="${OWL_VERSION:-v1.6.2}"
 DEFAULT_KIOTO_VERSION="${KIOTO_VERSION:-master}"
 
@@ -177,7 +177,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.31
+Mire Toolchain Installer v4.4.32
 
 Usage:
   install.sh [options]
@@ -206,7 +206,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.31 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.32 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -250,7 +250,7 @@ done
 
 # Print header
 echo -e "${BOLD}${BLUE}================================================${NC}"
-echo -e "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.31${NC}"
+echo -e "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.32${NC}"
 echo -e "${BOLD}${BLUE}================================================${NC}"
 echo ""
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
