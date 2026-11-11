@@ -348,9 +348,12 @@ install_deps() {
     elif command -v dnf >/dev/null 2>&1; then
         case "$deps_type" in
             build)
+                # Try to install available packages, ignore missing ones
                 $SUDO dnf install -y curl git gcc gcc-c++ clang llvm llvm-devel lld cargo \
-                    pkgconf-pkg-config openssl-devel libsodium-devel zlib-devel zstd-devel \
+                    pkgconf-pkg-config openssl-devel zlib-devel zstd-devel \
                     libarchive-devel patchelf 2>/dev/null || true
+                # Try to install libsodium-devel if available
+                $SUDO dnf install -y libsodium-devel 2>/dev/null || true
                 # Install tcc from source if not available
                 if ! command -v tcc >/dev/null 2>&1; then
                     start_spinner "Installing tcc from source"
@@ -365,7 +368,7 @@ install_deps() {
                 fi
                 ;;
             runtime)
-                $SUDO dnf install -y libsodium zlib zstd libarchive tcc sqlite 2>/dev/null || true
+                $SUDO dnf install -y zlib zstd libarchive sqlite 2>/dev/null || true
                 # Install tcc from source if not available
                 if ! command -v tcc >/dev/null 2>&1; then
                     start_spinner "Installing tcc from source"
