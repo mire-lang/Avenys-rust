@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Mire Toolchain Installer v4.4.36
+# Mire Toolchain Installer v4.4.42
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -35,28 +35,28 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.36:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.36 bash -s -- --compiler
+#   Mire compiler v4.4.42:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 bash -s -- --compiler
 #
 #   Owl v1.6.2:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.36 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.36/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.36/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.36/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.36
+#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.42
 #
 #   Owl Package Manager:
 #     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
 #     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
 #     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
 #
-#   Previous versions: replace v4.4.36/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.42/v1.6.2 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -69,7 +69,7 @@ set -euo pipefail
 
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
-DEFAULT_MIRE_VERSION="v4.4.36"
+DEFAULT_MIRE_VERSION="v4.4.42"
 DEFAULT_OWL_VERSION="v1.6.2"
 DEFAULT_KIOTO_VERSION="master"
 
@@ -173,7 +173,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.36
+Mire Toolchain Installer v4.4.42
 
 Usage:
   install.sh [options]
@@ -193,7 +193,7 @@ Options:
   --help, -h            Show this help
 
 Environment Variables:
-  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.36)
+  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.42)
   OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.2)
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
@@ -202,7 +202,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.36 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -246,7 +246,7 @@ done
 
 # Print header
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.36${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.42${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
