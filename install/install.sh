@@ -350,10 +350,34 @@ install_deps() {
             build)
                 $SUDO dnf install -y curl git gcc gcc-c++ clang llvm llvm-devel lld cargo \
                     pkgconf-pkg-config openssl-devel libsodium-devel zlib-devel zstd-devel \
-                    libarchive-devel patchelf
+                    libarchive-devel patchelf || true
+                # Install tcc from source if not available
+                if ! command -v tcc >/dev/null 2>&1; then
+                    start_spinner "Installing tcc from source"
+                    cd /tmp && rm -rf tinycc && git clone --depth 1 https://github.com/TinyCC/tinycc.git 2>/dev/null && cd tinycc && ./configure --prefix=/usr/local 2>/dev/null && make -j$(nproc) 2>/dev/null && sudo make install 2>/dev/null
+                    stop_spinner 0 "tcc installed from source"
+                fi
+                # Install libsodium from source if not available
+                if ! pkg-config --exists libsodium 2>/dev/null; then
+                    start_spinner "Installing libsodium from source"
+                    cd /tmp && rm -rf libsodium && git clone --depth 1 --branch stable https://github.com/jedisct1/libsodium.git 2>/dev/null && cd libsodium && ./configure --prefix=/usr/local 2>/dev/null && make -j$(nproc) 2>/dev/null && sudo make install 2>/dev/null
+                    stop_spinner 0 "libsodium installed from source"
+                fi
                 ;;
             runtime)
-                $SUDO dnf install -y libsodium zlib zstd libarchive tcc sqlite
+                $SUDO dnf install -y libsodium zlib zstd libarchive tcc sqlite || true
+                # Install tcc from source if not available
+                if ! command -v tcc >/dev/null 2>&1; then
+                    start_spinner "Installing tcc from source"
+                    cd /tmp && rm -rf tinycc && git clone --depth 1 https://github.com/TinyCC/tinycc.git 2>/dev/null && cd tinycc && ./configure --prefix=/usr/local 2>/dev/null && make -j$(nproc) 2>/dev/null && sudo make install 2>/dev/null
+                    stop_spinner 0 "tcc installed from source"
+                fi
+                # Install libsodium from source if not available
+                if ! pkg-config --exists libsodium 2>/dev/null; then
+                    start_spinner "Installing libsodium from source"
+                    cd /tmp && rm -rf libsodium && git clone --depth 1 --branch stable https://github.com/jedisct1/libsodium.git 2>/dev/null && cd libsodium && ./configure --prefix=/usr/local 2>/dev/null && make -j$(nproc) 2>/dev/null && sudo make install 2>/dev/null
+                    stop_spinner 0 "libsodium installed from source"
+                fi
                 ;;
         esac
     elif command -v zypper >/dev/null 2>&1; then
