@@ -1,0 +1,15 @@
+// String addition must not release a local operand that remains live.
+load kioto::strings
+
+@[test]
+pub fn string_add_preserves_live_left_operand: () :bool {
+    set root = strings::copy("tool-home") :str mut
+    set cache = root + "/cache"
+    if root != "tool-home" { return false }
+
+    set index = cache + "/index.toml"
+    if cache != "tool-home/cache" { return false }
+    if index != "tool-home/cache/index.toml" { return false }
+    if root != "tool-home" { return false }
+    return true
+}

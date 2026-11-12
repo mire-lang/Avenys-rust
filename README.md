@@ -1,4 +1,4 @@
-# Avenys v4.4.43
+# Avenys v4.4.44
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -196,6 +196,11 @@ The official registry is at `mire-lang/libs`. Multi-version support:
 ## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+
+### v4.4.44 - 2026-11-12
+**Runtime safety and installation**
+- **String addition preserves live operands.** Code generation leaves ownership decisions to MIR drops instead of treating every LLVM `ptr` temporary as owned. This prevents double frees in complex Owl builds.
+- **ARM installer defaults are verified.** Mire and Owl versions match their embedded release versions.
 
 ### v4.4.43 - 2026-11-12
 **Runtime reliability and release validation**

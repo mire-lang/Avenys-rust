@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eu
 
-# Mire Toolchain Uninstaller v4.4.43
+# Mire Toolchain Uninstaller v4.4.44
 # Removes all components installed by the Mire installer
 
 # ============================================================
@@ -75,7 +75,7 @@ REMOVE_PATH=1
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Uninstaller v4.4.43
+Mire Toolchain Uninstaller v4.4.44
 
 Usage:
   uninstall.sh [options]
@@ -115,7 +115,7 @@ while [ $# -gt 0 ]; do
 done
 
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.43${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.44${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"

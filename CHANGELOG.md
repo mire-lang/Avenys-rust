@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.4.44 - 2026-11-12
+
+- String addition no longer infers ownership from LLVM pointer types; MIR drops remain authoritative.
+- Added a regression test proving a managed string stays valid after subsequent concatenations.
+- Installer defaults to verified Mire 4.4.44 and Owl 1.6.5 releases and checks embedded versions.
+
 ## 4.4.43 - 2026-11-12
 
 - Fixed managed string reuse when free-list blocks have different capacities.
