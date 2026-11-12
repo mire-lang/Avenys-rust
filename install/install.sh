@@ -413,47 +413,86 @@ install_rust() {
 # Function to configure MOR registry
 configure_mor_registry() {
     start_spinner "Configuring MOR registry"
-    
-    mkdir -p "$OWL_HOME/reg"
-    
-    # Create registry index pointing to mire-lang/libs
-    cat > "$OWL_HOME/reg/index.toml" << 'EOF'
-# MOR (Mire Official Registry) - Official mire-lang libraries
-# This registry is pre-configured to use github.com/mire-lang/libs
 
+    local mor_dir="$OWL_HOME/reg/mor"
+    local index_url="https://raw.githubusercontent.com/mire-lang/libs/main/reg/index.toml"
+    local meta_url="https://raw.githubusercontent.com/mire-lang/libs/main/reg/registry.json"
+
+    mkdir -p "$mor_dir" "$OWL_HOME/cfg" "$OWL_HOME/libs"
+    printf '1\n' > "$mor_dir/protocol"
+    printf "%s\n" "https://github.com/mire-lang/libs/raw/main/reg" > "$mor_dir/source_url"
+
+    # Prefer the published index; fall back to a minimal offline copy.
+    if ! curl -fsSL "$index_url" -o "$mor_dir/index.toml"; then
+        cat > "$mor_dir/index.toml" << 'EOF'
+[[packages]]
+name = "mire"
+version = "2.1.0-beta"
+method = "clone"
+repo = "mire-lang/mire-lib"
+ref = "main"
+
+[[packages]]
+name = "kioto"
+version = "3.1.0"
+method = "clone"
+repo = "mire-lang/Kioto"
+ref = "main"
+
+[[packages]]
+name = "sdl"
+version = "1.0.1"
+method = "clone"
+repo = "mire-lang/SDL"
+ref = "master"
+
+[[packages]]
+name = "sqlite"
+version = "0.1.0"
+method = "clone"
+repo = "mire-lang/sqlite"
+ref = "master"
+
+[[packages]]
+name = "wasm"
+version = "0.2.0"
+method = "clone"
+repo = "mire-lang/wasm"
+ref = "main"
+
+[[packages]]
+name = "ilogical"
+version = "0.1.0"
+method = "clone"
+repo = "mire-lang/ilogical"
+ref = "v0.1.0"
+EOF
+    fi
+    curl -fsSL "$meta_url" -o "$mor_dir/registry.json" 2>/dev/null || true
+
+    # Global owl configuration (owl regenerates it if missing).
+    if [ ! -f "$OWL_HOME/cfg/global.toml" ]; then
+        cat > "$OWL_HOME/cfg/global.toml" << 'EOF'
 [registry]
-name = "MOR"
-description = "Official Mire Language Package Registry"
-url = "https://github.com/mire-lang/libs"
-type = "git"
-format = "index"
+default = "MOR"
+required = true
 
-# Default source for packages
-default_source = "github"
+[lock]
+version = 3
+update = "on-resolve"
+strict = false
 
-# Package sources
-[sources.github]
-type = "github"
-org = "mire-lang"
-repo = "libs"
-branch = "main"
-path = "packages"
+[build]
+default-profile = "debug"
+default-target = "SystemAuto"
 
-# Alternative: direct tarball downloads
-[sources.releases]
-type = "github-releases"
-org = "mire-lang"
-repo = "libs"
+[projects]
+deps-path = "~/.owl/libs"
+src = "./src/"
+target = "./bin/"
+cache = "./bin/.cache"
 EOF
-
-    # Also create config.toml for owl
-    cat > "$OWL_HOME/config.toml" << 'EOF'
-[registries]
-mor = { url = "https://github.com/mire-lang/libs", type = "git" }
-
-[defaults]
-registry = "mor"
-EOF
+    fi
 
     stop_spinner 0 "MOR registry configured"
 }
@@ -564,47 +603,59 @@ install_owl() {
 }
 
 # Function to install libraries via owl
+install_via_owl() {
+    local pkg="$1"
+    local log
+    log=$(mktemp)
+    start_spinner "Installing $pkg via owl"
+    if owl install "$pkg" >"$log" 2>&1; then
+        rm -f "$log"
+        stop_spinner 0 "$pkg installed"
+    else
+        stop_spinner 1 "$pkg failed"
+        printf "    %s\n" "--- owl install $pkg output (last 15 lines) ---"
+        tail -n 15 "$log" | sed 's/^/    /'
+        rm -f "$log"
+    fi
+}
+
 install_libraries_via_owl() {
     if ! command -v owl >/dev/null 2>&1; then
         log_warn "owl not found, skipping library installation via owl"
         return
     fi
-    
+
     export PATH="$BIN_DIR:$PATH"
-    
+
     # Ensure MOR registry is configured
     configure_mor_registry
-    
-    # Sync registry
+
+    # Refresh the index from mire-lang/libs when online.
+    local log
+    log=$(mktemp)
     start_spinner "Syncing MOR registry"
-    owl reg 2>/dev/null || true
-    stop_spinner 0 "Registry synced"
-    
-    # Install requested libraries
+    if owl reg sync >"$log" 2>&1; then
+        rm -f "$log"
+        stop_spinner 0 "Registry synced"
+    else
+        rm -f "$log"
+        stop_spinner 0 "Registry kept (offline or sync failed)"
+    fi
+
     if [ "$INSTALL_KIOTO" = "1" ] || [ "$MIREUP" = "1" ]; then
-        start_spinner "Installing kioto library via owl"
-        owl install kioto 2>/dev/null || true
-        stop_spinner 0 "kioto installed"
+        install_via_owl kioto
     fi
     if [ "$INSTALL_SDL" = "1" ]; then
-        start_spinner "Installing sdl library via owl"
-        owl install sdl 2>/dev/null || true
-        stop_spinner 0 "sdl installed"
+        install_via_owl sdl
     fi
     if [ "$INSTALL_SQLITE" = "1" ]; then
-        start_spinner "Installing sqlite library via owl"
-        owl install sqlite 2>/dev/null || true
-        stop_spinner 0 "sqlite installed"
+        install_via_owl sqlite
     fi
     if [ "$INSTALL_WASM" = "1" ]; then
-        start_spinner "Installing wasm library via owl"
-        owl install wasm 2>/dev/null || true
-        stop_spinner 0 "wasm installed"
+        install_via_owl wasm
     fi
     if [ "$MIREUP" = "1" ]; then
-        start_spinner "Installing mire stdlib via owl"
-        owl install mire 2>/dev/null || true
-        stop_spinner 0 "mire stdlib installed"
+        install_via_owl mire
     fi
 }
 

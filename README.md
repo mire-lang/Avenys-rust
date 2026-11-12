@@ -101,6 +101,79 @@ pub fn main: () {
 | Check | `owl check` |
 | Dependencies | `owl load <name>` or `owl install <name>` |
 
+### `owl run` vs `mire run` — Equivalence
+
+Owl wraps the compiler and injects the correct library search paths, config,
+and security policy so your project "just works." The table below shows the
+exact `mire` command that `owl run` expands to, so you can run the compiler
+manually when you need to (debugging a build, CI without Owl, etc.).
+
+Assume a project at `~/myproject` with:
+- `owl.toml` in `~/myproject/`
+- source in `~/myproject/src/`
+- tests in `~/myproject/tests/`
+- libraries installed under `~/.owl/libs/` (the default)
+
+```bash
+# What `owl run` does internally (normalized compiler config at bin/.cache/mire-config.toml)
+mire run --config ~/myproject/bin/.cache/mire-config.toml
+
+# Full manual equivalent (no owl.toml required)
+mire run src/main.mire \
+  --lib-dir ~/.owl/libs \
+  --lib-dir ~/myproject/bin/debug/deps \
+  --config <(cat <<'EOF'
+[project]
+name = "myproject"
+version = "0.1.0"
+entry = "src/main.mire"
+
+[build]
+compiler = "mire"
+profile = "debug"
+opt-level = 0
+artifact = "bin"
+runtime = "minimal"
+target = "x86_64-unknown-linux-gnu"
+panic = "abort"
+incremental = true
+debug-info = true
+
+[paths]
+source = "src"
+test = "tests"
+bin = "bin/debug"
+cache = "bin/.cache"
+generated = "bin/.cache/generated"
+
+[cfg]
+lock = 1
+"update@lock" = "Build"
+EOF
+)
+
+# Key flags you usually need when running mire directly:
+#   --lib-dir ~/.owl/libs        # owl's library store (kioto, mire, sdl, etc.)
+#   --lib-dir <project>/bin/debug/deps  # lockfile-resolved deps (owl writes this)
+#   --config <path>              # Owl-generated TOML (see `owl build --print-config`)
+#   --runtime minimal            # Required for tests and stdlib
+#   --artifact bin               # Default; use 'shared' for .so export
+```
+
+**Passing arguments to your program:**
+```bash
+owl run -- --my-arg value    # owl forwards everything after --
+mire run ... -- --my-arg value
+```
+
+**Test runner:**
+```bash
+owl test                    # auto-generates config, runs tests/ dir
+mire test tests/ --config bin/.cache/mire-test-config.toml --lib-dir ~/.owl/libs --lib-dir bin/debug/deps --runtime minimal
+```
+
+> **Tip:** `owl build --print-config` prints the normalized config Owl would pass to the compiler. Pipe it to a file and use `--config` with `mire`.
+
 ## Library status()
 
 Every official Mire library exposes `pub fn status: () :str`:
