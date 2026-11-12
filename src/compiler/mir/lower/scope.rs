@@ -180,8 +180,9 @@ impl MirLower {
         }
     }
 
-    /// Release the owned locals of every open frame without popping any of
-    /// them. This is what a `return` needs.
+    /// Emit releases for the values owned on this return path without removing
+    /// their ownership records from the lowering state. This is what a `return`
+    /// needs while lowering a control-flow branch.
     ///
     /// `return` used to call `end_scope_and_release`, which releases one frame
     /// and pops it. At the top level of a function body that frame IS the
@@ -193,10 +194,11 @@ impl MirLower {
     /// released a second time. That is a double free, and it is why
     /// `owl info --json` aborted with one.
     ///
-    /// Releasing every frame here and leaving them in place keeps the invariant
-    /// that a name is tracked in exactly one frame. The emitted drops still sit
-    /// in the block of the `return`, so only the `return` that actually runs
-    /// performs them and each local is released on exactly one path.
+    /// Removing records here made an early return in one branch erase ownership
+    /// from the sibling/fallthrough path. A later rebind then registered that
+    /// outer local in an inner loop scope and freed it on every iteration. Keep
+    /// the records for that fallthrough path; the drops remain in this return
+    /// block, so the returning path still releases each owned local once.
     pub(crate) fn release_all_frames(&mut self) {
         let mut pending: Vec<(String, usize, DataType)> = Vec::new();
         let mut escaped: Vec<String> = Vec::new();
@@ -204,7 +206,7 @@ impl MirLower {
             if frame.blocked {
                 continue;
             }
-            pending.extend(std::mem::take(&mut frame.owned_locals));
+            pending.extend(frame.owned_locals.iter().cloned());
             escaped.extend(std::mem::take(&mut frame.escaped_locals));
         }
         if pending.is_empty() {

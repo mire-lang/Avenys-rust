@@ -1,4 +1,6 @@
 // Ownership family: a borrow is used while the owner remains valid.
+load mire::vec
+load mire::str
 
 @[test]
 pub fn borrowed_string_is_readable: () :bool {
@@ -68,6 +70,26 @@ pub fn find_loop_returns_early: () :bool {
         }
     }
     return false
+}
+
+@[test]
+pub fn outer_vector_survives_return_in_conditional_branch: () :bool {
+    set values = [] :vec[str] mut
+    set guard = 0 :i64
+    if guard != 0 {
+        return false
+    }
+
+    set i = 0 :i64 mut
+    while i < 16 {
+        set value = str::from::i64(i)
+        set values = vec::push::str(values, value)
+        // Allocate after the rebind so a premature free of `values` is reused
+        // and caught in this iteration instead of surviving by allocator luck.
+        set scratch = str::concat("iteration", value)
+        set i += 1
+    }
+    return vec::len(values) == 16 && vec::get::str(values, 15) == "15"
 }
 
 @[test]
