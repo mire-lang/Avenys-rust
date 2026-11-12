@@ -41,8 +41,8 @@ set -euo pipefail
 #   Mire compiler v4.4.44:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.44 bash -s -- --compiler
 #
-#   Owl v1.6.5:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.5 bash -s -- --owl
+#   Owl v1.6.6:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.6 bash -s -- --owl
 #
 #   Both specific versions:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.44 OWL_VERSION=v1.6.5 bash -s -- --mireup
@@ -55,11 +55,11 @@ set -euo pipefail
 #     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.44
 #
 #   Owl Package Manager:
-#     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.5/owl-linux-x86_64.tar.gz
-#     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.5/owl-linux-aarch64.tar.gz
-#     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.5
+#     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.6/owl-linux-x86_64.tar.gz
+#     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.6/owl-linux-aarch64.tar.gz
+#     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.6
 #
-#   Previous versions: replace v4.4.44/v1.6.5 with desired tag
+#   Previous versions: replace v4.4.44/v1.6.6 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -73,7 +73,7 @@ set -euo pipefail
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
 DEFAULT_MIRE_VERSION="v4.4.44"
-DEFAULT_OWL_VERSION="v1.6.5"
+DEFAULT_OWL_VERSION="v1.6.6"
 DEFAULT_KIOTO_VERSION="master"
 
 MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
@@ -200,7 +200,7 @@ Options:
 
 Environment Variables:
   MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.44)
-  OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.5)
+  OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.6)
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
 Examples:
@@ -208,7 +208,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.44 OWL_VERSION=v1.6.5 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.44 OWL_VERSION=v1.6.6 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
