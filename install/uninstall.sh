@@ -199,7 +199,10 @@ fi
 
 if [ "$FORCE" != "1" ]; then
     printf "Continue? [y/N] "
-    read -r confirm
+    if [ ! -r /dev/tty ] || ! { read -r confirm < /dev/tty; } 2>/dev/null; then
+        log_error "Interactive uninstall needs a terminal; use --force for automation"
+        exit 2
+    fi
     case "$confirm" in
         [yY][eE][sS]|[yY]) ;;
         *) printf "Aborted.\n"; exit 1 ;;
