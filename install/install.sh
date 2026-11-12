@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Mire Toolchain Installer v4.4.41
+# Mire Toolchain Installer v4.4.42
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -35,28 +35,28 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.41:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.41 bash -s -- --compiler
+#   Mire compiler v4.4.42:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 bash -s -- --compiler
 #
 #   Owl v1.6.2:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.41 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.41/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.41/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.41/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.41
+#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.42
 #
 #   Owl Package Manager:
 #     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
 #     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
 #     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
 #
-#   Previous versions: replace v4.4.41/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.42/v1.6.2 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -69,7 +69,7 @@ set -euo pipefail
 
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
-DEFAULT_MIRE_VERSION="v4.4.41"
+DEFAULT_MIRE_VERSION="v4.4.42"
 DEFAULT_OWL_VERSION="v1.6.2"
 DEFAULT_KIOTO_VERSION="master"
 
@@ -81,13 +81,13 @@ SCRIPT_URL="${MIRE_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/mire-la
 
 # Colors for pretty output
 if [ -t 1 ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    BOLD='\033[1m'
-    NC='\033[0m' # No Color
+    RED=$(printf '\033[0;31m')
+    GREEN=$(printf '\033[0;32m')
+    YELLOW=$(printf '\033[1;33m')
+    BLUE=$(printf '\033[0;34m')
+    CYAN=$(printf '\033[0;36m')
+    BOLD=$(printf '\033[1m')
+    NC=$(printf '\033[0m') # No Color
 else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
 fi
@@ -110,17 +110,16 @@ trap cleanup_spinner EXIT INT TERM
 start_spinner() {
     local msg="$1"
     if [ ! -t 1 ]; then
-        printf "[...] %s\n" "$msg"
+        printf "  ... %s\n" "$msg"
         return
     fi
     spinner_active=1
-    printf "%s%s%s %s %s%s%s " "${CYAN}[" "${NC}" "${msg}" "${CYAN}]${NC}" " "
     (
-        local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        local chars='|/-\'
         local i=0
         while true; do
-            printf "\r%s%s%s %c %s %s%s%s " "${CYAN}[" "${NC}" "${msg}" "${chars:i:1}" "${CYAN}]${NC}" " "
-            i=$(( (i + 1) % ${#chars} ))
+            printf "\r\033[K%s[%s]%s %s" "$CYAN" "${chars:i:1}" "$NC" "$msg"
+            i=$(( (i + 1) % 4 ))
             sleep 0.1
         done
     ) &
@@ -128,27 +127,27 @@ start_spinner() {
 }
 
 stop_spinner() {
-    local success="$1"
-    local msg="$2"
+    local success="${1:-0}"
+    local msg="${2:-}"
     if [ "$spinner_active" = "1" ]; then
-        kill "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
+        kill "$spinner_pid" 2>/dev/null || true
+        wait "$spinner_pid" 2>/dev/null || true
         spinner_active=0
-    fi
-    if [ -t 1 ]; then
-        printf "\r\033[K"
+        if [ -t 1 ]; then
+            printf "\r\033[K"
+        fi
     fi
     if [ "$success" = "0" ]; then
-        printf "%s%s%s %s\n" "${GREEN}[" "${NC}" "✓" "${NC}" "$msg"
+        printf "%s[OK]%s %s\n" "$GREEN" "$NC" "$msg"
     else
-        printf "%s%s%s %s\n" "${RED}[" "${NC}" "✗" "${NC}" "$msg"
+        printf "%s[FAILED]%s %s\n" "$RED" "$NC" "$msg"
     fi
 }
 
-log_info() { printf "%s%s%s %s\n" "${BLUE}[INFO]${NC}" " " "$1" " "; }
-log_success() { printf "%s%s%s %s\n" "${GREEN}[OK]${NC}" " " "$1" " "; }
-log_warn() { printf "%s%s%s %s\n" "${YELLOW}[WARN]${NC}" " " "$1" " "; }
-log_error() { printf "%s%s%s %s\n" "${RED}[ERROR]${NC}" " " "$1" " "; }
+log_info() { printf "%s[INFO]%s %s\n" "$BLUE" "$NC" "$1"; }
+log_success() { printf "%s[OK]%s %s\n" "$GREEN" "$NC" "$1"; }
+log_warn() { printf "%s[WARN]%s %s\n" "$YELLOW" "$NC" "$1"; }
+log_error() { printf "%s[ERROR]%s %s\n" "$RED" "$NC" "$1"; }
 
 # Detect if running as root or user
 if [ "$(id -u)" = "0" ]; then
@@ -166,6 +165,9 @@ BIN_DIR="${PREFIX}/bin"
 OWL_HOME="$HOME/.owl"
 MIRE_HOME="$HOME/.mire"
 
+# Make freshly installed tools visible to the rest of the script
+export PATH="$BIN_DIR:$PATH"
+
 # Version variables (can be overridden)
 MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
 OWL_VERSION="${OWL_VERSION:-$DEFAULT_OWL_VERSION}"
@@ -173,7 +175,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.41
+Mire Toolchain Installer v4.4.42
 
 Usage:
   install.sh [options]
@@ -193,7 +195,7 @@ Options:
   --help, -h            Show this help
 
 Environment Variables:
-  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.41)
+  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.42)
   OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.2)
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
@@ -202,7 +204,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.41 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -246,7 +248,7 @@ done
 
 # Print header
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.41${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.42${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
@@ -312,7 +314,7 @@ fix_binary_rpath() {
 #!/bin/sh
 # Wrapper for $(basename "$binary") - sets library path for bundled libsodium
 export LD_LIBRARY_PATH="${lib_dir}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-exec "\${real_binary}" "\$@"
+exec "${real_binary}" "\$@"
 WRAPEOF
     chmod +x "$binary"
     return 0
@@ -460,76 +462,105 @@ EOF
 install_mire() {
     local version="$1"
     start_spinner "Installing mire compiler $version"
-    
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        x86_64) TRIPLE="x86_64-unknown-linux-gnu" ;;
-        aarch64) TRIPLE="aarch64-unknown-linux-gnu" ;;
-        *) TRIPLE="x86_64-unknown-linux-gnu" ;;
+
+    local arch triple tmpdir url
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64) triple="x86_64-unknown-linux-gnu" ;;
+        aarch64|arm64) triple="aarch64-unknown-linux-gnu" ;;
+        riscv64) triple="riscv64-unknown-linux-gnu" ;;
+        *) triple="x86_64-unknown-linux-gnu" ;;
     esac
-    
-    # Download from releases
-    URL="https://github.com/mire-lang/Avenys-rust/releases/download/${version}/mire-compiler-${TRIPLE}.tar.gz"
-    curl -fsSL "$URL" -o /tmp/mire.tar.gz 2>/dev/null
-    
-    if [ -f /tmp/mire.tar.gz ]; then
-        tar xzf /tmp/mire.tar.gz -C /tmp
-        if [ -f /tmp/compiler/mire ]; then
-            cp /tmp/compiler/mire "$BIN_DIR/mire"
-            chmod +x "$BIN_DIR/mire"
-            mkdir -p "$PREFIX/lib/mire"
-            [ -d /tmp/compiler/runtime ] && cp -r /tmp/compiler/runtime "$PREFIX/lib/mire/"
-            [ -d /tmp/compiler/pal ] && cp -r /tmp/compiler/pal "$PREFIX/lib/mire/"
-            log_success "mire compiler installed ($version)"
-        fi
-        rm -rf /tmp/compiler /tmp/mire.tar.gz
-    else
-        log_error "Failed to download mire compiler $version"
+
+    tmpdir=$(mktemp -d)
+    url="https://github.com/mire-lang/Avenys-rust/releases/download/${version}/mire-compiler-${triple}.tar.gz"
+
+    if ! curl -fsSL "$url" -o "$tmpdir/mire.tar.gz"; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "Failed to download mire compiler $version"
         return 1
     fi
-    stop_spinner 0 "Mire compiler installed"
+
+    if ! tar xzf "$tmpdir/mire.tar.gz" -C "$tmpdir"; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "Failed to extract mire compiler $version"
+        return 1
+    fi
+
+    if [ ! -f "$tmpdir/compiler/mire" ]; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "mire binary missing from the $version archive"
+        return 1
+    fi
+
+    mkdir -p "$BIN_DIR" "$PREFIX/lib/mire"
+    cp "$tmpdir/compiler/mire" "$BIN_DIR/mire"
+    chmod +x "$BIN_DIR/mire"
+    if [ -d "$tmpdir/compiler/runtime" ]; then
+        cp -r "$tmpdir/compiler/runtime" "$PREFIX/lib/mire/"
+    fi
+    if [ -d "$tmpdir/compiler/pal" ]; then
+        cp -r "$tmpdir/compiler/pal" "$PREFIX/lib/mire/"
+    fi
+    fix_binary_rpath "$BIN_DIR/mire" "$PREFIX/lib/mire"
+    rm -rf "$tmpdir"
+
+    stop_spinner 0 "Mire compiler installed ($version)"
 }
 
 # Function to install owl package manager
 install_owl() {
     local version="$1"
     start_spinner "Installing owl package manager $version"
-    
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        x86_64) TRIPLE="linux-x86_64" ;;
-        aarch64) TRIPLE="linux-aarch64" ;;
-        *) TRIPLE="linux-x86_64" ;;
+
+    local arch triple tmpdir url owl_bin
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64) triple="linux-x86_64" ;;
+        aarch64|arm64) triple="linux-aarch64" ;;
+        *) triple="linux-x86_64" ;;
     esac
-    
-    # Download from releases (owl uses linux-ARCH naming)
-    URL="https://github.com/mire-lang/owl/releases/download/${version}/owl-${TRIPLE}.tar.gz"
-    curl -fsSL "$URL" -o /tmp/owl.tar.gz 2>/dev/null
-    
-    if [ -f /tmp/owl.tar.gz ]; then
-        tar xzf /tmp/owl.tar.gz -C /tmp
-        # Find owl binary (might be in subdirectory)
-        OWL_BIN="/tmp/owl/owl"
-        if [ ! -f "$OWL_BIN" ]; then
-            OWL_BIN=$(find /tmp -name "owl" -type f -executable 2>/dev/null | head -1)
-        fi
-        if [ -n "$OWL_BIN" ]; then
-            cp "$OWL_BIN" "$BIN_DIR/owl"
-            chmod +x "$BIN_DIR/owl"
-            # Copy libs and kioto if present
-            [ -d /tmp/owl/lib ] && cp /tmp/owl/lib/* "$PREFIX/lib/mire/" 2>/dev/null || true
-            [ -d /tmp/owl/kioto ] && cp -r /tmp/owl/kioto "$OWL_HOME/libs/" 2>/dev/null || true
-            # Find lib dir from extracted tarball
-            OWL_LIB_DIR=$(find /tmp -name "lib" -type d 2>/dev/null | head -1)
-            [ -n "$OWL_LIB_DIR" ] && fix_binary_rpath "$BIN_DIR/owl" "$OWL_LIB_DIR" || fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
-            log_success "owl package manager installed ($version)"
-        fi
-        rm -rf /tmp/owl /tmp/owl.tar.gz
-    else
-        log_error "Failed to download owl $version"
+
+    tmpdir=$(mktemp -d)
+    url="https://github.com/mire-lang/owl/releases/download/${version}/owl-${triple}.tar.gz"
+
+    if ! curl -fsSL "$url" -o "$tmpdir/owl.tar.gz"; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "Failed to download owl $version"
         return 1
     fi
-    stop_spinner 0 "Owl package manager installed"
+
+    if ! tar xzf "$tmpdir/owl.tar.gz" -C "$tmpdir"; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "Failed to extract owl $version"
+        return 1
+    fi
+
+    owl_bin="$tmpdir/owl/owl"
+    if [ ! -f "$owl_bin" ]; then
+        owl_bin=$(find "$tmpdir" -name owl -type f 2>/dev/null | head -1)
+    fi
+    if [ -z "$owl_bin" ] || [ ! -f "$owl_bin" ]; then
+        rm -rf "$tmpdir"
+        stop_spinner 1 "owl binary missing from the $version archive"
+        return 1
+    fi
+
+    mkdir -p "$BIN_DIR" "$PREFIX/lib/mire" "$OWL_HOME/libs"
+    cp "$owl_bin" "$BIN_DIR/owl"
+    chmod +x "$BIN_DIR/owl"
+
+    if [ -d "$tmpdir/owl/lib" ]; then
+        cp -r "$tmpdir/owl/lib/." "$PREFIX/lib/mire/" 2>/dev/null || true
+    fi
+    if [ -d "$tmpdir/owl/kioto" ] && [ ! -e "$OWL_HOME/libs/kioto" ]; then
+        cp -r "$tmpdir/owl/kioto" "$OWL_HOME/libs/kioto" 2>/dev/null || true
+    fi
+
+    fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
+    rm -rf "$tmpdir"
+
+    stop_spinner 0 "Owl package manager installed ($version)"
 }
 
 # Function to install libraries via owl

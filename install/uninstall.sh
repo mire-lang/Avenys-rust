@@ -1,7 +1,7 @@
 #!/bin/bash
-set -euo pipefail
+set -eu
 
-# Mire Toolchain Uninstaller v4.4.41
+# Mire Toolchain Uninstaller v4.4.42
 # Removes all components installed by the Mire installer
 
 # ============================================================
@@ -35,21 +35,21 @@ set -euo pipefail
 
 # Colors for pretty output
 if [ -t 1 ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    BOLD='\033[1m'
-    NC='\033[0m'
+    RED=$(printf '\033[0;31m')
+    GREEN=$(printf '\033[0;32m')
+    YELLOW=$(printf '\033[1;33m')
+    BLUE=$(printf '\033[0;34m')
+    CYAN=$(printf '\033[0;36m')
+    BOLD=$(printf '\033[1m')
+    NC=$(printf '\033[0m')
 else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
 fi
 
-log_info() { printf "%s%s%s %s\n" "${BLUE}[INFO]${NC}" " " "$1" " "; }
-log_success() { printf "%s%s%s %s\n" "${GREEN}[OK]${NC}" " " "$1" " "; }
-log_warn() { printf "%s%s%s %s\n" "${YELLOW}[WARN]${NC}" " " "$1" " "; }
-log_error() { printf "%s%s%s %s\n" "${RED}[ERROR]${NC}" " " "$1" " "; }
+log_info() { printf "%s[INFO]%s %s\n" "$BLUE" "$NC" "$1"; }
+log_success() { printf "%s[OK]%s %s\n" "$GREEN" "$NC" "$1"; }
+log_warn() { printf "%s[WARN]%s %s\n" "$YELLOW" "$NC" "$1"; }
+log_error() { printf "%s[ERROR]%s %s\n" "$RED" "$NC" "$1"; }
 
 # Default installation paths (same as installer)
 if [ "$(id -u)" = "0" ]; then
@@ -75,7 +75,7 @@ REMOVE_PATH=1
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Uninstaller v4.4.41
+Mire Toolchain Uninstaller v4.4.42
 
 Usage:
   uninstall.sh [options]
@@ -115,73 +115,81 @@ while [ $# -gt 0 ]; do
 done
 
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.41${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Uninstaller v4.4.42${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
 log_info "User: $(whoami)"
 printf "\n"
 
-# Collect items to remove
-TO_REMOVE=()
+# Collect items to remove (one per line; POSIX sh has no arrays)
+TO_REMOVE_FILE=$(mktemp "${TMPDIR:-/tmp}/mire-uninstall.XXXXXX")
+trap 'rm -f "$TO_REMOVE_FILE"' EXIT INT TERM
+
+add_item() {
+    printf '%s\n' "$1" >> "$TO_REMOVE_FILE"
+}
 
 # Binaries
-[ -f "$BIN_DIR/mire" ] && TO_REMOVE+=("$BIN_DIR/mire")
-[ -f "$BIN_DIR/owl" ] && TO_REMOVE+=("$BIN_DIR/owl")
+[ -f "$BIN_DIR/mire" ] && add_item "$BIN_DIR/mire"
+[ -f "$BIN_DIR/owl" ] && add_item "$BIN_DIR/owl"
 
 # Library directory
 if [ "$REMOVE_LIBS" = "1" ] && [ -d "$PREFIX/lib/mire" ]; then
-    TO_REMOVE+=("$PREFIX/lib/mire")
+    add_item "$PREFIX/lib/mire"
 fi
 
 # Owl home directory
 if [ -d "$OWL_HOME" ]; then
     if [ "$REMOVE_LIBS" = "1" ] && [ "$REMOVE_CONFIG" = "1" ]; then
-        TO_REMOVE+=("$OWL_HOME")
+        add_item "$OWL_HOME"
     else
         if [ "$REMOVE_LIBS" = "1" ]; then
-            [ -d "$OWL_HOME/libs" ] && TO_REMOVE+=("$OWL_HOME/libs")
-            [ -d "$OWL_HOME/cache" ] && TO_REMOVE+=("$OWL_HOME/cache")
-            [ -d "$OWL_HOME/tmp" ] && TO_REMOVE+=("$OWL_HOME/tmp")
-            [ -d "$OWL_HOME/version" ] && TO_REMOVE+=("$OWL_HOME/version")
-            [ -d "$OWL_HOME/modules" ] && TO_REMOVE+=("$OWL_HOME/modules")
+            [ -d "$OWL_HOME/libs" ] && add_item "$OWL_HOME/libs"
+            [ -d "$OWL_HOME/cache" ] && add_item "$OWL_HOME/cache"
+            [ -d "$OWL_HOME/tmp" ] && add_item "$OWL_HOME/tmp"
+            [ -d "$OWL_HOME/version" ] && add_item "$OWL_HOME/version"
+            [ -d "$OWL_HOME/modules" ] && add_item "$OWL_HOME/modules"
         fi
         if [ "$REMOVE_CONFIG" = "1" ]; then
-            [ -f "$OWL_HOME/config.toml" ] && TO_REMOVE+=("$OWL_HOME/config.toml")
-            [ -d "$OWL_HOME/reg" ] && TO_REMOVE+=("$OWL_HOME/reg")
+            [ -f "$OWL_HOME/config.toml" ] && add_item "$OWL_HOME/config.toml"
+            [ -d "$OWL_HOME/reg" ] && add_item "$OWL_HOME/reg"
         fi
     fi
 fi
 
 # Mire home directory
 if [ "$REMOVE_LIBS" = "1" ] && [ -d "$MIRE_HOME" ]; then
-    TO_REMOVE+=("$MIRE_HOME")
+    add_item "$MIRE_HOME"
 fi
 
 # Shell profile PATH entries
 if [ "$REMOVE_PATH" = "1" ]; then
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         if [ -f "$rc" ] && grep -qF "$BIN_DIR" "$rc"; then
-            TO_REMOVE+=("$rc:$BIN_DIR")
+            add_item "$rc:$BIN_DIR"
         fi
     done
 fi
 
-if [ ${#TO_REMOVE[@]} -eq 0 ]; then
+if [ ! -s "$TO_REMOVE_FILE" ]; then
     log_info "Nothing to remove. Mire toolchain not found at $PREFIX"
     exit 0
 fi
 
 printf "%s%s%s\n" "${CYAN}The following will be removed:${NC}" "" ""
-for item in "${TO_REMOVE[@]}"; do
-    if [[ "$item" == *":"* ]]; then
-        file="${item%:*}"
-        pattern="${item#*:}"
-        printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "PATH entry '${BOLD}$pattern${NC}' from $file" ""
-    else
-        printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "$item" ""
-    fi
-done
+while IFS= read -r item; do
+    case "$item" in
+        *:*)
+            file="${item%:*}"
+            pattern="${item#*:}"
+            printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "PATH entry '${BOLD}$pattern${NC}' from $file" ""
+            ;;
+        *)
+            printf "  %s%s%s %s\n" "${YELLOW}-${NC}" " " "$item" ""
+            ;;
+    esac
+done < "$TO_REMOVE_FILE"
 printf "\n"
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -202,22 +210,27 @@ printf "\n"
 log_info "Removing..."
 
 # Remove binaries and directories
-for item in "${TO_REMOVE[@]}"; do
-    if [[ "$item" == *":"* ]]; then
-        file="${item%:*}"
-        pattern="${item#*:}"
-        # Remove PATH export line from shell profile
-        grep -vF "$pattern" "$file" > "$file.tmp" 2>/dev/null || true
-        mv "$file.tmp" "$file"
-        log_success "Removed PATH entry from $file"
-    elif [ -f "$item" ]; then
-        rm -f "$item"
-        log_success "Removed $item"
-    elif [ -d "$item" ]; then
-        rm -rf "$item"
-        log_success "Removed directory $item"
-    fi
-done
+while IFS= read -r item; do
+    case "$item" in
+        *:*)
+            file="${item%:*}"
+            pattern="${item#*:}"
+            # Remove PATH export line from shell profile
+            grep -vF "$pattern" "$file" > "$file.tmp" 2>/dev/null || true
+            mv "$file.tmp" "$file"
+            log_success "Removed PATH entry from $file"
+            ;;
+        *)
+            if [ -f "$item" ]; then
+                rm -f "$item"
+                log_success "Removed $item"
+            elif [ -d "$item" ]; then
+                rm -rf "$item"
+                log_success "Removed directory $item"
+            fi
+            ;;
+    esac
+done < "$TO_REMOVE_FILE"
 
 # Clean up empty parent directories
 if [ -d "$PREFIX/lib" ] && [ -z "$(ls -A "$PREFIX/lib" 2>/dev/null)" ]; then

@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.4.42 - 2026-11-11
+### Installer & CI
+- **Install script rewrite.** Progress is printed on a single line, the script
+  detects a fresh install versus an update, and every component has its own
+  flag (`--compiler`, `--owl`, `--kioto`, `--sdl`, `--sqlite`, `--wasm`) plus an
+  environment override (`MIRE_VERSION`, `OWL_VERSION`, `KIOTO_VERSION`).
+  Downloads use the correct `aarch64` asset names, `patchelf` failures are
+  reported instead of aborting, and the MOR registry is configured for the
+  selected versions.
+- **Uninstaller works when piped.** `uninstall.sh` no longer aborts with
+  `Syntax error: "(" unexpected` under `sh`; it supports `--dry-run`,
+  `--force`, `--keep-libs` and `--keep-config`.
+- **RHEL 10 fallback.** When `dnf` cannot provide `tcc` or `libsodium`, the
+  dependency step skips the package and builds it from source, so installation
+  works on an unregistered RHEL 10 host.
+- **Release workflow builds the compiler only.** The `owl` job moved to
+  `mire-lang/owl`, which downloads the precompiled `mire` from the matching
+  release instead of rebuilding the compiler.
+- **Version alignment.** `mire --version` reports `4.4.42`, the manifest and
+  sources are on `4.4.42`, and the bundled `owl` reports `1.6.2`.
+
+### Notes
+- The compiler source is unchanged since 4.4.17; 4.4.18–4.4.42 only touch CI,
+  the install/uninstall scripts and release packaging.
+
 ## 4.4.17 - 2026-11-09
 ### Compiler & Runtime Performance
 - **Dead capacity checks on vector pushes are removed.** A new `push_elide`

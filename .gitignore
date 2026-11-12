@@ -31,3 +31,6 @@ TODO.md
 owl.lock
 # Generated `mire test --log` transcripts and fixtures
 tests/log/
+
+# Stray C object files
+*.o

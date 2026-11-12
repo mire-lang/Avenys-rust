@@ -1,6 +1,6 @@
 [project]
 name = "avenys"
-version = "4.4.0"
+version = "4.4.42"
 entry = "tests/mod.mr"
 
 [build]

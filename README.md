@@ -1,4 +1,4 @@
-# Avenys v4.4.17
+# Avenys v4.4.42
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -16,13 +16,13 @@ a standard library covering strings, collections, math, filesystem, processes, a
 ### 1) Quick install with mireup (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --mireup
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 ```
 
 ### 2) Interactive installation (choose what to install)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --interactive
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --interactive
 ```
 
 When prompted, enter numbers like `1 2 3` or `1,2,3`:
@@ -38,7 +38,7 @@ When prompted, enter numbers like `1 2 3` or `1,2,3`:
 ### 3) Install from source (full build)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | sh -s -- --from-source
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 ```
 
 The installer auto-detects permissions - if run with `sudo` it installs to `/usr/local/bin/`, otherwise to `~/.local/bin/`. 
@@ -52,19 +52,19 @@ To completely remove the Mire toolchain (compiler, owl, libraries, and configura
 
 ```bash
 # Interactive uninstall (prompts for confirmation)
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash
 
 # Force uninstall everything without prompts
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --force
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --force
 
 # Dry run to see what would be removed
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --dry-run
 
 # Keep libraries (~/.owl/libs, ~/.mire) but remove binaries and config
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-libs
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-libs
 
 # Keep configuration (~/.owl/config.toml, registry) but remove binaries and libs
-curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | sh -s -- --keep-config
+curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/uninstall.sh | bash -s -- --keep-config
 ```
 
 The uninstaller removes:
@@ -116,10 +116,20 @@ use dasu(kioto::status())
 
 The official registry is at `mire-lang/libs`. Multi-version support:
 - `kioto@2.5.0`, `kioto@3.1.0` (default: 3.1.0)
-- `mire@1.2.4`, `mire@2.0.0-beta` (default: 2.0.0-beta)
-- `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`
+- `mire@1.2.4`, `mire@2.1.0-beta` (default: 2.1.0-beta)
+- `owl@1.6.2` (default: 1.6.2)
+- `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`, `ilogical@0.1.0`
 
 ## Version History
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+
+### v4.4.42 - 2026-11-11
+**Installer & CI**
+- **Install/uninstall scripts rewritten.** Single-line progress output, fresh-vs-update detection, per-component flags (`--compiler`, `--owl`, `--kioto`, `--sdl`, `--sqlite`, `--wasm`), environment overrides, `aarch64` asset naming, `patchelf` fallback and MOR registry configuration. The uninstaller runs when piped to either `bash` or `sh`.
+- **RHEL 10 support.** The dependency step skips `tcc` and `libsodium` when `dnf` cannot provide them and builds both from source instead of failing.
+- **Release workflow builds the compiler only.** The `owl` job moved to the owl repository, which downloads the precompiled `mire` from the matching release.
+- **Version alignment.** `mire --version` reports `4.4.42`, and the bundled `owl` reports `1.6.2`.
 
 ### v4.4.15 - 2026-11-06
 **Compiler & Runtime Performance**
