@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.4.43 - 2026-11-12
+
+- Fixed managed string reuse when free-list blocks have different capacities.
+- Made vectors own independent copies of pushed strings.
+- Installer validates embedded binary versions and release builds reject mismatched compiler tags.
+
 ## 4.4.42 - 2026-11-11
 ### Installer & CI
 - **Install script rewrite.** Progress is printed on a single line, the script
@@ -1130,3 +1136,10 @@ something that is not a failure.
 - **WASM/WASI targets**: `wasm32-wasip1` (WASI SDK sysroot) and
   `wasm32-unknown-unknown` (no-libc freestanding).
 - `strings_minimal.c`: POSIX-free string operations for the minimal tier.
+## 4.4.43 - 2026-11-12
+
+- Fixed managed string reuse when free-list blocks have different capacities.
+- Made vectors own independent copies of pushed strings.
+- Installer validates the embedded compiler/package version against the requested release.
+- Release builds fail when the compiler version differs from the pushed tag.
+

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Mire Toolchain Installer v4.4.42
+# Mire Toolchain Installer v4.4.43
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -38,28 +38,28 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.42:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 bash -s -- --compiler
+#   Mire compiler v4.4.43:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.43 bash -s -- --compiler
 #
 #   Owl v1.6.2:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.43 OWL_VERSION=v1.6.3 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.42
+#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.43/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.43/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.43/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.43
 #
 #   Owl Package Manager:
 #     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
 #     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
 #     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
 #
-#   Previous versions: replace v4.4.42/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.43/v1.6.2 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -72,8 +72,8 @@ set -euo pipefail
 
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
-DEFAULT_MIRE_VERSION="v4.4.42"
-DEFAULT_OWL_VERSION="v1.6.2"
+DEFAULT_MIRE_VERSION="v4.4.43"
+DEFAULT_OWL_VERSION="v1.6.3"
 DEFAULT_KIOTO_VERSION="master"
 
 MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
@@ -178,7 +178,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.42
+Mire Toolchain Installer v4.4.43
 
 Usage:
   install.sh [options]
@@ -199,7 +199,7 @@ Options:
   --help, -h            Show this help
 
 Environment Variables:
-  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.42)
+  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.43)
   OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.2)
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
@@ -208,7 +208,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.43 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -255,7 +255,7 @@ done
 
 # Print header
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.42${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.43${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
@@ -561,6 +561,16 @@ install_mire() {
         cp -r "$tmpdir/compiler/pal" "$PREFIX/lib/mire/"
     fi
     fix_binary_rpath "$BIN_DIR/mire" "$PREFIX/lib/mire"
+    local installed_version
+    installed_version=$("$BIN_DIR/mire" --version 2>/dev/null || true)
+    case "$installed_version" in
+        *"$version"*) ;;
+        *)
+            rm -rf "$tmpdir"
+            stop_spinner 1 "Mire archive version mismatch: requested $version, binary reports ${installed_version:-no version}"
+            return 1
+            ;;
+    esac
     rm -rf "$tmpdir"
 
     stop_spinner 0 "Mire compiler installed ($version)"
@@ -616,6 +626,16 @@ install_owl() {
     fi
 
     fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
+    local installed_version
+    installed_version=$("$BIN_DIR/owl" --version 2>/dev/null || "$BIN_DIR/owl" -V 2>/dev/null || true)
+    case "$installed_version" in
+        *"$version"*) ;;
+        *)
+            rm -rf "$tmpdir"
+            stop_spinner 1 "Owl archive version mismatch: requested $version, binary reports ${installed_version:-no version}"
+            return 1
+            ;;
+    esac
     rm -rf "$tmpdir"
 
     stop_spinner 0 "Owl package manager installed ($version)"
@@ -892,7 +912,7 @@ printf "%s%s%s\n" "${BOLD}${BLUE}  Installation Complete!${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 
 if [ -f "$BIN_DIR/owl" ]; then
-    OWL_VER=$("$BIN_DIR/owl" -V 2>/dev/null | head -1 || echo "installed")
+    OWL_VER=$( ("$BIN_DIR/owl" --version 2>/dev/null || "$BIN_DIR/owl" -V 2>/dev/null) | head -1 || echo "installed")
     log_success "owl: $OWL_VER"
 fi
 if [ -f "$BIN_DIR/mire" ]; then

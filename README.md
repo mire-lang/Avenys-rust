@@ -1,4 +1,4 @@
-# Avenys v4.4.42
+# Avenys v4.4.43
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -196,6 +196,12 @@ The official registry is at `mire-lang/libs`. Multi-version support:
 ## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+
+### v4.4.43 - 2026-11-12
+**Runtime reliability and release validation**
+- **Managed string reuse respects physical capacity.** Reused blocks are selected by actual capacity, preventing writes beyond a smaller block after allocator churn.
+- **String vectors own stable copies.** Pushing a managed temporary no longer relies on the source expression remaining alive.
+- **Installer and release checks validate embedded versions.** Mismatched archives fail clearly instead of claiming the requested release was installed.
 
 ### v4.4.42 - 2026-11-11
 **Installer & CI**
