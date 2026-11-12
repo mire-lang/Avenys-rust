@@ -439,13 +439,12 @@ void   *rt_vecs_grow_push_i64(void *vec, int64_t value) {
 void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
 void   *rt_vecs_push_str(void *vec, const char *value) {
     if (!value) value = "";
-    char *stored = (char *)value;
-    if (rt_managed_is_managed(value)) {
-        rt_managed_retain(stored);
-    } else {
-        stored = rt_managed_from_cstr(value);
-        if (!stored) return NULL;
-    }
+    // A vector owns its string elements. Copy even managed inputs rather than
+    // retaining them: this keeps the vector independent from expression and
+    // temporary lifetimes, and preserves embedded NUL bytes via the managed
+    // header length.
+    char *stored = rt_managed_from_slice(value, rt_managed_len(value));
+    if (!stored) return NULL;
     void *result = rt_list_push_ptr_owned(vec, stored);
     if (!result) rt_managed_free(stored);
     return result;
