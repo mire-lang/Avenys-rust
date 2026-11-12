@@ -190,7 +190,7 @@ use dasu(kioto::status())
 The official registry is at `mire-lang/libs`. Multi-version support:
 - `kioto@2.5.0`, `kioto@3.1.0` (default: 3.1.0)
 - `mire@1.2.4`, `mire@2.1.0-beta` (default: 2.1.0-beta)
-- `owl@1.6.2` (default: 1.6.2)
+- `owl@1.6.4` (default: 1.6.4)
 - `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`, `ilogical@0.1.0`
 
 ## Version History

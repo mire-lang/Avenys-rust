@@ -45,7 +45,7 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.43 OWL_VERSION=v1.6.3 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.43 OWL_VERSION=v1.6.4 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
@@ -73,7 +73,7 @@ set -euo pipefail
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
 DEFAULT_MIRE_VERSION="v4.4.43"
-DEFAULT_OWL_VERSION="v1.6.3"
+DEFAULT_OWL_VERSION="v1.6.4"
 DEFAULT_KIOTO_VERSION="master"
 
 MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
