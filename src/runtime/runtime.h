@@ -230,6 +230,7 @@ void   *rt_vecs_push_i64(void *vec, int64_t value);
 /// reallocation, not once per push.
 void   *rt_vecs_grow_push_i64(void *vec, int64_t value);
 void   *rt_vecs_push_ptr(void *vec, void *value);
+void   *rt_vecs_push_str(void *vec, const char *value);
 void   *rt_vecs_pop_ptr(void *vec);
 void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value);
 int64_t rt_vecs_pop(void *vec);

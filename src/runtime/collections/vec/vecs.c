@@ -121,6 +121,25 @@ void *rt_list_push_ptr(void *list_ptr, void *value) {
     return list_ptr;
 }
 
+// Append a pointer whose ownership has already been transferred or retained.
+// The string-specific wrapper applies the right policy for each allocator.
+static void *rt_list_push_ptr_owned(void *list_ptr, void *value) {
+    if (!list_ptr) {
+        list_ptr = rt_list_create(4, 8);
+        if (!list_ptr) return NULL;
+    }
+    int64_t *header = (int64_t *)list_ptr;
+    int64_t len = header[0];
+    int64_t cap = header[-1];
+    if (len >= cap) {
+        list_ptr = list_grow(list_ptr, 8);
+        if (!list_ptr) return NULL;
+    }
+    ((void **)list_ptr)[len + 1] = value;
+    ((int64_t *)list_ptr)[0] = len + 1;
+    return list_ptr;
+}
+
 void *rt_list_push_scalar(void *list_ptr, int64_t value, int64_t elem_size) {
     if (elem_size <= 0) return list_ptr;
     if (!list_ptr) {
@@ -418,6 +437,19 @@ void   *rt_vecs_grow_push_i64(void *vec, int64_t value) {
 }
 
 void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
+void   *rt_vecs_push_str(void *vec, const char *value) {
+    if (!value) value = "";
+    char *stored = (char *)value;
+    if (rt_managed_is_managed(value)) {
+        rt_managed_retain(stored);
+    } else {
+        stored = rt_managed_from_cstr(value);
+        if (!stored) return NULL;
+    }
+    void *result = rt_list_push_ptr_owned(vec, stored);
+    if (!result) rt_managed_free(stored);
+    return result;
+}
 void   *rt_vecs_pop_ptr(void *vec) { return rt_list_pop_ptr(vec); }
 void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value) { rt_list_set_i64(vec, index, value); }
 int64_t rt_vecs_pop(void *vec) { return rt_list_pop_i64(vec); }
