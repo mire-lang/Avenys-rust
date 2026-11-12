@@ -91,7 +91,18 @@ fn collection_call_reuses_assignment_target(expr: &Expression, target: &str) -> 
     let Expression::Call { name, args, .. } = expr else {
         return false;
     };
-    let is_collection_mutator = name == "lists.push"
+    if !collection_mutator_returns_same_storage(name) {
+        return false;
+    }
+    matches!(args.first(), Some(Expression::Identifier(identifier)) if identifier.name == target)
+}
+
+fn collection_mutator_returns_same_storage(name: &str) -> bool {
+    // Source calls use `::`, while resolved compiler names may use `.`. Treat
+    // both spellings identically so assignment lowering does not free the
+    // collection before storing the pointer returned by its in-place mutator.
+    let name = name.replace("::", ".");
+    name == "lists.push"
         || name == "vec.push"
         || name.starts_with("vec.push.")
         || name == "map.set"
@@ -99,11 +110,30 @@ fn collection_call_reuses_assignment_target(expr: &Expression, target: &str) -> 
         || name == "maps.set"
         || name.starts_with("maps.set.")
         || name == "dicts.set"
-        || name.starts_with("dicts.set.");
-    if !is_collection_mutator {
-        return false;
+        || name.starts_with("dicts.set.")
+}
+
+#[cfg(test)]
+mod collection_mutator_tests {
+    use super::collection_mutator_returns_same_storage;
+
+    #[test]
+    fn recognizes_source_and_resolved_mutator_names() {
+        for name in [
+            "vec::push::str",
+            "vec.push.str",
+            "lists::push",
+            "map::set::i64",
+            "maps.set",
+            "dicts::set::str",
+        ] {
+            assert!(collection_mutator_returns_same_storage(name), "{name}");
+        }
+
+        for name in ["vec::get::str", "strings::concat", "map::get::i64"] {
+            assert!(!collection_mutator_returns_same_storage(name), "{name}");
+        }
     }
-    matches!(args.first(), Some(Expression::Identifier(identifier)) if identifier.name == target)
 }
 
 impl MirLower {
