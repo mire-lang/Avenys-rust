@@ -29,6 +29,8 @@ done
 stage="$(mktemp -d)"
 mkdir -p "$stage/package"
 printf '[project]\nname = "mire"\n' >"$stage/package/owl.toml"
+ln -s mire@2.1.0-beta "$stage/package/mire@2.1.0-beta"
+ln -s owl.toml "$stage/package/package-manifest.link"
 tar czf "$output" -C "$stage" package
 rm -rf "$stage"
 MOCK
@@ -41,6 +43,8 @@ rg -q '4\) Mire standard library' "$tmp/interactive.log"
 rg -q 'mire installed from source' "$tmp/interactive.log"
 rg -q 'Installation Complete' "$tmp/interactive.log"
 test -f "$tmp/home/.owl/libs/mire/owl.toml"
+test ! -L "$tmp/home/.owl/libs/mire/mire@2.1.0-beta"
+test -L "$tmp/home/.owl/libs/mire/package-manifest.link"
 
 if HOME="$tmp/home" MIRE_PREFIX="$tmp/non-tty-prefix" PATH="/usr/bin:/bin" \
     bash "$installer_dir/install.sh" --interactive </dev/null >"$tmp/non-tty.log" 2>&1; then

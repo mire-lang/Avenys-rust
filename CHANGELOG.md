@@ -4,7 +4,7 @@
 
 - String addition no longer infers ownership from LLVM pointer types; MIR drops remain authoritative.
 - Added a regression test proving a managed string stays valid after subsequent concatenations.
-- Installer defaults to Mire 4.4.44 and Owl 1.6.8 releases and checks embedded versions.
+- Installer defaults to Mire 4.4.44 and Owl 1.6.12 releases and checks embedded versions.
 
 ## 4.4.43 - 2026-11-12
 
