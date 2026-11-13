@@ -361,7 +361,7 @@ install_deps() {
                 ;;
             runtime)
                 $SUDO apt-get install -y -qq \
-                    libsodium23 libzstd-dev libarchive-dev zlib1g-dev tcc libtcc-dev libsqlite3-dev
+                    git libc6-dev libsodium23 libzstd-dev libarchive-dev zlib1g-dev tcc libtcc-dev libsqlite3-dev
                 ;;
         esac
     elif command -v pacman >/dev/null 2>&1; then
@@ -371,7 +371,7 @@ install_deps() {
                     libsodium zlib zstd libarchive tcc patchelf
                 ;;
             runtime)
-                $SUDO pacman -S --needed --noconfirm libsodium zlib zstd libarchive tcc sqlite
+                $SUDO pacman -S --needed --noconfirm git glibc libsodium zlib zstd libarchive tcc sqlite
                 ;;
         esac
     elif command -v dnf >/dev/null 2>&1; then
@@ -397,7 +397,7 @@ install_deps() {
                 fi
                 ;;
             runtime)
-                $SUDO dnf install -y zlib zstd libarchive sqlite 2>/dev/null || true
+                $SUDO dnf install -y git glibc-devel zlib zstd libarchive sqlite 2>/dev/null || true
                 # Install tcc from source if not available
                 if ! command -v tcc >/dev/null 2>&1; then
                     start_spinner "Installing tcc from source"
@@ -420,7 +420,7 @@ install_deps() {
                     libarchive-devel patchelf
                 ;;
             runtime)
-                $SUDO zypper install -y libsodium zlib zstd libarchive tcc sqlite
+                $SUDO zypper install -y git glibc-devel libsodium zlib zstd libarchive tcc sqlite
                 ;;
         esac
     fi
