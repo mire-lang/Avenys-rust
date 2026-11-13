@@ -82,7 +82,7 @@ difficulty() {
     list_indexed_read|swap_exchange|hash_mix|call_overhead|memory_copy) echo "easy" ;;
     nested_loops|break_continue|many_locals|trait_dispatch|mixed_int_float|binary_search|matrix_rowmajor|numeric_format|sort_introsort|string_scan|vec_partition|map_iter|map_int_keys|branch_prediction|cache_locality|alloc_small_objects|alloc_large_objects|alloc_fragmentation|string_concat|string_search|map_lookup|map_collision|map_resize) echo "medium" ;;
     string_impl|recursion_ackermann|alloc_pressure|map_ops|map_growth|map_remove|map_mixed|string_builder|vec_strings) echo "hard" ;;
-    word_count|vec_growth|vec_mixed_reads|vec_pop_drain) echo "medium" ;;
+    word_count|vec_growth|vec_mixed_reads|vec_pop_drain|sort_scaling) echo "medium" ;;
     *) echo "-" ;;
   esac
 }
