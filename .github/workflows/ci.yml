@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, migrate/pal-to-mire]
   pull_request:
     branches: [main, master]
 
@@ -40,6 +40,9 @@ jobs:
       - name: Validate Owl/Avenys protocol schema
         run: ./scripts/validate-protocol-schema.sh "$RUNNER_TEMP/owl_avenys_schema.pb"
 
+      - name: Check PAL ABI inventory and compatibility harness
+        run: bash ./scripts/check-pal-abi.sh
+
       - name: Test PAL Unix-domain sockets
         run: ./scripts/test-pal-unix-sockets.sh
 
@@ -47,6 +50,9 @@ jobs:
         env:
           LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo build --release
+
+      - name: Compile the extracted PAL FFI declarations
+        run: bash ./scripts/check-pal-externs-compile.sh
 
       - name: Test standard input in the minimal runtime
         run: ./scripts/test-runtime-io.sh

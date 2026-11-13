@@ -64,6 +64,16 @@ jobs:
           LLVM_CONFIG_PATH: /usr/bin/llvm-config-22
         run: cargo build --release
 
+      - name: Verify compiler version matches release tag
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(target/release/mire --version)"
+          printf 'Expected tag version: %s\\nCompiler reports: %s\\n' "$expected" "$actual"
+          case "$actual" in
+            *"$expected"*) ;;
+            *) echo "Compiler version does not match release tag" >&2; exit 1 ;;
+          esac
+
       - name: Package compiler tarball (${{ matrix.triple }})
         run: |
           mkdir -p dist/compiler

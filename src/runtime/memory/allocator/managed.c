@@ -236,13 +236,27 @@ char *rt_managed_alloc(size_t len) {
         idx = total <= 2048 ? 7 : 8;
     }
 
-    char *header_ptr = free_lists[idx];
+    // Size classes group a range of capacities, so the head block can be
+    // smaller than this request. Keep undersized blocks in the list and take
+    // the first one whose recorded capacity can hold the new string.
+    char **free_link = &free_lists[idx];
+    char *header_ptr = NULL;
+    while (*free_link) {
+        char *candidate_ptr = *free_link;
+        MireManagedString *candidate = (MireManagedString *)candidate_ptr;
+        FreeBlock *block = (FreeBlock *)(candidate_ptr + sizeof(MireManagedString));
+        if (candidate->cap >= cap) {
+            *free_link = block->next;
+            header_ptr = candidate_ptr;
+            break;
+        }
+        free_link = &block->next;
+    }
     if (header_ptr) {
         MireManagedString *header = (MireManagedString *)header_ptr;
-        FreeBlock *block = (FreeBlock *)(header_ptr + sizeof(MireManagedString));
-        free_lists[idx] = block->next;
+        // Preserve the physical block capacity: lowering it would put a larger
+        // block into a smaller free list when the string is released.
         header->len = len;
-        header->cap = cap;
         // flags is already MIRE_STR_MANAGED from previous use
         header->utf8_cp = 0;
         header->refs = 1;

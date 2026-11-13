@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Mire Toolchain Installer v4.4.42
+# Mire Toolchain Installer v4.4.44
 # ============================================================
 # SEPARATE INSTALLATION LINKS (copy/paste each as needed)
 # ============================================================
@@ -19,6 +19,9 @@ set -euo pipefail
 #   Install kioto library only:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --kioto
 #
+#   Install mire standard library only:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mire
+#
 #   Install SDL library only:
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --sdl
 #
@@ -35,28 +38,28 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --from-source
 #
 # SPECIFIC VERSION INSTALLS (replace VERSION with desired tag):
-#   Mire compiler v4.4.42:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 bash -s -- --compiler
+#   Mire compiler v4.4.44:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.44 bash -s -- --compiler
 #
-#   Owl v1.6.2:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.2 bash -s -- --owl
+#   Owl v1.6.12:
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | OWL_VERSION=v1.6.12 bash -s -- --owl
 #
 #   Both specific versions:
-#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 bash -s -- --mireup
+#   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | MIRE_VERSION=v4.4.44 OWL_VERSION=v1.6.5 bash -s -- --mireup
 #
 # DIRECT RELEASE DOWNLOAD LINKS (manual installation):
 #   Mire Compiler:
-#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
-#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
-#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.42/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
-#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.42
+#     x86_64:   https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.44/mire-compiler-x86_64-unknown-linux-gnu.tar.gz
+#     aarch64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.44/mire-compiler-aarch64-unknown-linux-gnu.tar.gz
+#     riscv64:  https://github.com/mire-lang/Avenys-rust/releases/download/v4.4.44/mire-compiler-riscv64-unknown-linux-gnu.tar.gz
+#     All:      https://github.com/mire-lang/Avenys-rust/releases/tag/v4.4.44
 #
 #   Owl Package Manager:
-#     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-x86_64.tar.gz
-#     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.2/owl-linux-aarch64.tar.gz
-#     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.2
+#     x86_64:   https://github.com/mire-lang/owl/releases/download/v1.6.12/owl-linux-x86_64.tar.gz
+#     aarch64:  https://github.com/mire-lang/owl/releases/download/v1.6.12/owl-linux-aarch64.tar.gz
+#     All:      https://github.com/mire-lang/owl/releases/tag/v1.6.12
 #
-#   Previous versions: replace v4.4.42/v1.6.2 with desired tag
+#   Previous versions: replace v4.4.44/v1.6.12 with desired tag
 #     https://github.com/mire-lang/Avenys-rust/releases
 #     https://github.com/mire-lang/owl/releases
 #
@@ -69,8 +72,8 @@ set -euo pipefail
 
 # Default versions (can be overridden via env vars)
 # NOTE: Use latest KNOWN WORKING releases
-DEFAULT_MIRE_VERSION="v4.4.42"
-DEFAULT_OWL_VERSION="v1.6.2"
+DEFAULT_MIRE_VERSION="v4.4.44"
+DEFAULT_OWL_VERSION="v1.6.12"
 DEFAULT_KIOTO_VERSION="master"
 
 MIRE_VERSION="${MIRE_VERSION:-$DEFAULT_MIRE_VERSION}"
@@ -175,7 +178,7 @@ KIOTO_VERSION="${KIOTO_VERSION:-$DEFAULT_KIOTO_VERSION}"
 
 usage() {
     cat << 'USAGE'
-Mire Toolchain Installer v4.4.42
+Mire Toolchain Installer v4.4.44
 
 Usage:
   install.sh [options]
@@ -187,6 +190,7 @@ Options:
   --compiler            Install Mire compiler
   --owl                 Install Owl package manager
   --kioto               Install Kioto library
+  --mire                Install Mire standard library
   --sdl                 Install SDL library
   --sqlite              Install SQLite library
   --wasm                Install WASM library
@@ -195,8 +199,8 @@ Options:
   --help, -h            Show this help
 
 Environment Variables:
-  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.42)
-  OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.2)
+  MIRE_VERSION=vX.Y.Z   Specific mire version to install (default: v4.4.44)
+  OWL_VERSION=vX.Y.Z    Specific owl version to install (default: v1.6.12)
   KIOTO_VERSION=branch  Specific kioto branch/tag (default: master)
 
 Examples:
@@ -204,7 +208,7 @@ Examples:
   curl -fsSL https://raw.githubusercontent.com/mire-lang/Avenys-rust/main/install/install.sh | bash -s -- --mireup
 
   # Install specific versions
-  MIRE_VERSION=v4.4.42 OWL_VERSION=v1.6.2 curl -fsSL .../install.sh | bash -s -- --mireup
+  MIRE_VERSION=v4.4.44 OWL_VERSION=v1.6.12 curl -fsSL .../install.sh | bash -s -- --mireup
 
   # Install only mire compiler v4.4.17
   MIRE_VERSION=v4.4.17 curl -fsSL .../install.sh | bash -s -- --compiler
@@ -223,10 +227,12 @@ FROM_SOURCE=0
 INSTALL_COMPILER=0
 INSTALL_OWL=0
 INSTALL_KIOTO=0
+INSTALL_MIRE=0
 INSTALL_SDL=0
 INSTALL_SQLITE=0
 INSTALL_WASM=0
 YES=0
+NO_PROFILE="${NO_PROFILE:-0}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -236,6 +242,7 @@ while [ $# -gt 0 ]; do
         --compiler) INSTALL_COMPILER=1; shift ;;
         --owl) INSTALL_OWL=1; shift ;;
         --kioto) INSTALL_KIOTO=1; shift ;;
+        --mire) INSTALL_MIRE=1; shift ;;
         --sdl) INSTALL_SDL=1; shift ;;
         --sqlite) INSTALL_SQLITE=1; shift ;;
         --wasm) INSTALL_WASM=1; shift ;;
@@ -246,9 +253,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# --prefix is parsed after the initial PATH setup, so refresh PATH here too.
+export PATH="$BIN_DIR:$PATH"
+
 # Print header
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
-printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.42${NC}" "" ""
+printf "%s%s%s\n" "${BOLD}${BLUE}  Mire Toolchain Installer v4.4.44${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 printf "\n"
 log_info "Prefix: ${BOLD}$PREFIX${NC}"
@@ -271,16 +281,27 @@ if [ "$INTERACTIVE" = "1" ]; then
     printf "  1) Avenys (mire compiler)\n"
     printf "  2) Owl (package manager)\n"
     printf "  3) Kioto (library)\n"
-    printf "  4) SDL (library)\n"
-    printf "  5) SQLite (library)\n"
-    printf "  6) WASM (library)\n"
+    printf "  4) Mire standard library\n"
+    printf "  5) SDL (library)\n"
+    printf "  6) SQLite (library)\n"
+    printf "  7) WASM (library)\n"
     printf "\n"
     printf "Enter numbers (e.g. 1 2 3 or 1,2,3): "
-    read -r selection
+    if ! exec 3</dev/tty 2>/dev/null; then
+        log_error "Interactive mode needs a terminal; use --compiler, --owl, or --mireup in scripts"
+        exit 2
+    fi
+    if ! IFS= read -r selection <&3; then
+        exec 3<&-
+        log_error "Could not read the component selection from the terminal"
+        exit 2
+    fi
+    exec 3<&-
     selection=$(echo "$selection" | tr ',' ' ')
     INSTALL_COMPILER=0
     INSTALL_OWL=0
     INSTALL_KIOTO=0
+    INSTALL_MIRE=0
     INSTALL_SDL=0
     INSTALL_SQLITE=0
     INSTALL_WASM=0
@@ -289,9 +310,10 @@ if [ "$INTERACTIVE" = "1" ]; then
             1) INSTALL_COMPILER=1 ;;
             2) INSTALL_OWL=1 ;;
             3) INSTALL_KIOTO=1 ;;
-            4) INSTALL_SDL=1 ;;
-            5) INSTALL_SQLITE=1 ;;
-            6) INSTALL_WASM=1 ;;
+            4) INSTALL_MIRE=1 ;;
+            5) INSTALL_SDL=1 ;;
+            6) INSTALL_SQLITE=1 ;;
+            7) INSTALL_WASM=1 ;;
         esac
     done
     printf "\n"
@@ -329,12 +351,17 @@ install_deps() {
         $SUDO apt-get update -qq
         case "$deps_type" in
             build)
-                $SUDO apt-get install -y -qq curl git build-essential clang llvm lld pkg-config \
+                $SUDO apt-get install -y -qq curl wget git build-essential pkg-config \
                     libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc patchelf
+                # Avenys requires LLVM 22. Add the official LLVM apt repository
+                # so source installs work on Ubuntu releases whose base repos
+                # do not yet provide that major version.
+                wget -qO- https://apt.llvm.org/llvm.sh | $SUDO bash -s -- 22
+                $SUDO apt-get install -y -qq clang-22 llvm-22 lld-22 llvm-22-dev llvm-22-tools
                 ;;
             runtime)
                 $SUDO apt-get install -y -qq \
-                    libsodium23 libzstd-dev libarchive-dev zlib1g-dev tcc libtcc-dev libsqlite3-dev
+                    git libc6-dev libsodium23 libzstd-dev libarchive-dev zlib1g-dev tcc libtcc-dev libsqlite3-dev
                 ;;
         esac
     elif command -v pacman >/dev/null 2>&1; then
@@ -344,7 +371,7 @@ install_deps() {
                     libsodium zlib zstd libarchive tcc patchelf
                 ;;
             runtime)
-                $SUDO pacman -S --needed --noconfirm libsodium zlib zstd libarchive tcc sqlite
+                $SUDO pacman -S --needed --noconfirm git glibc libsodium zlib zstd libarchive tcc sqlite
                 ;;
         esac
     elif command -v dnf >/dev/null 2>&1; then
@@ -370,7 +397,7 @@ install_deps() {
                 fi
                 ;;
             runtime)
-                $SUDO dnf install -y zlib zstd libarchive sqlite 2>/dev/null || true
+                $SUDO dnf install -y git glibc-devel zlib zstd libarchive sqlite 2>/dev/null || true
                 # Install tcc from source if not available
                 if ! command -v tcc >/dev/null 2>&1; then
                     start_spinner "Installing tcc from source"
@@ -393,7 +420,7 @@ install_deps() {
                     libarchive-devel patchelf
                 ;;
             runtime)
-                $SUDO zypper install -y libsodium zlib zstd libarchive tcc sqlite
+                $SUDO zypper install -y git glibc-devel libsodium zlib zstd libarchive tcc sqlite
                 ;;
         esac
     fi
@@ -542,6 +569,16 @@ install_mire() {
         cp -r "$tmpdir/compiler/pal" "$PREFIX/lib/mire/"
     fi
     fix_binary_rpath "$BIN_DIR/mire" "$PREFIX/lib/mire"
+    local installed_version
+    installed_version=$("$BIN_DIR/mire" --version 2>/dev/null || true)
+    case "$installed_version" in
+        *"$version"*) ;;
+        *)
+            rm -rf "$tmpdir"
+            stop_spinner 1 "Mire archive version mismatch: requested $version, binary reports ${installed_version:-no version}"
+            return 1
+            ;;
+    esac
     rm -rf "$tmpdir"
 
     stop_spinner 0 "Mire compiler installed ($version)"
@@ -597,12 +634,35 @@ install_owl() {
     fi
 
     fix_binary_rpath "$BIN_DIR/owl" "$PREFIX/lib/mire"
+    local installed_version
+    installed_version=$("$BIN_DIR/owl" --version 2>/dev/null || "$BIN_DIR/owl" -V 2>/dev/null || true)
+    case "$installed_version" in
+        *"$version"*) ;;
+        *)
+            rm -rf "$tmpdir"
+            stop_spinner 1 "Owl archive version mismatch: requested $version, binary reports ${installed_version:-no version}"
+            return 1
+            ;;
+    esac
     rm -rf "$tmpdir"
 
     stop_spinner 0 "Owl package manager installed ($version)"
 }
 
 # Function to install libraries via owl
+library_installed() {
+    local package="$1" candidate
+    if [ -f "$OWL_HOME/libs/$package/owl.toml" ]; then
+        return 0
+    fi
+    for candidate in "$OWL_HOME/libs/$package"@*; do
+        if [ -f "$candidate/owl.toml" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 install_via_owl() {
     local pkg="$1"
     local log
@@ -610,19 +670,25 @@ install_via_owl() {
     start_spinner "Installing $pkg via owl"
     if owl install "$pkg" >"$log" 2>&1; then
         rm -f "$log"
-        stop_spinner 0 "$pkg installed"
+        if library_installed "$pkg"; then
+            stop_spinner 0 "$pkg installed"
+            return 0
+        fi
+        stop_spinner 1 "Owl reported success but $pkg is missing from $OWL_HOME/libs"
+        return 1
     else
         stop_spinner 1 "$pkg failed"
         printf "    %s\n" "--- owl install $pkg output (last 15 lines) ---"
         tail -n 15 "$log" | sed 's/^/    /'
         rm -f "$log"
+        return 1
     fi
 }
 
 install_libraries_via_owl() {
     if ! command -v owl >/dev/null 2>&1; then
         log_warn "owl not found, skipping library installation via owl"
-        return
+        return 1
     fi
 
     export PATH="$BIN_DIR:$PATH"
@@ -643,19 +709,19 @@ install_libraries_via_owl() {
     fi
 
     if [ "$INSTALL_KIOTO" = "1" ] || [ "$MIREUP" = "1" ]; then
-        install_via_owl kioto
+        install_via_owl kioto || install_libraries_direct kioto
     fi
     if [ "$INSTALL_SDL" = "1" ]; then
-        install_via_owl sdl
+        install_via_owl sdl || log_warn "SDL installation failed; no direct source fallback is configured"
     fi
     if [ "$INSTALL_SQLITE" = "1" ]; then
-        install_via_owl sqlite
+        install_via_owl sqlite || log_warn "SQLite installation failed; no direct source fallback is configured"
     fi
     if [ "$INSTALL_WASM" = "1" ]; then
-        install_via_owl wasm
+        install_via_owl wasm || log_warn "WASM installation failed; no direct source fallback is configured"
     fi
-    if [ "$MIREUP" = "1" ]; then
-        install_via_owl mire
+    if [ "$INSTALL_MIRE" = "1" ] || [ "$MIREUP" = "1" ]; then
+        install_via_owl mire || install_libraries_direct mire
     fi
 }
 
@@ -663,29 +729,41 @@ install_libraries_via_owl() {
 install_libraries_direct() {
     printf "Installing libraries to %s...\n" "$OWL_HOME/libs"
     mkdir -p "$OWL_HOME/libs"
-    
-    for lib in kioto mire sdl sqlite wasm; do
-        if [ ! -d "$OWL_HOME/libs/$lib" ] && [ ! -d "$OWL_HOME/libs/$lib@*" ]; then
+    local lib url tmpdir destination failed=0
+    for lib in "$@"; do
+        case "$lib" in
+            kioto) url="https://github.com/mire-lang/Kioto/archive/refs/heads/${KIOTO_VERSION}.tar.gz" ;;
+            mire) url="https://github.com/mire-lang/mire-lib/archive/refs/heads/main.tar.gz" ;;
+            *) log_warn "No direct source fallback is configured for $lib"; failed=1; continue ;;
+        esac
+        destination="$OWL_HOME/libs/$lib"
+        if [ -f "$destination/owl.toml" ]; then
+            continue
+        fi
+        tmpdir=$(mktemp -d)
+        start_spinner "Installing $lib library from source"
+        if curl -fsSL "$url" -o "$tmpdir/source.tar.gz" \
+            && mkdir -p "$tmpdir/package" \
+            && tar xzf "$tmpdir/source.tar.gz" --strip-components=1 --no-same-owner -C "$tmpdir/package" \
+            && [ -f "$tmpdir/package/owl.toml" ] \
+            && mkdir -p "$destination" \
+            && cp -a "$tmpdir/package/." "$destination/"; then
             case "$lib" in
                 kioto)
-                    start_spinner "Installing kioto from source"
-                    curl -fsSL "https://github.com/mire-lang/Kioto/archive/refs/heads/${KIOTO_VERSION}.tar.gz" -o /tmp/kioto.tar.gz 2>/dev/null && \
-                    tar xzf /tmp/kioto.tar.gz -C /tmp && \
-                    for d in /tmp/Kioto-*/; do [ -f "$d/owl.toml" ] && cp -r "$d" "$OWL_HOME/libs/kioto" && break; done && \
-                    rm -rf /tmp/kioto.tar.gz /tmp/Kioto-* 2>/dev/null || true
-                    stop_spinner 0 "kioto installed"
+                    [ ! -L "$destination/kioto@3.1.0" ] || rm "$destination/kioto@3.1.0"
                     ;;
                 mire)
-                    start_spinner "Installing mire stdlib from source"
-                    curl -fsSL "https://github.com/mire-lang/mire-lib/archive/refs/heads/main.tar.gz" -o /tmp/mire.tar.gz 2>/dev/null && \
-                    tar xzf /tmp/mire.tar.gz -C /tmp && \
-                    for d in /tmp/mire-lib-*/; do cp -r "$d" "$OWL_HOME/libs/mire" 2>/dev/null && break; done && \
-                    rm -rf /tmp/mire.tar.gz /tmp/mire-lib-* 2>/dev/null || true
-                    stop_spinner 0 "mire stdlib installed"
+                    [ ! -L "$destination/mire@2.1.0-beta" ] || rm "$destination/mire@2.1.0-beta"
                     ;;
             esac
+            stop_spinner 0 "$lib installed from source"
+        else
+            stop_spinner 1 "$lib source installation failed"
+            failed=1
         fi
+        rm -rf "$tmpdir"
     done
+    return "$failed"
 }
 
 # Function to add to PATH
@@ -735,7 +813,26 @@ if [ "$FROM_SOURCE" = "1" ]; then
         printf "\n"
         log_info "Building mire compiler..."
         cd avenys
-        LLVM_CONFIG_PATH=$(which llvm-config-22 2>/dev/null || which llvm-config 2>/dev/null) cargo build --release
+        llvm_config=""
+        for candidate in llvm-config-22 llvm-config; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+                candidate_path=$(command -v "$candidate")
+                candidate_version=$("$candidate_path" --version 2>/dev/null || true)
+                case "$candidate_version" in
+                    22|22.*) llvm_config="$candidate_path"; break ;;
+                esac
+            fi
+        done
+        if [ -z "$llvm_config" ]; then
+            log_error "LLVM 22 development tools are required to build Mire (install llvm-22-dev/llvm22-devel)"
+            exit 1
+        fi
+        llvm_prefix=$("$llvm_config" --prefix)
+        llvm_version=$("$llvm_config" --version)
+        log_info "Using LLVM $llvm_version from $llvm_prefix"
+        export LLVM_CONFIG_PATH="$llvm_config"
+        export LLVM_SYS_221_PREFIX="$llvm_prefix"
+        cargo build --release
         if [ -f target/release/mire ]; then
             cp target/release/mire "$BIN_DIR/mire"
             chmod +x "$BIN_DIR/mire"
@@ -809,8 +906,14 @@ else
         install_libraries_via_owl
     else
         # Install libraries directly if owl not available
-        if [ "$INSTALL_KIOTO" = "1" ] || [ "$MIREUP" = "1" ] || [ "$INSTALL_SDL" = "1" ] || [ "$INSTALL_SQLITE" = "1" ] || [ "$INSTALL_WASM" = "1" ]; then
-            install_libraries_direct
+        requested_libraries=()
+        if [ "$INSTALL_KIOTO" = "1" ] || [ "$MIREUP" = "1" ]; then requested_libraries+=(kioto); fi
+        if [ "$INSTALL_MIRE" = "1" ] || [ "$MIREUP" = "1" ]; then requested_libraries+=(mire); fi
+        if [ "$INSTALL_SDL" = "1" ]; then requested_libraries+=(sdl); fi
+        if [ "$INSTALL_SQLITE" = "1" ]; then requested_libraries+=(sqlite); fi
+        if [ "$INSTALL_WASM" = "1" ]; then requested_libraries+=(wasm); fi
+        if [ "${#requested_libraries[@]}" -gt 0 ]; then
+            install_libraries_direct "${requested_libraries[@]}"
         fi
     fi
 fi
@@ -825,7 +928,7 @@ printf "%s%s%s\n" "${BOLD}${BLUE}  Installation Complete!${NC}" "" ""
 printf "%s%s%s\n" "${BOLD}${BLUE}================================================${NC}" "" ""
 
 if [ -f "$BIN_DIR/owl" ]; then
-    OWL_VER=$("$BIN_DIR/owl" -V 2>/dev/null | head -1 || echo "installed")
+    OWL_VER=$( ("$BIN_DIR/owl" --version 2>/dev/null || "$BIN_DIR/owl" -V 2>/dev/null) | head -1 || echo "installed")
     log_success "owl: $OWL_VER"
 fi
 if [ -f "$BIN_DIR/mire" ]; then

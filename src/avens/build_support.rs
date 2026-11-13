@@ -87,22 +87,6 @@ pub(super) fn struct_field_llvm_body_type(dt: &DataType) -> String {
     }
 }
 
-pub(super) fn struct_field_size(dt: &DataType) -> usize {
-    match dt {
-        DataType::I64 | DataType::Char | DataType::U64 => 8,
-        DataType::I128 | DataType::U128 => 16,
-        DataType::I32 | DataType::U32 => 4,
-        DataType::I16 | DataType::U16 => 2,
-        DataType::I8 | DataType::U8 => 1,
-        DataType::F32 => 4,
-        DataType::F64 => 8,
-        DataType::Bool => 1,
-        DataType::None => 8,
-        DataType::Array { element_type, size } => *size * struct_field_size(element_type),
-        _ => 8,
-    }
-}
-
 pub(super) fn generate_runtime_declarations(ir: &str) -> String {
     let mut out = String::new();
     let needed: &[(&str, &str)] = &[
@@ -306,13 +290,6 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                 })
                 .collect();
 
-            let mut total_size = 0usize;
-            for field in fields {
-                if let Statement::Let { data_type, .. } = field {
-                    total_size += struct_field_size(data_type);
-                }
-            }
-
             if param_types.is_empty() {
                 continue;
             }
@@ -325,7 +302,9 @@ pub(super) fn generate_struct_constructors(program: &crate::parser::ast::Program
                 .collect();
 
             let mut body = String::new();
-            body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
+            body.push_str(&format!(
+                "  %sizeptr = getelementptr {{ {struct_ty} }}, ptr null, i32 1\n  %size = ptrtoint ptr %sizeptr to i64\n  %ptr = call ptr @malloc(i64 %size)\n"
+            ));
             for (i, field) in fields.iter().enumerate() {
                 if let Statement::Let { data_type, .. } = field {
                     let bty = &body_types[i];
@@ -389,10 +368,8 @@ pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) 
                     continue;
                 }
                 let mut all_types = vec!["i64".to_string()];
-                let mut total_size = 8usize;
                 for dt in &variant.data_types {
                     all_types.push(struct_field_llvm_body_type(dt));
-                    total_size += struct_field_size(dt);
                 }
                 let struct_ty = all_types.join(", ");
                 let param_types: Vec<String> = variant
@@ -410,7 +387,9 @@ pub(super) fn generate_enum_constructors(program: &crate::parser::ast::Program) 
                     .collect();
 
                 let mut body = String::new();
-                body.push_str(&format!("  %ptr = call ptr @malloc(i64 {total_size})\n"));
+                body.push_str(&format!(
+                    "  %sizeptr = getelementptr {{ {struct_ty} }}, ptr null, i32 1\n  %size = ptrtoint ptr %sizeptr to i64\n  %ptr = call ptr @malloc(i64 %size)\n"
+                ));
                 body.push_str(&format!(
                     "  %d0 = getelementptr inbounds {{ {struct_ty} }}, ptr %ptr, i32 0, i32 0\n"
                 ));
@@ -1423,10 +1402,29 @@ pub(crate) fn runtime_c_file_needs_pal(source_path: &std::path::Path) -> bool {
 #[cfg(test)]
 mod runtime_source_tests {
     use super::{
-        collect_c_sources, collect_used_symbols, generate_runtime_declarations,
+        collect_c_sources, collect_used_symbols, generate_enum_constructors,
+        generate_runtime_declarations, generate_struct_constructors,
         minimal_runtime_c_files, runtime_c_file_needs_pal, runtime_symbol_to_c_file,
     };
     use std::{collections::HashSet, path::Path};
+
+    #[test]
+    fn aggregate_constructors_allocate_llvm_layout_size() {
+        let program = crate::parser::parse(
+            "pub struct LayoutProbe {\n    flag :bool\n    value :str\n}\nenum PayloadProbe { Value(flag :bool, value :str) }\n",
+        )
+        .expect("aggregate fixture parses");
+
+        let struct_ir = generate_struct_constructors(&program);
+        assert!(struct_ir.contains(
+            "%sizeptr = getelementptr { i1, ptr }, ptr null, i32 1\n  %size = ptrtoint ptr %sizeptr to i64\n  %ptr = call ptr @malloc(i64 %size)"
+        ));
+
+        let enum_ir = generate_enum_constructors(&program);
+        assert!(enum_ir.contains(
+            "%sizeptr = getelementptr { i64, i1, ptr }, ptr null, i32 1\n  %size = ptrtoint ptr %sizeptr to i64\n  %ptr = call ptr @malloc(i64 %size)"
+        ));
+    }
 
     #[test]
     fn scalar_pal_socket_bridges_select_the_runtime_bridge_and_pal_backend() {

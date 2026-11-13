@@ -1,0 +1,11 @@
+// Integer recurrence with a loop-carried dependency and bounded arithmetic.
+pub fn main: () :i32 {
+    set state = SEED_OPACA mut
+    set i = 0 :i64 mut
+    while i < 12000000 {
+        set state = (state * 48271 + i + 1) % 2147483647
+        set i += 1
+    }
+    dasu(str(state))
+    return 0 :i32
+}

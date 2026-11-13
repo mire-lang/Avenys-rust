@@ -1,5 +1,13 @@
 load kioto
 
+extern fn rt_pal_socket_send: (socket :i64, data :&str, length :i64) :i64 lib "c"
+extern fn rt_pal_socket_recv: (socket :i64, buffer :&mut str, capacity :i64) :i64 lib "c"
+extern fn rt_pal_listener_send: (listener :i64, data :&str, length :i64) :i64 lib "c"
+extern fn rt_pal_listener_recv: (listener :i64, buffer :&mut str, capacity :i64) :i64 lib "c"
+extern fn rt_pal_listener_accept: (listener :i64) :i64 lib "c"
+extern fn rt_pal_socket_close: (socket :i64) lib "c"
+extern fn rt_pal_listener_close: (listener :i64) lib "c"
+
 @[test]
 pub fn pal_net_udp_loopback: () :bool {
     set listener = net::listener::bind::udp(39125 :u16)
@@ -12,4 +20,21 @@ pub fn pal_net_udp_loopback: () :bool {
     net::socket::close(sender)
     net::listener::close(listener)
     return sent == 10 && received == 10 && strings::substr(buffer 0 10) == "avenys-udp"
+}
+
+@[test]
+pub fn pal_net_bridges_validate_handles: () :bool {
+    set buffer = strings::repeat("\0" 8) :str mut
+    set socket_send = rt_pal_socket_send(-1 "x" 1)
+    set socket_recv = rt_pal_socket_recv(-1 buffer 8)
+    set listener_send = rt_pal_listener_send(-1 "x" 1)
+    set listener_recv = rt_pal_listener_recv(-1 buffer 8)
+    set accepted = rt_pal_listener_accept(-1)
+    rt_pal_socket_close(-1)
+    rt_pal_listener_close(-1)
+    return socket_send < 0
+        && socket_recv < 0
+        && listener_send < 0
+        && listener_recv < 0
+        && accepted == 0
 }

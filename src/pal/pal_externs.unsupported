@@ -1,0 +1,50 @@
+pal_channel_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_channel_create: struct pal_handle () -- unsupported C ABI type `struct pal_handle`
+pal_channel_recv: struct pal_bytes_t (struct pal_handle) -- unsupported C ABI type `struct pal_bytes_t`
+pal_channel_send: int64_t (struct pal_handle, const void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_dir_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_dir_next: struct pal_dir_entry_t (struct pal_handle) -- unsupported C ABI type `struct pal_dir_entry_t`
+pal_dir_next_into: void (struct pal_handle, pal_dir_entry_t *) -- unsupported C ABI type `struct pal_handle`
+pal_dir_next_name: int64_t (struct pal_handle, char *, long) -- unsupported C ABI type `struct pal_handle`
+pal_dir_open: struct pal_handle (struct pal_handle, const char *) -- unsupported C ABI type `struct pal_handle`
+pal_file_clone: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_file_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_file_open: struct pal_handle (struct pal_handle, const char *, unsigned int) -- unsupported C ABI type `struct pal_handle`
+pal_file_read: int64_t (struct pal_handle, void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_file_seek: int64_t (struct pal_handle, long, enum pal_seek_from_t) -- unsupported C ABI type `struct pal_handle`
+pal_file_size: int64_t (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_file_stat: _Bool (struct pal_handle, pal_stat_t *) -- unsupported C ABI type `struct pal_handle`
+pal_file_write: int64_t (struct pal_handle, const void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_last_error: enum pal_error_code_t () -- unsupported C ABI type `enum pal_error_code_t`
+pal_listener_accept: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_listener_bind: struct pal_handle (unsigned short, unsigned int) -- unsupported C ABI type `struct pal_handle`
+pal_listener_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_listener_recv: int64_t (struct pal_handle, void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_listener_send: int64_t (struct pal_handle, const void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_proc_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_create: struct pal_handle (const char **, unsigned int, struct pal_handle, struct pal_handle, struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_create_in_directory: struct pal_handle (const char **, const char *, unsigned int, struct pal_handle, struct pal_handle, struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_kill: _Bool (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_stderr: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_stdin: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_stdout: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_transfer: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_proc_wait: int64_t (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_pubkey_free: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_pubkey_verify: _Bool (struct pal_handle, const void *, long, const void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_root_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_root_open: struct pal_handle (const char *) -- unsupported C ABI type `struct pal_handle`
+pal_root_remove: _Bool (struct pal_handle, const char *) -- unsupported C ABI type `struct pal_handle`
+pal_sbx_reason: enum pal_sbx_reason_t () -- unsupported C ABI type `enum pal_sbx_reason_t`
+pal_secret_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_secret_create: struct pal_handle (unsigned long) -- unsupported C ABI type `struct pal_handle`
+pal_secret_export_public: struct pal_handle (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_secret_sign: int64_t (struct pal_handle, const void *, long, void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_socket_close: void (struct pal_handle) -- unsupported C ABI type `struct pal_handle`
+pal_socket_connect: struct pal_handle (const char *, unsigned short, unsigned int) -- unsupported C ABI type `struct pal_handle`
+pal_socket_recv: int64_t (struct pal_handle, void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_socket_send: int64_t (struct pal_handle, const void *, long) -- unsupported C ABI type `struct pal_handle`
+pal_strerror: const char * (enum pal_error_code_t) -- unsupported C ABI type `enum pal_error_code_t`
+pal_thread_spawn: int64_t (void *(*)(void *), void *) -- unsupported C ABI type `void *(*)(void *)`
+pal_unix_bind: struct pal_handle (const char *, unsigned int) -- unsupported C ABI type `struct pal_handle`
+pal_unix_connect: struct pal_handle (const char *, unsigned int) -- unsupported C ABI type `struct pal_handle`

@@ -1,0 +1,21 @@
+// Sorting scale kernel. Large enough to measure the runtime sort beyond startup.
+load mire::vec
+
+pub fn main: () :i32 {
+    set seed = SEED_OPACA mut
+    set round = 0 :i64 mut
+    while round < 100 {
+        set values = vec::with::capacity::i64(10000) mut
+        set index = 0 :i64 mut
+        while index < 10000 {
+            set value = (index * 2654435761 + round) % 1000003
+            set values = vec::push::i64(values value)
+            set index += 1
+        }
+        vec::sort(values)
+        set seed = (seed + vec::get::i64(values 0) + vec::get::i64(values 9999)) % 1000003
+        set round += 1
+    }
+    dasu(str(seed))
+    return 0 :i32
+}

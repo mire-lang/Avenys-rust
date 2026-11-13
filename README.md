@@ -1,4 +1,4 @@
-# Avenys v4.4.42
+# Avenys v4.4.44
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -190,12 +190,23 @@ use dasu(kioto::status())
 The official registry is at `mire-lang/libs`. Multi-version support:
 - `kioto@2.5.0`, `kioto@3.1.0` (default: 3.1.0)
 - `mire@1.2.4`, `mire@2.1.0-beta` (default: 2.1.0-beta)
-- `owl@1.6.2` (default: 1.6.2)
+- `owl@1.6.12` (default: 1.6.12)
 - `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`, `ilogical@0.1.0`
 
 ## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+
+### v4.4.44 - 2026-11-12
+**Runtime safety and installation**
+- **String addition preserves live operands.** Code generation leaves ownership decisions to MIR drops instead of treating every LLVM `ptr` temporary as owned. This prevents double frees in complex Owl builds.
+- **ARM installer defaults are verified.** Mire and Owl versions match their embedded release versions.
+
+### v4.4.43 - 2026-11-12
+**Runtime reliability and release validation**
+- **Managed string reuse respects physical capacity.** Reused blocks are selected by actual capacity, preventing writes beyond a smaller block after allocator churn.
+- **String vectors own stable copies.** Pushing a managed temporary no longer relies on the source expression remaining alive.
+- **Installer and release checks validate embedded versions.** Mismatched archives fail clearly instead of claiming the requested release was installed.
 
 ### v4.4.42 - 2026-11-11
 **Installer & CI**
