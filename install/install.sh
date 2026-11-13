@@ -351,8 +351,13 @@ install_deps() {
         $SUDO apt-get update -qq
         case "$deps_type" in
             build)
-                $SUDO apt-get install -y -qq curl git build-essential clang llvm lld pkg-config \
-                    llvm-dev libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc patchelf
+                $SUDO apt-get install -y -qq curl wget git build-essential pkg-config \
+                    libssl-dev libsodium-dev zlib1g-dev libzstd-dev libarchive-dev tcc patchelf
+                # Avenys requires LLVM 22. Add the official LLVM apt repository
+                # so source installs work on Ubuntu releases whose base repos
+                # do not yet provide that major version.
+                wget -qO- https://apt.llvm.org/llvm.sh | $SUDO bash -s -- 22
+                $SUDO apt-get install -y -qq clang-22 llvm-22 lld-22 llvm-22-dev llvm-22-tools
                 ;;
             runtime)
                 $SUDO apt-get install -y -qq \
