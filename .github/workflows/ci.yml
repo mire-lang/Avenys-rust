@@ -87,12 +87,12 @@ jobs:
       - name: Test minimal managed strings through PAL allocation
         run: ./scripts/test-runtime-managed-minimal-pal.sh
 
-      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0 namespaced net API)
+      - name: Checkout kioto (official mire-lang/Kioto main, v3.1.0 modules/ layout)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/Kioto
           path: kioto-src
-          ref: master
+          ref: main
 
       - name: Checkout mire stdlib (official mire-lang branch)
         uses: actions/checkout@v4
@@ -212,12 +212,12 @@ jobs:
           fi
           mire --version || echo "mire installed"
 
-      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0 namespaced net API)
+      - name: Checkout kioto (official mire-lang/Kioto main, v3.1.0 modules/ layout)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/Kioto
           path: kioto-src
-          ref: master
+          ref: main
 
       - name: Checkout owl source (official mire-lang/owl main)
         uses: actions/checkout@v4
@@ -247,11 +247,20 @@ jobs:
 
       - name: Generate avenys config for the owl build
         run: |
-          cat > owl-src/native/mire-config.toml <<'EOF'
+          # Read the manifest instead of mirroring it by hand: Owl 1.6.2 used
+          # code/ and the rename to src/ must not require a second change here.
+          owl_version=$(sed -n 's/^version = "\(.*\)"/\1/p' owl-src/owl.toml | head -1)
+          owl_entry=$(sed -n 's/^entry = "\(.*\)"/\1/p' owl-src/owl.toml | head -1)
+          if [ -z "$owl_version" ] || [ -z "$owl_entry" ]; then
+            echo "owl.toml is missing [project] version or entry" >&2
+            exit 1
+          fi
+          echo "OWL_ENTRY=$owl_entry" >> "$GITHUB_ENV"
+          cat > owl-src/native/mire-config.toml <<EOF
           [project]
           name = "owl"
-          version = "1.3.1"
-          entry = "code/main.mire"
+          version = "$owl_version"
+          entry = "$owl_entry"
 
           [build]
           profile = "release"
@@ -274,7 +283,7 @@ jobs:
       - name: Build owl
         working-directory: owl-src
         run: |
-          mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs"
+          mire build "$OWL_ENTRY" --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs"
 
       - name: Test owl
         working-directory: owl-src
