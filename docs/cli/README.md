@@ -2,9 +2,9 @@
 
 > Avenys compiler commands, flags, and usage.
 
-Version: **4.4.42**
+Version: **4.4.44**
 Status: **Stable**
-Date: **2026-11-11**
+Date: **2026-11-12**
 
 ---
 
@@ -106,11 +106,11 @@ mire debug src/main.mire --run     # Run with debug output
 | `--cache-dir <dir>` | Incremental cache location |
 | `--target <triple>` | LLVM target triple |
 | `--cpu <name>` | LLVM CPU for instruction selection (native, x86-64-v3, ...) |
-| `--runtime <tier>` | minimal/none |
+| `--runtime <tier>` | `minimal` or `none`; `full` is still accepted as an alias of `minimal` |
 | `--artifact <bin\|static\|shared>` | Output type |
 | `--release` | Release build |
 | `-O, --opt-level <0-3\|s\|z>` | Optimization level |
-| `--config <file>` | Config file |
+| `--config <file>` | Config file (deprecated once the Owl protocol replaces it) |
 | `--no-analysis-cache` | Disable analysis cache |
 | `--verbose` | Verbose output |
 | `--help` | Show help |

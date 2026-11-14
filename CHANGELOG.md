@@ -5,6 +5,9 @@
 - String addition no longer infers ownership from LLVM pointer types; MIR drops remain authoritative.
 - Added a regression test proving a managed string stays valid after subsequent concatenations.
 - Installer defaults to Mire 4.4.44 and Owl 1.6.12 releases and checks embedded versions.
+- **Version alignment.** `owl.toml` and `docs/cli/README.md` now report 4.4.44, matching `Cargo.toml` and `mire --version`. The Kioto dependency is pinned to 3.1.0.
+- **CI builds Owl against Kioto `main`.** The `build-owl` job no longer checks out Kioto `master` (2.5.0, `core/` layout), which lacked `fs::unrestricted` and failed with `Unknown function 'fs.unrestricted.enter'`.
+- **Config fossils removed.** The test manifest uses `runtime = "minimal"` (`full` had been aliased away) and points macros at `mire/src/aux/macros/` instead of the deleted `mire/core/` tree.
 
 ## 4.4.43 - 2026-11-12
 
@@ -1142,10 +1145,4 @@ something that is not a failure.
 - **WASM/WASI targets**: `wasm32-wasip1` (WASI SDK sysroot) and
   `wasm32-unknown-unknown` (no-libc freestanding).
 - `strings_minimal.c`: POSIX-free string operations for the minimal tier.
-## 4.4.43 - 2026-11-12
-
-- Fixed managed string reuse when free-list blocks have different capacities.
-- Made vectors own independent copies of pushed strings.
-- Installer validates the embedded compiler/package version against the requested release.
-- Release builds fail when the compiler version differs from the pushed tag.
 

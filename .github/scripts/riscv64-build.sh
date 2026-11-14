@@ -106,11 +106,17 @@ case "$MODE" in
         fi
 
         echo "== riscv64 build: generating avenys config (owl) =="
-        cat > owl-src/native/mire-config.toml <<'EOF'
+        owl_version=$(sed -n 's/^version = "\(.*\)"/\1/p' owl-src/owl.toml | head -1)
+        owl_entry=$(sed -n 's/^entry = "\(.*\)"/\1/p' owl-src/owl.toml | head -1)
+        if [ -z "$owl_version" ] || [ -z "$owl_entry" ]; then
+            echo "error: owl.toml is missing [project] version or entry" >&2
+            exit 1
+        fi
+        cat > owl-src/native/mire-config.toml <<EOF
 [project]
 name = "owl"
-version = "1.3.0"
-entry = "code/main.mire"
+version = "$owl_version"
+entry = "$owl_entry"
 
 [build]
 profile = "release"
@@ -138,7 +144,7 @@ EOF
         cp -a mire-src "$HOME/.owl/libs/mire"
 
         echo "== riscv64 build: compiling owl =="
-        ( cd owl-src && mire build code/main.mire --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs" )
+        ( cd owl-src && mire build "$owl_entry" --release -O3 --no-analysis-cache --config native/mire-config.toml --lib-dir "$HOME/.owl/libs" )
         test -x owl-src/bin/main && echo "owl riscv64 OK"
 
         # Bundle the libsodium runtime lib (owl resolves it via its RUNPATH
