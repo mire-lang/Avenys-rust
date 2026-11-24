@@ -1,4 +1,258 @@
 use crate::error::diagnostic::{Diagnostic, DiagnosticCode, LabelStyle, Severity};
+use serde_json::{Value, json};
+use std::io::IsTerminal;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ErrorFormat {
+    #[default]
+    Human,
+    Short,
+    Json,
+    JsonRenderedAnsi,
+    Sarif,
+}
+
+impl ErrorFormat {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "human" => Some(Self::Human),
+            "short" => Some(Self::Short),
+            "json" => Some(Self::Json),
+            "json-rendered-ansi" | "json-rendered" => Some(Self::JsonRenderedAnsi),
+            "sarif" => Some(Self::Sarif),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Human => "human",
+            Self::Short => "short",
+            Self::Json => "json",
+            Self::JsonRenderedAnsi => "json-rendered-ansi",
+            Self::Sarif => "sarif",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorPolicy {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl ColorPolicy {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "always" => Some(Self::Always),
+            "never" => Some(Self::Never),
+            _ => None,
+        }
+    }
+
+    pub fn enabled(self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+        }
+    }
+}
+
+pub fn format_diagnostic_for(diag: &Diagnostic, format: ErrorFormat, use_color: bool) -> String {
+    match format {
+        ErrorFormat::Human => format_diagnostic(diag, use_color),
+        ErrorFormat::Short => format_short(diag),
+        ErrorFormat::Json => {
+            let rendered = None;
+            serde_json::to_string_pretty(&diagnostic_json(diag, rendered))
+                .unwrap_or_else(|_| "{}".to_string())
+        }
+        ErrorFormat::JsonRenderedAnsi => {
+            let rendered = Some(format_diagnostic(diag, true));
+            serde_json::to_string_pretty(&diagnostic_json(diag, rendered))
+                .unwrap_or_else(|_| "{}".to_string())
+        }
+        ErrorFormat::Sarif => {
+            serde_json::to_string_pretty(&sarif_json_for(std::slice::from_ref(diag)))
+                .unwrap_or_else(|_| "{}".to_string())
+        }
+    }
+}
+
+pub fn format_diagnostics_for(
+    diags: &[Diagnostic],
+    format: ErrorFormat,
+    use_color: bool,
+) -> String {
+    if diags.is_empty() {
+        return String::new();
+    }
+    match format {
+        ErrorFormat::Human => diags
+            .iter()
+            .map(|d| format_diagnostic(d, use_color))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ErrorFormat::Short => diags
+            .iter()
+            .map(format_short)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ErrorFormat::Json | ErrorFormat::JsonRenderedAnsi => {
+            let rendered = matches!(format, ErrorFormat::JsonRenderedAnsi);
+            let values: Vec<Value> = diags
+                .iter()
+                .map(|d| diagnostic_json(d, rendered.then(|| format_diagnostic(d, true))))
+                .collect();
+            serde_json::to_string_pretty(&Value::Array(values)).unwrap_or_else(|_| "[]".to_string())
+        }
+        ErrorFormat::Sarif => serde_json::to_string_pretty(&sarif_json_for(diags))
+            .unwrap_or_else(|_| "{}".to_string()),
+    }
+}
+
+fn severity_str(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Note => "note",
+        Severity::Help => "help",
+    }
+}
+
+fn severity_level(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Note | Severity::Help => "note",
+    }
+}
+
+fn format_short(diag: &Diagnostic) -> String {
+    let filename = diag.filename.as_deref().unwrap_or("<unknown>");
+    let location = if diag.span.is_unknown() {
+        filename.to_string()
+    } else {
+        format!(
+            "{}:{}:{}",
+            filename,
+            diag.span.line.max(1),
+            diag.span.column.max(1)
+        )
+    };
+    let message = diag.message.replace('\n', " ");
+    format!("{}: {}: {}", location, severity_str(diag.severity), message)
+}
+
+fn diagnostic_json(diag: &Diagnostic, rendered: Option<String>) -> Value {
+    let filename = diag.filename.as_deref().unwrap_or("");
+    let labels: Vec<Value> = diag
+        .labels
+        .iter()
+        .map(|label| {
+            json!({
+                "message": label.message,
+                "style": match label.style {
+                    LabelStyle::Primary => "primary",
+                    LabelStyle::Secondary => "secondary",
+                },
+                "line": label.span.line,
+                "column": label.span.column,
+                "length": label.length,
+            })
+        })
+        .collect();
+    let suggestions: Vec<Value> = diag
+        .suggestions
+        .iter()
+        .map(|suggestion| {
+            json!({
+                "message": suggestion.message,
+                "replacement": suggestion.replacement,
+            })
+        })
+        .collect();
+    let mut value = json!({
+        "severity": severity_str(diag.severity),
+        "code": diag.code.as_str(),
+        "name": diag.code.name(),
+        "title": diag.title,
+        "message": diag.message,
+        "file": filename,
+        "line": diag.span.line,
+        "column": diag.span.column,
+        "labels": labels,
+        "notes": diag.notes,
+        "help": diag.help,
+        "suggestions": suggestions,
+    });
+    if let Some(rendered) = rendered {
+        value["rendered"] = Value::String(rendered);
+    }
+    value
+}
+
+fn sarif_json_for(diags: &[Diagnostic]) -> Value {
+    let mut rules: Vec<Value> = Vec::new();
+    let mut results: Vec<Value> = Vec::new();
+    for diag in diags {
+        let filename = diag.filename.as_deref().unwrap_or("");
+        let code = diag.code.as_str();
+        if !rules.iter().any(|rule| rule["id"].as_str() == Some(code)) {
+            let mut rule = json!({
+                "id": code,
+                "name": diag.code.name(),
+                "shortDescription": { "text": diag.title },
+            });
+            if let Some(help) = &diag.help {
+                rule["help"] = json!({ "text": help });
+            }
+            rules.push(rule);
+        }
+
+        let mut result = json!({
+            "ruleId": code,
+            "level": severity_level(diag.severity),
+            "message": { "text": diag.message },
+        });
+        if !filename.is_empty() || !diag.span.is_unknown() {
+            let mut region = json!({});
+            if !diag.span.is_unknown() {
+                region["startLine"] = json!(diag.span.line.max(1));
+                region["startColumn"] = json!(diag.span.column.max(1));
+            }
+            let mut physical = json!({});
+            if !filename.is_empty() {
+                physical["artifactLocation"] = json!({ "uri": filename });
+            }
+            physical["region"] = region;
+            result["locations"] = json!([{ "physicalLocation": physical }]);
+        }
+        if !diag.notes.is_empty() {
+            result["properties"] = json!({ "notes": diag.notes });
+        }
+        results.push(result);
+    }
+
+    json!({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "mire",
+                    "informationUri": "https://mire-lang.github.io",
+                    "rules": rules,
+                }
+            },
+            "results": results,
+        }],
+    })
+}
 
 fn c(use_color: bool, s: &str) -> &str {
     if use_color { s } else { "" }
@@ -26,9 +280,10 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
         }
         Severity::Error => diag.code.as_str().to_string(),
     };
+    let sev_prefix = if use_color { sev_color } else { "" };
 
     out.push_str(&format!(
-        "{sev_color}{sev_word}[{code}]{} ── {}{}\n",
+        "{sev_prefix}{sev_word}[{code}]{} ── {}{}\n",
         c(use_color, "\x1b[0m"),
         diag.title,
         c(use_color, "\x1b[0m"),
@@ -56,7 +311,6 @@ pub fn format_diagnostic(diag: &Diagnostic, use_color: bool) -> String {
     }
 
     if !span.is_unknown() {
-        // Source text resolution: try diag.source first, then read the file.
         if let Some(source) = &diag.source {
             render_source_lines(&mut out, source, span, diag);
         } else if let Some(ref fname) = diag.filename {
@@ -122,5 +376,61 @@ fn render_source_lines(
                 width = width
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{DiagnosticCode, Span};
+
+    fn sample() -> Diagnostic {
+        let mut diag = Diagnostic::new(
+            Severity::Error,
+            DiagnosticCode::E0003,
+            "Syntax Error",
+            "expected expression",
+            Span::new(2, 3),
+        );
+        diag.filename = Some("bad.mire".to_string());
+        diag
+    }
+
+    #[test]
+    fn short_format_is_one_line_with_location() {
+        let rendered = format_diagnostic_for(&sample(), ErrorFormat::Short, false);
+        assert_eq!(rendered, "bad.mire:2:3: error: expected expression");
+    }
+
+    #[test]
+    fn json_format_exposes_code_and_span() {
+        let rendered = format_diagnostic_for(&sample(), ErrorFormat::Json, false);
+        let value: Value = serde_json::from_str(&rendered).expect("valid json");
+        assert_eq!(value["code"], "E0003");
+        assert_eq!(value["line"], 2);
+        assert_eq!(value["column"], 3);
+    }
+
+    #[test]
+    fn sarif_format_is_versioned() {
+        let rendered = format_diagnostic_for(&sample(), ErrorFormat::Sarif, false);
+        let value: Value = serde_json::from_str(&rendered).expect("valid sarif");
+        assert_eq!(value["version"], "2.1.0");
+        assert_eq!(value["runs"][0]["results"][0]["ruleId"], "E0003");
+    }
+
+    #[test]
+    fn multiple_json_diagnostics_form_an_array() {
+        let diags = vec![sample(), sample()];
+        let rendered = format_diagnostics_for(&diags, ErrorFormat::Json, false);
+        let value: Value = serde_json::from_str(&rendered).expect("valid json");
+        assert_eq!(value.as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn format_and_color_parse_known_values() {
+        assert_eq!(ErrorFormat::parse("sarif"), Some(ErrorFormat::Sarif));
+        assert_eq!(ErrorFormat::parse("nope"), None);
+        assert_eq!(ColorPolicy::parse("never"), Some(ColorPolicy::Never));
     }
 }

@@ -265,7 +265,9 @@ static int64_t linux_file_open(int64_t root_internal, const char *rel_path, pal_
 
 static int64_t linux_file_read(int64_t internal, void *buf, int64_t capacity) {
     linux_file_t *file = (linux_file_t *)internal;
-    if (!file || !buf || capacity <= 0) return -1;
+    if (!file || !buf || capacity < 0) return -1;
+    // POSIX read(2) with a zero count returns zero and does not touch buf.
+    if (capacity == 0) return 0;
     ssize_t n = read(file->fd, buf, (size_t)capacity);
     if (n < 0) return -1;
     return (int64_t)n;

@@ -5,6 +5,19 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+fn warn_legacy_link_flag(common: &CommonOptions) {
+    if common.legacy_link_flag
+        && matches!(
+            common.error_format,
+            mire::error::format::ErrorFormat::Human
+        )
+    {
+        eprintln!(
+            "warning[W0061 legacy_link_flag]: -L/--link without name=path is deprecated; use --link-dir <path>"
+        );
+    }
+}
+
 pub(crate) fn run_command(cwd: &Path, args: &[String]) -> Result<i32, MireError> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("Usage: mire run [file] [options] [-- program-args]");
@@ -14,14 +27,23 @@ pub(crate) fn run_command(cwd: &Path, args: &[String]) -> Result<i32, MireError>
         println!("  --output-dir <dir>    Output directory");
         println!("  --cache-dir <dir>     Incremental cache directory");
         println!("  --config <file>       Owl-generated normalized compiler config");
-        println!("  -L, --link <dir>      Native linker search directory");
+        println!("  -L, --link <name=path> Ecosystem library (repeatable)");
+        println!("  -H, --hash <sha256:hex> Expected hash for the preceding --link");
+        println!("  --link-dir <dir>      Native linker search directory");
+        println!("  --bundle <mode>       static|static-strict|dynamic (default: static)");
         println!("  -l, --link-lib <name> Native library to link");
         println!("  --target <triple>     LLVM/Clang target triple");
-    println!("  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);");
+        println!("  --error-format <fmt>  human|short|json|json-rendered-ansi|sarif");
+        println!("  --color <policy>      auto|always|never");
+        println!(
+            "  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);"
+        );
         println!("  --artifact <bin|static|shared>  Output type");
         return Ok(0);
     }
     let (common, file, pass_through) = parse_run_options(cwd, args)?;
+    warn_legacy_link_flag(&common);
+    verify_ecosystem_hashes(&common)?;
     let path = resolve_source_path(cwd, file)?;
     configure_build_paths(cwd, &common, &path);
     set_lib_dir_env(&common.lib_dir);
@@ -53,7 +75,13 @@ pub(crate) fn run_command(cwd: &Path, args: &[String]) -> Result<i32, MireError>
     };
     let build = compile_file_with_avenys(&path, &options)?;
     if !suppress_warn && !matches!(options.warning_filter, WarningFilter::Off) {
-        emit_warnings(&build, common.warn.position, &common.warn.no_warn_cats);
+        emit_warnings(
+            &build,
+            common.warn.position,
+            &common.warn.no_warn_cats,
+            common.error_format,
+            common.color,
+        );
     }
     let mut cmd = Command::new(&build.binary_path);
     for arg in pass_through {
@@ -77,9 +105,16 @@ pub(crate) fn build_help() {
     println!("  --artifact <type>     Output type: bin|static|shared (default: bin)");
     println!("  --runtime <tier>      Runtime tier: minimal|none");
     println!("  --target <triple>     LLVM/Clang target triple");
-    println!("  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);");
-    println!("  -L, --link <dir>      Native linker search directory");
+    println!(
+        "  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);"
+    );
+    println!("  -L, --link <name=path> Ecosystem library (repeatable)");
+    println!("  -H, --hash <sha256:hex> Expected hash for the preceding --link");
+    println!("  --link-dir <dir>      Native linker search directory");
+    println!("  --bundle <mode>       static|static-strict|dynamic (default: static)");
     println!("  -l, --link-lib <name> Native library to link");
+    println!("  --error-format <fmt>  human|short|json|json-rendered-ansi|sarif");
+    println!("  --color <policy>      auto|always|never");
     println!("\nWarnings:");
     println!("  --show-warn           Show warning summary");
     println!("  --position            Show per-file warning locations");
@@ -97,6 +132,8 @@ pub(crate) fn build_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
         return Ok(0);
     }
     let (common, file) = parse_common_with_file(cwd, args)?;
+    warn_legacy_link_flag(&common);
+    verify_ecosystem_hashes(&common)?;
     let path = resolve_source_path(cwd, file)?;
     configure_build_paths(cwd, &common, &path);
     set_lib_dir_env(&common.lib_dir);
@@ -127,7 +164,13 @@ pub(crate) fn build_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
     };
     let build = compile_file_with_avenys(&path, &options)?;
     if !suppress_warn && !matches!(options.warning_filter, WarningFilter::Off) {
-        emit_warnings(&build, common.warn.position, &common.warn.no_warn_cats);
+        emit_warnings(
+            &build,
+            common.warn.position,
+            &common.warn.no_warn_cats,
+            common.error_format,
+            common.color,
+        );
     }
     println!("{}", build.binary_path.display());
     Ok(0)
@@ -141,13 +184,22 @@ pub(crate) fn debug_command(cwd: &Path, args: &[String]) -> Result<i32, MireErro
         println!("  --ir                  Emit IR without a binary");
         println!("  --run, -r             Run the debug binary");
         println!("  -O, --opt-level <n>   Optimization level");
-        println!("  -L, --link <dir>      Native linker search directory");
+        println!("  -L, --link <name=path> Ecosystem library (repeatable)");
+        println!("  -H, --hash <sha256:hex> Expected hash for the preceding --link");
+        println!("  --link-dir <dir>      Native linker search directory");
+        println!("  --bundle <mode>       static|static-strict|dynamic (default: static)");
         println!("  -l, --link-lib <name> Native library to link");
         println!("  --target <triple>     LLVM/Clang target triple");
-    println!("  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);");
+        println!("  --error-format <fmt>  human|short|json|json-rendered-ansi|sarif");
+        println!("  --color <policy>      auto|always|never");
+        println!(
+            "  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);"
+        );
         return Ok(0);
     }
     let options = parse_debug_options(cwd, args)?;
+    warn_legacy_link_flag(&options.common);
+    verify_ecosystem_hashes(&options.common)?;
     let path = resolve_source_path(cwd, options.file.clone())?;
     configure_build_paths(cwd, &options.common, &path);
     set_lib_dir_env(&options.common.lib_dir);

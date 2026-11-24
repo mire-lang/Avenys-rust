@@ -4,6 +4,13 @@
 #include "runtime.h"
 #include <stdint.h>
 
+// Bucket counts are always powers of two (8, 16, 32, ...), so masking is
+// equivalent to the old unsigned modulo without an integer division on every
+// probe. Keep this in one place so every caller gets the same assumption.
+static inline int64_t mire_bucket_index(uint64_t hash, int64_t bucket_cap) {
+    return (int64_t)(hash & (uint64_t)(bucket_cap - 1));
+}
+
 // ── Internal hash map helpers ──────────────────────────────────────
 // Used by maps.c (public API). Not part of the external ABI.
 

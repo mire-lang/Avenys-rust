@@ -238,8 +238,20 @@ pub(super) fn compile_binary_from_ir(
                 linker.arg(format!("-l{}", clean_name));
             }
         }
+        let mut bundle_warned = std::collections::HashSet::new();
         for lib in &c_defs.libs {
-            linker.arg(format!("-l{}", lib.trim_start_matches("lib")));
+            let clean_name = if lib.contains('.') {
+                lib.rsplit('.').next().unwrap_or(lib)
+            } else {
+                lib
+            };
+            push_bundled_library(
+                &mut linker,
+                clean_name.trim_start_matches("lib"),
+                &c_defs.cflags,
+                c_defs.bundle,
+                &mut bundle_warned,
+            )?;
         }
         let output = linker.output().map_err(|err| {
             MireError::runtime(format!("Failed to run ld.lld: {err}"))
@@ -433,14 +445,20 @@ pub(super) fn compile_binary_from_ir(
         }
     }
 
-    for lib in super::build_support::c_defs().libs.iter() {
+    let mut bundle_warned = std::collections::HashSet::new();
+    for lib in c_defs.libs.iter() {
         let clean_name = if lib.contains('.') {
             lib.rsplit('.').next().unwrap_or(lib)
         } else {
             lib
         };
-        linker.arg("-l");
-        linker.arg(clean_name);
+        push_bundled_library(
+            &mut linker,
+            clean_name.trim_start_matches("lib"),
+            &c_defs.cflags,
+            c_defs.bundle,
+            &mut bundle_warned,
+        )?;
     }
 
     // Some tcc builds refuse to mix an LLVM-emitted object with their own
@@ -740,6 +758,121 @@ fn lower_ir_to_object(
 /// directly. Tcc normally supplies these implicitly; bypassing Tcc means
 /// that common libraries such as sqlite3 would otherwise be invisible to the
 /// linker even though they are installed and available to normal C builds.
+/// Library names that belong to the C runtime itself. Static-linking `libc.a`
+/// or `libm.a` is a different decision from bundling a library dependency, and
+/// doing it implicitly breaks the CRT setup on most hosts.
+fn is_runtime_library(name: &str) -> bool {
+    matches!(
+        name,
+        "c" | "m" | "pthread" | "dl" | "rt" | "gcc" | "gcc_s" | "stdc++" | "util"
+    )
+}
+
+fn library_file_name(name: &str, extension: &str) -> String {
+    format!("lib{}.{extension}", name.trim_start_matches("lib"))
+}
+
+fn library_search_dirs(cflags: &[String]) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    let mut i = 0;
+    while i < cflags.len() {
+        let flag = &cflags[i];
+        if let Some(rest) = flag.strip_prefix("-L") {
+            if !rest.is_empty() {
+                dirs.push(std::path::PathBuf::from(rest));
+            } else if let Some(next) = cflags.get(i + 1) {
+                dirs.push(std::path::PathBuf::from(next));
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    for dir in [
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/local/lib",
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib",
+        "/lib64",
+        "/lib/x86_64-linux-gnu",
+    ] {
+        dirs.push(std::path::PathBuf::from(dir));
+    }
+    dirs
+}
+
+fn find_library_file(
+    name: &str,
+    extension: &str,
+    cflags: &[String],
+) -> Option<std::path::PathBuf> {
+    let file = library_file_name(name, extension);
+    library_search_dirs(cflags)
+        .into_iter()
+        .map(|dir| dir.join(&file))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Resolve one `-l<name>` according to `--bundle`.
+///
+/// `static` prefers the archive and falls back to the shared object with
+/// W0069; `static-strict` refuses the fallback with E0404; `dynamic` keeps the
+/// linker's normal `-l` lookup. Runtime libraries and already-absolute paths
+/// are left alone.
+fn push_bundled_library(
+    linker: &mut Command,
+    name: &str,
+    cflags: &[String],
+    bundle: super::config::BundleMode,
+    warned: &mut std::collections::HashSet<String>,
+) -> Result<()> {
+    use super::config::BundleMode;
+
+    if matches!(bundle, BundleMode::Dynamic) || is_runtime_library(name) {
+        // `-l` and the name are separate arguments on purpose: tcc treats
+        // `-lfoo` and `-l foo` differently in a few versions.
+        linker.arg("-l");
+        linker.arg(name);
+        return Ok(());
+    }
+
+    if let Some(archive) = find_library_file(name, "a", cflags) {
+        linker.arg(archive);
+        return Ok(());
+    }
+
+    let shared = find_library_file(name, "so", cflags);
+    if matches!(bundle, BundleMode::StaticStrict) || shared.is_none() {
+        let detail = match shared {
+            Some(path) => format!(
+                "only the shared object `{}` was found",
+                path.display()
+            ),
+            None => "neither a static archive nor a shared object was found".to_string(),
+        };
+        return Err(MireError::native_dependency(
+            format!(
+                "native dependency `{name}` is missing a static archive\n  = note: {:?} requires `{}`\n  = note: {detail}\n  = help: install the static archive, or use `--bundle dynamic` to link the shared object on purpose",
+                bundle,
+                library_file_name(name, "a")
+            ),
+            crate::error::diagnostic::DiagnosticCode::E0404,
+        ));
+    }
+
+    if warned.insert(name.to_string()) {
+        let shared = shared.expect("checked above");
+        eprintln!(
+            "warning[W0069 static_bundle_fallback]: no static archive for `{name}`; linking dynamically\n  = note: `--bundle static` prefers `{}`; only `{}` was found\n  = help: install the static archive, or request dynamic linking explicitly with `--bundle dynamic`\n  = help: use `--bundle static-strict` to fail instead of falling back in CI",
+            library_file_name(name, "a"),
+            shared.display()
+        );
+    }
+    linker.arg("-l");
+    linker.arg(name);
+    Ok(())
+}
+
 fn add_tcc_library_search_paths(tcc_path: &str, linker: &mut Command) {
     let output = match Command::new(tcc_path).arg("-print-search-dirs").output() {
         Ok(output) if output.status.success() => output,

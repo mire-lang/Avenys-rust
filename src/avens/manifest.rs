@@ -43,6 +43,8 @@ struct MireConfigBuild {
     target: Option<String>,
     #[serde(default = "default_config_artifact")]
     artifact: LibType,
+    #[serde(default)]
+    bundle: BundleMode,
 }
 
 impl Default for MireConfigBuild {
@@ -51,6 +53,7 @@ impl Default for MireConfigBuild {
             runtime: default_config_runtime(),
             target: default_config_target(),
             artifact: default_config_artifact(),
+            bundle: BundleMode::default(),
         }
     }
 }
@@ -100,6 +103,7 @@ pub fn load_config_file(config_path: &Path) -> Result<MireManifest> {
         runtime: config.build.runtime,
         target: config.build.target,
         artifact: config.build.artifact,
+        bundle: config.build.bundle,
         libs: config.cfg.libs,
         sources: config.cfg.sources,
         cflags: config

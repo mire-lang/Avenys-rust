@@ -27,6 +27,8 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     let mut lib_dir: Option<String> = None;
     let mut cache_dir: Option<String> = None;
     let mut config_path: Option<PathBuf> = None;
+    let mut error_format = mire::error::format::ErrorFormat::default();
+    let mut color = mire::error::format::ColorPolicy::default();
 
     let mut i = 0;
     while i < args.len() {
@@ -53,6 +55,8 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                 println!("  --lib-dir <path>        Package directory supplied by Owl");
                 println!("  --cache-dir <path>     Incremental cache directory");
                 println!("  --config <file>        Owl-generated normalized compiler config");
+                println!("  --error-format <fmt>   human|short|json|json-rendered-ansi|sarif");
+                println!("  --color <policy>       auto|always|never");
                 println!("  --help, -h          Show this help message");
                 return Ok(0);
             }
@@ -85,6 +89,23 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                         cli_msg("Missing config path after --config")
                     })?));
             }
+            "--error-format" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing format after --error-format"))?;
+                error_format = mire::error::format::ErrorFormat::parse(value).ok_or_else(|| {
+                    cli_msg("Invalid --error-format, use human|short|json|json-rendered-ansi|sarif")
+                })?;
+            }
+            "--color" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing policy after --color"))?;
+                color = mire::error::format::ColorPolicy::parse(value)
+                    .ok_or_else(|| cli_msg("Invalid --color, use auto|always|never"))?;
+            }
             "--no-warn" => {
                 i += 1;
                 let cat = args
@@ -113,6 +134,17 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
             }
             "-r" | "--release" => opt_level = OptLevel::O3,
             "-d" | "--debug" => opt_level = OptLevel::O0,
+            flag if flag.starts_with("--error-format=") => {
+                let value = &flag["--error-format=".len()..];
+                error_format = mire::error::format::ErrorFormat::parse(value).ok_or_else(|| {
+                    cli_msg("Invalid --error-format, use human|short|json|json-rendered-ansi|sarif")
+                })?;
+            }
+            flag if flag.starts_with("--color=") => {
+                let value = &flag["--color=".len()..];
+                color = mire::error::format::ColorPolicy::parse(value)
+                    .ok_or_else(|| cli_msg("Invalid --color, use auto|always|never"))?;
+            }
             _ => {
                 if let Some(val) = args[i].strip_prefix("--jobs=") {
                     jobs = val
@@ -617,7 +649,7 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
                     }
                     if show_warn && position {
                         for d in &filtered {
-                            print_warning_detailed(d, true);
+                            print_warning_detailed(d, error_format, color);
                         }
                     } else if show_warn {
                         all_warnings.extend(filtered);
@@ -764,8 +796,19 @@ pub(crate) fn test_command(cwd: &Path, args: &[String]) -> Result<i32, MireError
     }
 
     if show_warn && !position && !all_warnings.is_empty() {
-        println!();
-        print_warning_summary(&all_warnings);
+        if matches!(error_format, mire::error::format::ErrorFormat::Human) {
+            println!();
+            print_warning_summary(&all_warnings);
+        } else {
+            eprintln!(
+                "{}",
+                mire::error::format::format_diagnostics_for(
+                    &all_warnings,
+                    error_format,
+                    color.enabled()
+                )
+            );
+        }
     }
 
     // A source file is only a compilation unit; the user-facing count must
