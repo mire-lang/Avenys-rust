@@ -89,7 +89,7 @@ difficulty() {
     list_indexed_read|swap_exchange|hash_mix|call_overhead|memory_copy) echo "easy" ;;
     nested_loops|break_continue|many_locals|trait_dispatch|mixed_int_float|binary_search|matrix_rowmajor|numeric_format|sort_introsort|string_scan|vec_partition|map_iter|map_int_keys|branch_prediction|cache_locality|alloc_small_objects|alloc_large_objects|alloc_fragmentation|string_concat|string_search|map_lookup|map_collision|map_resize) echo "medium" ;;
     string_impl|recursion_ackermann|alloc_pressure|map_ops|map_growth|map_remove|map_mixed|string_builder|vec_strings) echo "hard" ;;
-    word_count|vec_growth|vec_mixed_reads|vec_pop_drain|sort_scaling) echo "medium" ;;
+    word_count|vec_growth|vec_mixed_reads|vec_pop_drain|sort_scaling|modular_recurrence) echo "medium" ;;
     *) echo "-" ;;
   esac
 }
@@ -279,15 +279,10 @@ time_ms_together() {
 }
 
 cmd_verify() {
-  print -r -- "Checking that Rust and Mire perform the same calculation..."
-  local k fail=0 d mo ro
+  print -r -- "Building and executing every kernel in Mire, Rust, and C..."
+  local k fail=0 known=0 d mo ro co
   for k in $(kernels); do
     [[ "$k" == "noop" ]] && continue
-    if known_output_mismatch "$k"; then
-      build_one "$k" verify || { fail=1; continue; }
-      printf "  %-19s %-9s %s\n" "$k" "SKIPPED" "(known difference)"
-      continue
-    fi
     build_one "$k" verify || { fail=1; continue; }
     d="$WORK/$k.verify.3"
     mo=$("$d/code/bin/release/main" 2>/dev/null | tail -1)
@@ -296,16 +291,24 @@ cmd_verify() {
     [[ -x "$WORK/bin/c_$k" ]] && co=$("$WORK/bin/c_$k" 2>/dev/null | tail -1)
     if [[ "$mo" == "$ro" && ( -z "$co" || "$mo" == "$co" ) ]]; then
       printf "  %-19s %-9s %s\n" "$k" "match" "$mo"
+    elif known_output_mismatch "$k"; then
+      printf "  %-19s %-9s rust=%s mire=%s c=%s\n" "$k" "KNOWN DIFF" "$ro" "$mo" "$co"
+      known=$(( known + 1 ))
     else
       printf "  %-19s %-9s rust=%s mire=%s c=%s\n" "$k" "DIFFERS" "$ro" "$mo" "$co"
       fail=1
     fi
   done
   if (( fail )); then
-    print -r -- "\nOutput differs. No timings are reported until all kernels match."
+    print -r -- "\nUnexpected output differences found. See the per-kernel results above."
     return 1
   fi
-  print -r -- "\nAll kernels match. Measurements are allowed."
+  print -r -- "\nEvery kernel was built and executed in each available language."
+  if (( known )); then
+    print -r -- "$known known output differences remain; their measurements are excluded."
+  else
+    print -r -- "All kernel outputs match; measurements are allowed."
+  fi
 }
 
 cmd_measure() {
