@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.4.45 - 2026-11-25
+
+### Added
+- **Bundle selection.** `--bundle static|static-strict|dynamic` (default
+  `static`). `static` prefers `lib<name>.a` and falls back to the shared object
+  with `W0069`; `static-strict` refuses the fallback with `E0404`; `dynamic`
+  keeps the shared object. CRT libraries (`c`, `m`, `pthread`, `dl`, `rt`,
+  `gcc`, `gcc_s`, `stdc++`, `util`) are never forced to static.
+- **Library hashes.** `-H/--hash sha256:<hex>` pins the content of the
+  preceding `--link name=path`. Compiler-owned SHA-256; directory digests use a
+  deterministic relative-path walk that skips `.git`, `bin`, `target`, `.cache`,
+  `logs` and `node_modules`.
+- **Diagnostic formats.** `--error-format
+  human|short|json|json-rendered-ansi|sarif`, `--message-format human|json` and
+  `--color auto|always|never`, available on `build`, `run`, `test` and `debug`.
+
+### Changed
+- **`-L/--link` now names ecosystem libraries** as `name=path`. The legacy
+  linker-directory form still works but reports `W0061`; use `--link-dir <path>`
+  for a plain native search directory.
+- **Diagnostics carry codes, spans and help**; hash mismatches are `E0403` and
+  missing native dependencies are `E0404`.
+
+### Fixed
+- **Hash map probing.** Power-of-two capacities and bitmask bucket indexing.
+  `map_ops` improved from 1.56× to 1.37× Rust and from 1.63× to 1.43× C.
+- The legacy colour path no longer leaks escape codes into non-human formats.
+
 ## 4.4.44 - 2026-11-12
 
 - String addition no longer infers ownership from LLVM pointer types; MIR drops remain authoritative.
