@@ -187,8 +187,13 @@ void pal_sbx_set_tool_home(const char *path) {
     }
     size_t rlen = strlen(resolved);
     if (rlen > 1 && resolved[rlen - 1] == '/') resolved[rlen - 1] = '\0';
-    snprintf(g_sbx_tool_home, sizeof(g_sbx_tool_home), "%s/%s", resolved,
-             probe + plen + (probe[plen] == '/' ? 1 : 0));
+    rlen = strlen(resolved);
+    if (rlen >= sizeof(g_sbx_tool_home)) {
+        g_sbx_tool_home[0] = '\0';
+        g_sbx_tool_home_set = true;
+        return;
+    }
+    memcpy(g_sbx_tool_home, resolved, rlen + 1);
     g_sbx_tool_home_set = true;
 }
 

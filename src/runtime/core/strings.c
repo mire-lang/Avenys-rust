@@ -156,7 +156,7 @@ char *rt_string_append_owned(char *value, const char *suffix) {
 char *rt_i64_to_string(int64_t value) {
     // Fast integer-to-string using two-digit lookup table to avoid division.
     // This is significantly faster than the division loop for small integers.
-    static const char digits[200] =
+    static const char digits[201] =
         "00010203040506070809"
         "10111213141516171819"
         "20212223242526272829"
