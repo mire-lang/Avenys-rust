@@ -4,7 +4,7 @@
 
 Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-12**
+Date: **2026-11-26**
 
 ---
 
@@ -285,7 +285,7 @@ the exit status.
 
 ```toml
 # owl.toml
-[c]
+[build]
 runtime = "none"
 nostartfiles = true
 nostdlib = true

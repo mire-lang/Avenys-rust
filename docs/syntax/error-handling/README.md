@@ -1,4 +1,4 @@
-// Error Handling
+# Error Handling
 
 ## Result Type
 
@@ -72,14 +72,14 @@ enum Maybe[T] {
 - Unboxed representation: `{ i1 tag, T value }`
 - Zero runtime overhead
 
-##// Constructors
+### Constructors
 
 ```mire
 set some = Maybe::Some(42)
 set none = Maybe::None
 ```
 
-##// Methods
+### Methods
 
 ```mire
 opt.unwrap()              // Returns T or panics

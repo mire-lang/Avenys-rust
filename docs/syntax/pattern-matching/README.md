@@ -1,4 +1,4 @@
-// Pattern Matching
+# Pattern Matching
 
 ## match Expression
 
@@ -18,7 +18,7 @@ set result = match value {
 
 ## Patterns
 
-##// Literal Patterns
+### Literal Patterns
 
 ```mire
 match x {
@@ -32,7 +32,7 @@ match x {
 - Integers, floats, strings, booleans, chars
 - Exact value match
 
-##// Variable Binding
+### Variable Binding
 
 ```mire
 match x {
@@ -43,7 +43,7 @@ match x {
 - Binds matched value to new variable
 - Variable scope limited to arm
 
-##// Wildcard
+### Wildcard
 
 ```mire
 match x {
@@ -56,7 +56,7 @@ match x {
 - No binding
 - Conventionally placed last
 
-##// Or-Patterns (Alternatives)
+### Or-Patterns (Alternatives)
 
 ```mire
 match x {
@@ -70,7 +70,7 @@ match x {
 - All share same arm body
 - All patterns must bind same variables (or none)
 
-##// Range Patterns
+### Range Patterns
 
 ```mire
 match x {
@@ -84,7 +84,7 @@ match x {
 - Works on integers, chars
 - Cannot overlap with other patterns
 
-##// Guard Patterns (when)
+### Guard Patterns (when)
 
 ```mire
 match x {
@@ -98,7 +98,7 @@ match x {
 - Condition can use bound variables
 - Evaluated after pattern matches
 
-##// Enum Variant Patterns
+### Enum Variant Patterns
 
 ```mire
 enum Option[T] { None, Some(value :T) }
@@ -113,7 +113,7 @@ match opt {
 - Payload extracted via binding: `Some(v)`
 - Exhaustiveness checked for enums
 
-##// Struct Patterns
+### Struct Patterns
 
 ```mire
 struct Point { x :i64, y :i64 }
@@ -129,7 +129,7 @@ match p {
 - `_` for ignored fields
 - Can bind fields to variables
 
-##// Ref Patterns
+### Ref Patterns
 
 ```mire
 match &value {

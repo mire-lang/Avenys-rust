@@ -1,4 +1,4 @@
-// Collections
+# Collections
 
 ## Vectors (`vec[T]`)
 
@@ -33,7 +33,7 @@ vec::unique(v)                     // Remove duplicates
 vec::concat(v1, v2)                // Concatenate
 ```
 
-##// Method Syntax (Sugar)
+### Method Syntax (Sugar)
 
 ```mire
 set v = [1 2 3] :vec[i64] mut
@@ -75,7 +75,7 @@ map::merge(m1, m2)            // Merge (m2 wins conflicts)
 map::clear(m)                 // Empty map
 ```
 
-##// Method Syntax
+### Method Syntax
 
 ```mire
 set m = {"a": 1} :map[str i64] mut
@@ -128,7 +128,7 @@ set list = List::Cons(1, box(List::Cons(2, box(List::Nil))))
 
 ## Common Patterns
 
-##// Iteration
+### Iteration
 
 ```mire
 for item in vec {
@@ -140,7 +140,7 @@ for item, idx in vec {
 }
 ```
 
-##// Chaining
+### Chaining
 
 ```mire
 set result = vec
@@ -149,7 +149,7 @@ set result = vec
     .fold(0, (a b) => a + b)
 ```
 
-##// Performance Notes
+### Performance Notes
 
 | Operation | Vec | Map | Array |
 |-----------|-----|-----|-------|

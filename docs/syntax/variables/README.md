@@ -1,4 +1,4 @@
-// Variables
+# Variables
 
 ## Declaration vs Reassignment
 

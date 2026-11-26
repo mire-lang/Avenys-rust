@@ -1,4 +1,4 @@
-// Strings
+# Strings
 
 ## String Type
 
@@ -138,7 +138,7 @@ r"raw\nstring"       // Raw string (no escapes)
 r#"raw with "quotes"//  // Raw with custom delimiter
 ```
 
-##// Escape Sequences
+### Escape Sequences
 
 | Sequence | Meaning |
 |----------|---------|

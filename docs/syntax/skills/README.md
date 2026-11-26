@@ -1,4 +1,4 @@
-// Skills (Traits/Interfaces)
+# Skills (Traits/Interfaces)
 
 ## Declaration
 

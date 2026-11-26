@@ -2,9 +2,9 @@
 
 > All compiler error and warning codes with descriptions and fixes.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 

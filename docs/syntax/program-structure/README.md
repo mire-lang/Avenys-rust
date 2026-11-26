@@ -1,4 +1,4 @@
-// Program Structure
+# Program Structure
 
 ## Entry Point
 

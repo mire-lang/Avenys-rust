@@ -1,4 +1,4 @@
-// Operators
+# Operators
 
 ## Arithmetic
 
@@ -11,7 +11,7 @@
 | `%` | Remainder | integers (inline, div-by-zero check) |
 | `**` | Power | floats only (`math::pow`) |
 
-##// Integer Division
+### Integer Division
 
 ```mire
 set a = 10 / 3   // 3 (inline sdiv with zero check)

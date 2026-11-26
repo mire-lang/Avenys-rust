@@ -2,9 +2,9 @@
 
 > Avenys compiler command-line interface, configuration, and pipeline internals.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 
@@ -77,7 +77,6 @@ mire debug src/main.mire --run     # Run with debug output
 | `--artifact <bin\|static\|shared>` | Output type |
 | `--release` | Release build |
 | `-O<0-3\|s\|z>` | Optimization level |
-| `--libt <type>` | Library type (legacy) |
 | `--config <file>` | Configuration file |
 | `--no-analysis-cache` | Disable analysis cache |
 | `--verbose` | Verbose output |
@@ -93,15 +92,18 @@ version = "0.1.0"
 entry = "code/main.mire"
 
 [build]
-libt = "cdylib"    # or "staticlib", "bin"
-crate-type = "cdylib"   # hyphenated alias
-
-[c]
 runtime = "minimal"    # minimal | none
+artifact = "shared"    # bin | static | shared
+bundle = "static"      # static | static-strict | dynamic
 target = "x86_64-unknown-linux-gnu"
 nostartfiles = false
 nostdlib = false
-libt = "bin"
+
+[c]
+sources = []
+include = []
+cflags = []
+libs = []
 
 [dependencies]
 kioto = { path = "~/.owl/libs/kioto", version = "2.4.7" }
@@ -272,7 +274,7 @@ mire debug src/main.mire --ir       # See generated LLVM IR
 ### How to optimize for size?
 
 ```toml
-[c]
+[build]
 runtime = "none"
 nostartfiles = true
 nostdlib = true
@@ -284,7 +286,7 @@ Or use `-Oz` optimization level.
 
 ```toml
 [build]
-libt = "cdylib"   # or "staticlib"
+artifact = "shared"   # or "static"
 ```
 
 ### How to use a custom target?

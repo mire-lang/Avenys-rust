@@ -2,15 +2,15 @@
 
 > Runtime tiers, verified symbol reference, and configuration.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 
 ## Overview
 
-Mire supports two runtime tiers that control how much of the standard runtime is linked into your program. The tier is configured via `[build].runtime` in `owl.toml`.
+Mire supports two runtime tiers that control how much of the standard runtime is linked into your program. The tier is configured via `[build].runtime` in `owl.toml` and defaults to `minimal`. Avenys selects runtime C files from the symbols used by the program, then adds PAL sources when PAL symbols or retained runtime bridges require them.
 
 ---
 
@@ -25,7 +25,10 @@ Mire supports two runtime tiers that control how much of the standard runtime is
 | Libraries linked | Only those required by selected runtime/PAL code | `-lc` or freestanding |
 
 The legacy value `runtime = "full"` is accepted as an alias for `minimal`;
-it does not force-link otherwise unused runtime or PAL modules.
+it does not force-link otherwise unused runtime or PAL modules. `nostartfiles`,
+`nostdlib`, `artifact`, `bundle`, `runtime`, and `target` are `[build]` options.
+The `[c]` section is for user-declared C sources, include paths, flags, and
+native libraries.
 
 ---
 
@@ -33,22 +36,23 @@ it does not force-link otherwise unused runtime or PAL modules.
 
 ```toml
 # owl.toml
-[c]
+[build]
 runtime = "minimal"    # minimal | none
 target = "x86_64-unknown-linux-gnu"  # optional LLVM target override
-nostartfiles = false   # requires runtime = "none" or libt = static/shared
+artifact = "bin"       # bin | static | shared
+bundle = "static"      # static | static-strict | dynamic
+nostartfiles = false   # requires runtime = "none"
 nostdlib = false       # requires runtime = "none" + nostartfiles
-libt = "bin"           # bin | static | shared
 ```
 
 ### Freestanding (Zero Runtime)
 
 ```toml
-[c]
+[build]
 runtime = "none"
 nostartfiles = true
 nostdlib = true
-libt = "bin"
+artifact = "bin"
 ```
 
 Produces a **~15 KB statically-linked binary** with **zero external dependencies**.

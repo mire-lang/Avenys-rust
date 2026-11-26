@@ -1,4 +1,4 @@
-// Types
+# Types
 
 ## Primitive Types (Fixed Width)
 
@@ -110,7 +110,7 @@ set mut_ref = &mut x   // &mut i64 (mutable borrow)
 - `&mut T` = exclusive borrow (read-write)
 - Borrow checker enforces: no mutable + shared simultaneously
 
-##// Raw Pointers (FFI)
+### Raw Pointers (FFI)
 
 ```mire
 set p :*mut i8 = ptr_null()
