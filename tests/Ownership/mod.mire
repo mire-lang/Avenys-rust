@@ -1,4 +1,6 @@
 // Ownership family: a borrow is used while the owner remains valid.
+load mire::vec
+load mire::str
 
 @[test]
 pub fn borrowed_string_is_readable: () :bool {
@@ -68,6 +70,74 @@ pub fn find_loop_returns_early: () :bool {
         }
     }
     return false
+}
+
+@[test]
+pub fn outer_vector_survives_return_in_conditional_branch: () :bool {
+    set values = [] :vec[str] mut
+    set guard = 0 :i64
+    if guard != 0 {
+        return false
+    }
+
+    set i = 0 :i64 mut
+    while i < 16 {
+        set value = str::from::i64(i)
+        set values = vec::push::str(values, value)
+        // Allocate after the rebind so a premature free of `values` is reused
+        // and caught in this iteration instead of surviving by allocator luck.
+        set scratch = str::concat("iteration", value)
+        set i += 1
+    }
+    return vec::len(values) == 16 && vec::get::str(values, 15) == "15"
+}
+
+@[test]
+pub fn vector_string_push_owns_value_after_call: () :bool {
+    set values = [] :vec[str] mut
+    set i = 0 :i64 mut
+    while i < 8 {
+        set value = str::concat("owned-" str::from::i64(i))
+        set values = vec::push::str(values value)
+        set churn = str::concat("churn-" str::from::i64(i))
+        set i += 1
+    }
+    return vec::len(values) == 8
+        && vec::get::str(values 0) == "owned-0"
+        && vec::get::str(values 7) == "owned-7"
+}
+
+fn make_owned_string_vector: () :vec[str] {
+    set values = [] :vec[str] mut
+    set i = 0 :i64 mut
+    while i < 3 {
+        set value = str::concat("item-" str::from::i64(i))
+        set values = vec::push::str(values value)
+        set i += 1
+    }
+    return values
+}
+
+fn make_vector_after_early_return: (empty :bool) :vec[str] {
+    set values = [] :vec[str] mut
+    if empty { return values }
+    set values = vec::push::str(values str::concat("after-", "branch"))
+    return values
+}
+
+@[test]
+pub fn returned_string_vector_keeps_elements_alive: () :bool {
+    set values = make_owned_string_vector()
+    set churn = str::concat("allocation", " after return")
+    return vec::len(values) == 3
+        && vec::get::str(values 0) == "item-0"
+        && vec::get::str(values 2) == "item-2"
+}
+
+@[test]
+pub fn vector_return_survives_unselected_early_return: () :bool {
+    set values = make_vector_after_early_return(false)
+    return vec::len(values) == 1 && vec::get::str(values 0) == "after-branch"
 }
 
 @[test]

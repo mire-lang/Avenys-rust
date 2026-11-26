@@ -2,9 +2,9 @@
 
 > Common questions about Avenys, Mire, and the toolchain.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 
@@ -54,7 +54,7 @@ Use `mire debug --ir` to inspect the generated IR.
 
 ### Why does `mire build` produce a very large binary?
 
-Check `[c] runtime` in `owl.toml`. `runtime = "minimal"` links only the runtime and PAL units your program actually references. Use `runtime = "none"` to reduce size further. There is no `full` tier: it was removed after measurement showed it produced the same binary behavior at roughly 74% of the size, so `runtime = "full"` now resolves to `minimal`.
+Check `[build].runtime` in `owl.toml`. `runtime = "minimal"` links only the runtime and PAL units your program actually references. Use `runtime = "none"` to reduce size further. There is no `full` tier: it was removed after measurement showed it produced the same binary behavior at roughly 74% of the size, so `runtime = "full"` now resolves to `minimal`.
 
 ### How do I debug compilation errors?
 
@@ -139,11 +139,11 @@ resolves to `minimal` rather than failing.
 ### How do I use zero runtime?
 
 ```toml
-[c]
+[build]
 runtime = "none"
 nostartfiles = true
 nostdlib = true
-libt = "bin"
+artifact = "bin"
 ```
 
 Produces a ~15 KB binary with no external dependencies.
@@ -198,7 +198,7 @@ Use `runtime = "none"`, `nostartfiles = true`, `nostdlib = true`, and `-Oz`. Pro
 
 ### How do I optimize for speed?
 
-Use `-O3`, the default `minimal` runtime, and `libt = "cdylib"` for shared library linking.
+Use `-O3`, the default `minimal` runtime, and `artifact = "shared"` for shared library linking.
 
 ### How do I profile my Mire program?
 

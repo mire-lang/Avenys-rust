@@ -1,4 +1,4 @@
-// Foreign Function Interface (FFI)
+# Foreign Function Interface (FFI)
 
 ## Overview
 
@@ -43,7 +43,7 @@ extern fn function_name: (params) :return_type lib "library"
 
 ## Examples
 
-##// libc
+### libc
 
 ```mire
 extern fn puts: (msg :*mut i8) :i32 lib "c"
@@ -53,7 +53,7 @@ pub fn main: () {
 }
 ```
 
-##// SDL2
+### SDL2
 
 ```mire
 module sdl2
@@ -121,7 +121,7 @@ pub fn remove: (path :&str) :bool {
 ## Exporting Mire Functions to C
 
 ```mire
-// In library (libt = "cdylib")
+// In library (artifact = "shared")
 @[export_c]
 pub fn add: (a :i64, b :i64) :i64 {
     return a + b

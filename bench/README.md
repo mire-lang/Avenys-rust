@@ -47,7 +47,8 @@ sets the isolated work directory (default: `/tmp/mire-bench`).
 | `nested_loops` | Two nested loops |
 | `numeric_format` | Formatting integers into strings |
 | `recursion_ackermann` | Recursive Ackermann workload |
-| `sort_introsort` | Quicksort (Lomuto) of a freshly filled vector |
+| `sort_introsort` | Small sort workload, below the reliable timing floor |
+| `sort_scaling` | 100 sorts of 10,000 values; exercises the Mire standard-library introsort above the timing floor |
 | `string_builder` | Repeated string concatenation throughput |
 | `string_impl` | Method delegation through an implementation |
 | `string_scan` | Repeated substring search |
@@ -62,7 +63,8 @@ sets the isolated work directory (default: `/tmp/mire-bench`).
 | `word_count` | Split a long string and count words |
 
 `noop` is reserved for measuring process startup and is not part of the
-43-kernel comparison (40 verified, 3 new map benchmarks have known issues).
+kernel comparison. `sort_scaling` complements the small `sort_introsort` case
+with a workload large enough to measure sorting separately from startup.
 
 ## Latest measurement
 
@@ -129,6 +131,18 @@ resident set size of one run of each leg, measured inside the process, not
 The `noop` baseline for these columns is 2.0 MB for Mire, 2.2 MB for Rust, 1.8 MB for C.
 The loader, the stack and the binary's own text are part of every peak, so a
 kernel whose result stays under ~4 MB is showing code and stack, not data.
+
+### Sort scalability check (November 13, 2026)
+
+`sort_scaling` was added because the original sort workload fell below the
+25 ms timing floor. On the local x86-64 host, the best of seven runs measured
+Mire 40 ms, Rust 18 ms, and C 578 ms. All three produced the same verified
+result. Mire was 14.45x faster than this C reference; the Rust result is below
+the suite's timing floor and its ratio is not treated as reliable. The legs use
+different library algorithms (Mire introsort, Rust `Vec::sort`, C insertion
+sort), so this measures the standard-library operation and algorithm together,
+not compiler code generation in isolation. The older November 8 table remains
+historical and uses the smaller sort kernel.
 
 ### What the C leg shows
 

@@ -569,7 +569,7 @@ let (mut c_source_files, c_sources_hash) = if options.emit_binary {
             span: crate::error::Span::unknown(),
             message: format!(
                 "runtime = \"none\" but program uses runtime symbols: {}. \
-                 Set [c] runtime = \"minimal\" or \"full\", or remove these dependencies.",
+                 Set [build].runtime = \"minimal\", or remove these dependencies.",
                 symbols.join(", ")
             ),
         }));

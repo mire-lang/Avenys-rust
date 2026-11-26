@@ -48,6 +48,9 @@ pub(crate) fn map_kind(kind: &ErrorKind) -> (Span, &'static str, String, Diagnos
             kind.to_string(),
             kind.diagnostic_code(),
         ),
+        ErrorKind::NativeDependency { message, code } => {
+            (Span::unknown(), "Native Dependency", message.clone(), *code)
+        }
         ErrorKind::Cli { message } => (
             Span::unknown(),
             "CLI Error",
@@ -60,6 +63,14 @@ pub(crate) fn map_kind(kind: &ErrorKind) -> (Span, &'static str, String, Diagnos
 pub(crate) fn default_help_for_code(code: DiagnosticCode) -> Option<String> {
     match code {
         DiagnosticCode::E0005 => Some("review the declared type and assigned expression".to_string()),
+        DiagnosticCode::E0403 => Some(
+            "the library at this path does not match the `-H sha256:<hex>` you pinned; restore the pinned copy or update the hash deliberately"
+                .to_string(),
+        ),
+        DiagnosticCode::E0404 => Some(
+            "install the native dependency or package its static archive; `--bundle dynamic` links the shared object explicitly"
+                .to_string(),
+        ),
         DiagnosticCode::E0014 => Some(
             "The frontend accepted this program, but the current Avenys backend cannot lower this construct yet."
                 .to_string(),

@@ -1,4 +1,4 @@
-// Pipeline Operators
+# Pipeline Operators
 
 ## Standard Pipeline (=>)
 

@@ -1,5 +1,48 @@
 # Changelog
 
+## 4.4.45 - 2026-11-25
+
+### Added
+- **Bundle selection.** `--bundle static|static-strict|dynamic` (default
+  `static`). `static` prefers `lib<name>.a` and falls back to the shared object
+  with `W0069`; `static-strict` refuses the fallback with `E0404`; `dynamic`
+  keeps the shared object. CRT libraries (`c`, `m`, `pthread`, `dl`, `rt`,
+  `gcc`, `gcc_s`, `stdc++`, `util`) are never forced to static.
+- **Library hashes.** `-H/--hash sha256:<hex>` pins the content of the
+  preceding `--link name=path`. Compiler-owned SHA-256; directory digests use a
+  deterministic relative-path walk that skips `.git`, `bin`, `target`, `.cache`,
+  `logs` and `node_modules`.
+- **Diagnostic formats.** `--error-format
+  human|short|json|json-rendered-ansi|sarif`, `--message-format human|json` and
+  `--color auto|always|never`, available on `build`, `run`, `test` and `debug`.
+
+### Changed
+- **`-L/--link` now names ecosystem libraries** as `name=path`. The legacy
+  linker-directory form still works but reports `W0061`; use `--link-dir <path>`
+  for a plain native search directory.
+- **Diagnostics carry codes, spans and help**; hash mismatches are `E0403` and
+  missing native dependencies are `E0404`.
+
+### Fixed
+- **Hash map probing.** Power-of-two capacities and bitmask bucket indexing.
+  `map_ops` improved from 1.56× to 1.37× Rust and from 1.63× to 1.43× C.
+- The legacy colour path no longer leaks escape codes into non-human formats.
+
+## 4.4.44 - 2026-11-12
+
+- String addition no longer infers ownership from LLVM pointer types; MIR drops remain authoritative.
+- Added a regression test proving a managed string stays valid after subsequent concatenations.
+- Installer defaults to Mire 4.4.44 and Owl 1.6.12 releases and checks embedded versions.
+- **Version alignment.** `owl.toml` and `docs/cli/README.md` now report 4.4.44, matching `Cargo.toml` and `mire --version`. The Kioto dependency is pinned to 3.1.0.
+- **CI builds Owl against Kioto `main`.** The `build-owl` job no longer checks out Kioto `master` (2.5.0, `core/` layout), which lacked `fs::unrestricted` and failed with `Unknown function 'fs.unrestricted.enter'`.
+- **Config fossils removed.** The test manifest uses `runtime = "minimal"` (`full` had been aliased away) and points macros at `mire/src/aux/macros/` instead of the deleted `mire/core/` tree.
+
+## 4.4.43 - 2026-11-12
+
+- Fixed managed string reuse when free-list blocks have different capacities.
+- Made vectors own independent copies of pushed strings.
+- Installer validates embedded binary versions and release builds reject mismatched compiler tags.
+
 ## 4.4.42 - 2026-11-11
 ### Installer & CI
 - **Install script rewrite.** Progress is printed on a single line, the script
@@ -1130,3 +1173,4 @@ something that is not a failure.
 - **WASM/WASI targets**: `wasm32-wasip1` (WASI SDK sysroot) and
   `wasm32-unknown-unknown` (no-libc freestanding).
 - `strings_minimal.c`: POSIX-free string operations for the minimal tier.
+

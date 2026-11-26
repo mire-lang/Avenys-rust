@@ -1,4 +1,4 @@
-# Avenys v4.4.42
+# Avenys v4.4.45
 
 **A compiled, ownership-aware systems language with an LLVM backend.**
 
@@ -158,6 +158,12 @@ EOF
 #   --config <path>              # Owl-generated TOML (see `owl build --print-config`)
 #   --runtime minimal            # Required for tests and stdlib
 #   --artifact bin               # Default; use 'shared' for .so export
+#   --bundle static              # Default: prefer lib<name>.a, W0069 on .so fallback
+#   --link name=path             # Ecosystem library (repeatable)
+#   --hash sha256:<hex>          # Pin the preceding --link
+#   --link-dir <path>            # Plain native linker search directory
+#   --error-format human|short|json|json-rendered-ansi|sarif
+#   --color auto|always|never
 ```
 
 **Passing arguments to your program:**
@@ -173,6 +179,22 @@ mire test tests/ --config bin/.cache/mire-test-config.toml --lib-dir ~/.owl/libs
 ```
 
 > **Tip:** `owl build --print-config` prints the normalized config Owl would pass to the compiler. Pipe it to a file and use `--config` with `mire`.
+
+### Linking and bundling
+
+```bash
+# Ecosystem library by name, optionally pinned to a content hash
+mire build src/main.mire -L kioto=~/.owl/libs/kioto -H sha256:ab12...
+mire build src/main.mire --link sdl=~/.owl/libs/sdl --link-dir /usr/local/lib
+
+# Static archives are the default
+mire build src/main.mire --bundle static         # prefer .a, W0069 on .so fallback
+mire build src/main.mire --bundle static-strict  # require .a, E0404 otherwise
+mire build src/main.mire --bundle dynamic        # link the .so
+```
+
+`-L/--link` without `name=path` is the legacy linker-directory form. It still
+works but emits `W0061`; migrate to `--link-dir <path>`.
 
 ## Library status()
 
@@ -190,12 +212,31 @@ use dasu(kioto::status())
 The official registry is at `mire-lang/libs`. Multi-version support:
 - `kioto@2.5.0`, `kioto@3.1.0` (default: 3.1.0)
 - `mire@1.2.4`, `mire@2.1.0-beta` (default: 2.1.0-beta)
-- `owl@1.6.2` (default: 1.6.2)
-- `sdl@1.0.1`, `sqlite@0.1.0`, `wasm@0.2.0`, `ilogical@0.1.0`
+- `owl@1.6.13` (default: 1.6.13)
+- `sdl@1.0.1`, `sdl@1.3.2`, `sqlite@0.1.0`, `wasm@0.3.0`, `ilogical@0.1.0`
 
 ## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+
+### v4.4.45 - 2026-11-25
+**Linking, bundling and diagnostics**
+- **`--bundle static|static-strict|dynamic`.** Static archives are preferred; `static` falls back to the shared object with `W0069`, `static-strict` fails with `E0404`, and CRT libraries are never forced to static.
+- **`-H/--hash sha256:<hex>`.** Pins the content of the preceding `--link name=path`; mismatches are `E0403`.
+- **`-L/--link` takes `name=path`.** The legacy directory form still works with `W0061`; `--link-dir` is the explicit native search path.
+- **Diagnostic formats.** `--error-format human|short|json|json-rendered-ansi|sarif`, `--message-format human|json`, `--color auto|always|never`.
+- **Hash map probing.** Bitmask bucket indexing over power-of-two capacities; `map_ops` 1.56× → 1.37× Rust and 1.63× → 1.43× C.
+
+### v4.4.44 - 2026-11-12
+**Runtime safety and installation**
+- **String addition preserves live operands.** Code generation leaves ownership decisions to MIR drops instead of treating every LLVM `ptr` temporary as owned. This prevents double frees in complex Owl builds.
+- **ARM installer defaults are verified.** Mire and Owl versions match their embedded release versions.
+
+### v4.4.43 - 2026-11-12
+**Runtime reliability and release validation**
+- **Managed string reuse respects physical capacity.** Reused blocks are selected by actual capacity, preventing writes beyond a smaller block after allocator churn.
+- **String vectors own stable copies.** Pushing a managed temporary no longer relies on the source expression remaining alive.
+- **Installer and release checks validate embedded versions.** Mismatched archives fail clearly instead of claiming the requested release was installed.
 
 ### v4.4.42 - 2026-11-11
 **Installer & CI**

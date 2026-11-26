@@ -59,6 +59,8 @@ pub enum DiagnosticCode {
     E0108,
     E0109,
     E0110,
+    E0403,
+    E0404,
     W0001,
     W0002,
     W0004,
@@ -94,6 +96,7 @@ pub enum DiagnosticCode {
     W0047,
     W0048,
     W0049,
+    W0069,
 }
 
 impl DiagnosticCode {
@@ -130,6 +133,8 @@ impl DiagnosticCode {
             DiagnosticCode::E0108 => "E0108",
             DiagnosticCode::E0109 => "E0109",
             DiagnosticCode::E0110 => "E0110",
+            DiagnosticCode::E0403 => "E0403",
+            DiagnosticCode::E0404 => "E0404",
             DiagnosticCode::W0001 => "W0001",
             DiagnosticCode::W0002 => "W0002",
             DiagnosticCode::W0004 => "W0004",
@@ -165,6 +170,7 @@ impl DiagnosticCode {
             DiagnosticCode::W0047 => "W0047",
             DiagnosticCode::W0048 => "W0048",
             DiagnosticCode::W0049 => "W0049",
+            DiagnosticCode::W0069 => "W0069",
         }
     }
 
@@ -197,6 +203,7 @@ impl DiagnosticCode {
             | DiagnosticCode::W0047 => Some(WarningCategory::Complexity),
             DiagnosticCode::W0048 => Some(WarningCategory::Style),
             DiagnosticCode::W0049 => Some(WarningCategory::Logic),
+            DiagnosticCode::W0069 => Some(WarningCategory::Deprecated),
             DiagnosticCode::W0025 => Some(WarningCategory::Memory),
             DiagnosticCode::W0010 => Some(WarningCategory::Deprecated),
             DiagnosticCode::W0034 | DiagnosticCode::W0035 | DiagnosticCode::W0037 => {
@@ -248,6 +255,9 @@ impl DiagnosticCode {
             DiagnosticCode::W0047 => "string_concat_in_loop",
             DiagnosticCode::W0048 => "unused_mutable_binding",
             DiagnosticCode::W0049 => "empty_match_body",
+            DiagnosticCode::W0069 => "static_bundle_fallback",
+            DiagnosticCode::E0403 => "library_hash_mismatch",
+            DiagnosticCode::E0404 => "native_dependency_missing",
             DiagnosticCode::E0100 => "precision_loss",
             DiagnosticCode::E0101 => "unsigned_precision_loss",
             DiagnosticCode::E0102 => "float_precision_loss",

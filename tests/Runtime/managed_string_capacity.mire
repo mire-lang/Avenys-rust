@@ -1,0 +1,18 @@
+// Rebinding across managed allocator size-class boundaries must not reuse a
+// smaller free block for a larger string.
+load kioto::strings
+
+@[test]
+pub fn managed_string_growth_crosses_capacity_classes: () :bool {
+    set value = "" :str mut
+    set expected_length = 0 :i64 mut
+    while expected_length < 8192 {
+        set value = value + "x"
+        set expected_length += 1
+        if strings::len(value) != expected_length { return false }
+    }
+    if strings::char_at(value 0) != 120 { return false }
+    if strings::char_at(value 4095) != 120 { return false }
+    if strings::char_at(value 8191) != 120 { return false }
+    return true
+}

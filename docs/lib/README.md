@@ -2,9 +2,9 @@
 
 > Library creation, dependencies, and Owl integration.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 
@@ -19,8 +19,8 @@ Mire programs are organized as libraries via `owl.toml`. Owl is the package mana
 | Type | Output | Use Case |
 |------|--------|----------|
 | `bin` | Executable | Applications (default) |
-| `static` / `staticlib` | `.a` | Static linking, embedding |
-| `shared` / `cdylib` / `dylib` | `.so` / `.dylib` / `.dll` | Dynamic linking, plugins |
+| `static` | `.a` | Static linking, embedding |
+| `shared` | `.so` / `.dylib` / `.dll` | Dynamic linking, plugins |
 
 ---
 
@@ -30,15 +30,14 @@ Mire programs are organized as libraries via `owl.toml`. Owl is the package mana
 
 ```toml
 [build]
-libt = "cdylib"    # bin | static | shared
-crate-type = "cdylib"   # hyphenated alias
+artifact = "shared"    # bin | static | shared
 ```
 
 ### Via CLI
 
 ```bash
-mire build --libt shared
-mire build --libt static
+mire build --artifact shared
+mire build --artifact static
 ```
 
 ---
@@ -165,13 +164,13 @@ load! math             # Loads ./math/main.mire
 
 ```bash
 # Shared library (.so / .dylib / .dll)
-owl build --crate-type cdylib
+owl build --artifact shared
 
 # Static library (.a)
-owl build --crate-type staticlib
+owl build --artifact static
 
 # Or via mire directly
-mire build code/mod.mire --libt shared --release -O3
+mire build code/mod.mire --artifact shared --release -O3
 ```
 
 ### Output

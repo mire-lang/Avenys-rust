@@ -315,6 +315,11 @@ impl From<&ErrorKind> for StoredErrorKind {
                 column: span.column,
                 kind: kind.into(),
             },
+            ErrorKind::NativeDependency { message, .. } => Self::Runtime {
+                line: 0,
+                column: 0,
+                message: message.clone(),
+            },
             ErrorKind::Cli { message } => Self::Cli {
                 message: message.clone(),
             },

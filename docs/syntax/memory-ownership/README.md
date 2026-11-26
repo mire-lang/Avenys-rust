@@ -1,4 +1,4 @@
-// Memory Ownership
+# Memory Ownership
 
 ## Overview
 
@@ -93,21 +93,21 @@ pub fn get_ref: (s :&str) :&str {
 
 ## Runtime Memory Management
 
-##// Arena Allocator
+### Arena Allocator
 
 - Single 1GB `mmap` + 9 size-class free lists (16..4096 bytes)
 - All strings/structs allocated from arena
 - On `refs == 0`: block returns to free list
 - `rt_managed_cleanup_all` uses `munmap` at exit
 
-##// Refcounting
+### Refcounting
 
 - Each managed string has `refs` counter
 - `rt_managed_retain` increments, `rt_managed_free` decrements
 - When `refs` reaches 0: block returned to free list
 - Container storage (`vec`, `map`) retains elements
 
-##// Drop (MIR Level)
+### Drop (MIR Level)
 
 ```mir
 MirOp::Drop(value)  // Explicit drop inserted by borrowck/lowering

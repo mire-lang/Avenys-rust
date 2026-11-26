@@ -80,12 +80,12 @@ jobs:
       - name: Enable QEMU binfmt
         run: docker run --rm --privileged tonistiigi/binfmt --install all
 
-      - name: Checkout kioto (official mire-lang/Kioto master, v2.5.0)
+      - name: Checkout kioto (official mire-lang/Kioto main, v3.1.0)
         uses: actions/checkout@v4
         with:
           repository: mire-lang/Kioto
           path: kioto-src
-          ref: master
+          ref: main
 
       - name: Checkout owl source (official mire-lang/owl main)
         uses: actions/checkout@v4

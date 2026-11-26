@@ -18,13 +18,23 @@ pub(crate) struct CommonOptions {
     pub(crate) lib_dir: Option<String>,
     pub(crate) artifact: Option<LibType>,
     pub(crate) warn: WarningCliOptions,
+    pub(crate) error_format: mire::error::format::ErrorFormat,
+    pub(crate) color: mire::error::format::ColorPolicy,
     pub(crate) verbose: bool,
     pub(crate) target: Option<String>,
     /// LLVM CPU for instruction selection (e.g. `native`, `x86-64-v3`).
     pub(crate) cpu: Option<String>,
     pub(crate) link_dirs: Vec<String>,
     pub(crate) link_libs: Vec<String>,
+    pub(crate) ecosystem_libs: Vec<(String, String)>,
+    /// One entry per `ecosystem_libs` element; `-H` sets the hash expected for
+    /// the most recent `--link`.
+    pub(crate) ecosystem_hashes: Vec<Option<String>>,
+    pub(crate) legacy_link_flag: bool,
     pub(crate) runtime: Option<mire::RuntimeTier>,
+    /// Native link preference from `--bundle`; `None` keeps the manifest value
+    /// (default `static`).
+    pub(crate) bundle: Option<mire::BundleMode>,
     pub(crate) nostartfiles: bool,
     pub(crate) nostdlib: bool,
     /// Native C sources, from `--c-source`. Repeated.
@@ -112,9 +122,15 @@ pub(crate) fn parse_common_with_file(
     let mut no_warn_cats: Vec<String> = Vec::new();
     let mut target = None;
     let mut cpu = None;
+    let mut error_format = mire::error::format::ErrorFormat::default();
+    let mut color = mire::error::format::ColorPolicy::default();
     let mut link_dirs = Vec::new();
     let mut link_libs = Vec::new();
+    let mut ecosystem_libs = Vec::new();
+    let mut ecosystem_hashes: Vec<Option<String>> = Vec::new();
+    let mut legacy_link_flag = false;
     let mut runtime = None;
+    let mut bundle = None;
     let mut nostartfiles = false;
     let mut nostdlib = false;
     let mut c_sources = Vec::new();
@@ -217,13 +233,85 @@ pub(crate) fn parse_common_with_file(
                         .clone(),
                 );
             }
-            "-L" | "--link" => {
+            "--error-format" => {
                 i += 1;
-                link_dirs.push(
-                    args.get(i)
-                        .ok_or_else(|| cli_msg("Missing path after -L/--link"))?
-                        .clone(),
-                );
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing format after --error-format"))?;
+                error_format = mire::error::format::ErrorFormat::parse(value).ok_or_else(|| {
+                    cli_msg("Invalid --error-format, use human|short|json|json-rendered-ansi|sarif")
+                })?;
+            }
+            "--message-format" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing format after --message-format"))?;
+                error_format = match value.as_str() {
+                    "human" => mire::error::format::ErrorFormat::Human,
+                    "json" => mire::error::format::ErrorFormat::Json,
+                    other => {
+                        return Err(cli_msg(&format!(
+                            "Invalid --message-format '{other}', use human|json"
+                        )));
+                    }
+                };
+            }
+            "--color" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing policy after --color"))?;
+                color = mire::error::format::ColorPolicy::parse(value)
+                    .ok_or_else(|| cli_msg("Invalid --color, use auto|always|never"))?;
+            }
+            flag if flag.starts_with("--error-format=") => {
+                let value = &flag["--error-format=".len()..];
+                error_format = mire::error::format::ErrorFormat::parse(value).ok_or_else(|| {
+                    cli_msg("Invalid --error-format, use human|short|json|json-rendered-ansi|sarif")
+                })?;
+            }
+            flag if flag.starts_with("--message-format=") => {
+                let value = &flag["--message-format=".len()..];
+                error_format = match value {
+                    "human" => mire::error::format::ErrorFormat::Human,
+                    "json" => mire::error::format::ErrorFormat::Json,
+                    other => {
+                        return Err(cli_msg(&format!(
+                            "Invalid --message-format '{other}', use human|json"
+                        )));
+                    }
+                };
+            }
+            flag if flag.starts_with("--color=") => {
+                let value = &flag["--color=".len()..];
+                color = mire::error::format::ColorPolicy::parse(value)
+                    .ok_or_else(|| cli_msg("Invalid --color, use auto|always|never"))?;
+            }
+            "-L" | "--link" | "--link-dir" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing path after -L/--link/--link-dir"))?
+                    .clone();
+                if args[i - 1] == "--link-dir" {
+                    link_dirs.push(value);
+                } else if let Some((name, path)) = value.split_once('=') {
+                    if name.is_empty() || path.is_empty() {
+                        return Err(cli_msg(&format!(
+                            "-L/--link expects name=path, got '{value}'"
+                        )));
+                    }
+                    ecosystem_libs.push((name.to_string(), path.to_string()));
+                    ecosystem_hashes.push(None);
+                } else if Path::new(&value).is_dir() {
+                    legacy_link_flag = true;
+                    link_dirs.push(value);
+                } else {
+                    return Err(cli_msg(&format!(
+                        "Invalid -L/--link '{value}': use name=path for an ecosystem library, --link-dir <path> for a native linker directory, or pass an existing directory"
+                    )));
+                }
             }
             "-l" | "--link-lib" => {
                 i += 1;
@@ -242,6 +330,33 @@ pub(crate) fn parse_common_with_file(
                     mire::RuntimeTier::parse(value)
                         .ok_or_else(|| cli_msg("Runtime must be minimal or none"))?,
                 );
+            }
+            "--bundle" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing bundle mode after --bundle"))?;
+                bundle = Some(mire::BundleMode::parse(value).ok_or_else(|| {
+                    cli_msg("Bundle mode must be static, static-strict, or dynamic")
+                })?);
+            }
+            "-H" | "--hash" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| cli_msg("Missing hash after -H/--hash"))?;
+                if !value.starts_with("sha256:") {
+                    return Err(cli_msg("--hash expects sha256:<hex>"));
+                }
+                let slot = ecosystem_hashes
+                    .last_mut()
+                    .ok_or_else(|| cli_msg("--hash must follow a --link name=path"))?;
+                if slot.is_some() {
+                    return Err(cli_msg(
+                        "each --link accepts at most one --hash; repeat --link for another library",
+                    ));
+                }
+                *slot = Some(value.clone());
             }
             "--nostartfiles" => nostartfiles = true,
             "--nostdlib" => nostdlib = true,
@@ -440,12 +555,18 @@ pub(crate) fn parse_common_with_file(
                 position,
                 no_warn_cats,
             },
+            error_format,
+            color,
             verbose,
             target,
             cpu,
             link_dirs,
             link_libs,
+            ecosystem_libs,
+            ecosystem_hashes,
+            legacy_link_flag,
             runtime,
+            bundle,
             nostartfiles,
             nostdlib,
             c_sources,
@@ -478,6 +599,9 @@ pub(crate) fn apply_cli_c_defs(defs: &mut mire::CDefs, options: &CommonOptions) 
     if let Some(runtime) = options.runtime {
         defs.runtime = runtime;
     }
+    if let Some(bundle) = options.bundle {
+        defs.bundle = bundle;
+    }
     if options.nostartfiles {
         defs.nostartfiles = true;
     }
@@ -494,6 +618,16 @@ pub(crate) fn apply_cli_c_defs(defs: &mut mire::CDefs, options: &CommonOptions) 
                 .unwrap_or_else(|_| directory.clone())
         } else {
             directory.clone()
+        };
+        defs.cflags.push(format!("-L{expanded}"));
+    }
+    for (_name, path) in &options.ecosystem_libs {
+        let expanded = if let Some(rest) = path.strip_prefix("~/") {
+            std::env::var("HOME")
+                .map(|home| format!("{home}/{rest}"))
+                .unwrap_or_else(|_| path.clone())
+        } else {
+            path.clone()
         };
         defs.cflags.push(format!("-L{expanded}"));
     }
@@ -763,6 +897,73 @@ mod tests {
     // ── Native C flags ───────────────────────────────────────────
     // These exist so an orchestrator can pass a project's [c] section without
     // writing a TOML for the compiler to read back.
+
+    #[test]
+    fn link_flags_separate_ecosystem_and_native_paths() {
+        let dir = std::env::temp_dir();
+        let dir = dir.to_str().expect("utf-8 temp dir");
+
+        let opts = parse(&["-L", "kioto=/tmp/kioto"]);
+        assert_eq!(
+            opts.ecosystem_libs,
+            vec![("kioto".to_string(), "/tmp/kioto".to_string())]
+        );
+        assert!(opts.link_dirs.is_empty());
+
+        let opts = parse(&["--link-dir", "/tmp/native"]);
+        assert_eq!(opts.link_dirs, vec!["/tmp/native".to_string()]);
+
+        let opts = parse(&["-L", dir]);
+        assert!(opts.legacy_link_flag);
+        assert_eq!(opts.link_dirs, vec![dir.to_string()]);
+    }
+
+    #[test]
+    fn bundle_flag_accepts_documented_modes() {
+        assert_eq!(parse(&["--bundle", "static"]).bundle, Some(mire::BundleMode::Static));
+        assert_eq!(
+            parse(&["--bundle", "static-strict"]).bundle,
+            Some(mire::BundleMode::StaticStrict)
+        );
+        assert_eq!(
+            parse(&["--bundle", "dynamic"]).bundle,
+            Some(mire::BundleMode::Dynamic)
+        );
+        let owned = vec!["--bundle".to_string(), "mostly".to_string()];
+        assert!(parse_run_options(Path::new("."), &owned).is_err());
+    }
+
+    // `-H` applies to the most recent `--link`, so ordering is semantic rather
+    // than conventional. A hash with no library to attach to must fail loudly.
+    #[test]
+    fn hash_attaches_to_the_preceding_link() {
+        let opts = parse(&[
+            "-L", "kioto=/tmp/kioto", "-H", "sha256:ab12",
+            "-L", "mire=/tmp/mire",
+        ]);
+        assert_eq!(
+            opts.ecosystem_hashes,
+            vec![Some("sha256:ab12".to_string()), None]
+        );
+
+        let owned = vec!["-H".to_string(), "sha256:ab12".to_string()];
+        assert!(parse_run_options(Path::new("."), &owned).is_err());
+
+        let owned = vec![
+            "-L".to_string(),
+            "kioto=/tmp/kioto".to_string(),
+            "-H".to_string(),
+            "md5:ab12".to_string(),
+        ];
+        assert!(parse_run_options(Path::new("."), &owned).is_err());
+    }
+
+    #[test]
+    fn output_format_flags_parse() {
+        let opts = parse(&["--error-format", "json", "--color", "never"]);
+        assert_eq!(opts.error_format, mire::error::format::ErrorFormat::Json);
+        assert_eq!(opts.color, mire::error::format::ColorPolicy::Never);
+    }
 
     #[test]
     fn c_sources_accumulate_across_repeats() {

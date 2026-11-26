@@ -81,6 +81,10 @@ pub enum ErrorKind {
         span: Span,
         kind: MssError,
     },
+    NativeDependency {
+        message: String,
+        code: DiagnosticCode,
+    },
     Cli {
         message: String,
     },
@@ -315,6 +319,18 @@ impl MireError {
         format_diagnostic(&self.diagnostic, true)
     }
 
+    pub fn format_for(&self, format: format::ErrorFormat, color: bool) -> String {
+        format::format_diagnostic_for(&self.diagnostic, format, color)
+    }
+
+    pub fn format_for_policy(
+        &self,
+        format: format::ErrorFormat,
+        color: format::ColorPolicy,
+    ) -> String {
+        self.format_for(format, color.enabled())
+    }
+
     fn context_mut(&mut self) -> &mut MireErrorContext {
         self.context
             .get_or_insert_with(|| Box::new(MireErrorContext::default()))
@@ -392,6 +408,13 @@ impl MireError {
             span: Span::new(line, column),
             kind,
         })
+    }
+
+    /// A native dependency is missing (`E0404`) or does not match the expected
+    /// hash (`E0403`). Both are link-stage failures, so they carry no source
+    /// span.
+    pub fn native_dependency(message: String, code: DiagnosticCode) -> Self {
+        Self::new(ErrorKind::NativeDependency { message, code })
     }
 }
 

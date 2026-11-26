@@ -203,7 +203,7 @@ int mire_rehash(MireDict *dict, int64_t bucket_cap) {
     for (int64_t i = 0; i < bucket_cap; i++) dict->buckets[i] = -1;
     for (int64_t i = 0; i < dict->len; i++) {
         uint64_t hash = (uint64_t)dict->entries[i].hash;
-        int64_t bi = (int64_t)(hash % (uint64_t)bucket_cap);
+        int64_t bi = mire_bucket_index(hash, dict->bucket_cap);
         dict->entries[i].next = dict->buckets[bi];
         dict->buckets[bi] = i;
     }
@@ -238,8 +238,7 @@ int mire_maybe_grow_buckets(MireDict *dict) {
 
 int64_t mire_dict_find(MireDict *dict, int64_t key_i64, const void *key_ptr, uint64_t hash) {
     if (!dict || dict->bucket_cap <= 0) return -1;
-    int64_t bi = (int64_t)(hash % (uint64_t)dict->bucket_cap);
-    if (bi < 0) bi = -bi;
+    int64_t bi = mire_bucket_index(hash, dict->bucket_cap);
     int64_t idx = dict->buckets[bi];
     while (idx >= 0) {
         if (dict->entries[idx].hash == (int64_t)hash && mire_key_equals(dict, idx, key_i64, key_ptr))

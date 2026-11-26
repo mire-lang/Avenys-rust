@@ -38,6 +38,27 @@ void pal_dispatch_set_ops(const pal_ops_t *backend_ops) {
 
 // ── Filesystem ──────────────────────────────────────────────
 
+// A capability root resolves child paths relative to the root. An absolute
+// child path tells the kernel to ignore the directory descriptor, which turns
+// the capability into a filesystem-wide handle; reject it at the boundary
+// rather than relying on each backend to remember. callers that genuinely
+// have an absolute path open a root at that path's parent and pass a
+// basename (see rt_open_sandboxed_file).
+static bool pal_child_path_denied(const char *rel_path) {
+    if (!rel_path) {
+        errno = EINVAL;
+        pal_set_error(PAL_ERR_INVALID, "missing child path");
+        return true;
+    }
+    if (rel_path[0] == '/') {
+        errno = EACCES;
+        pal_set_error(PAL_ERR_PERMISSION,
+                      "absolute child path denied by capability root");
+        return true;
+    }
+    return false;
+}
+
 pal_root_t pal_root_open(const char *path) {
     pal_ensure_init();
     // A root handle is the anchor for every relative operation below it, so
@@ -69,6 +90,7 @@ pal_file_t pal_file_open(pal_root_t root, const char *rel_path, pal_open_flags f
     if (!ops || !ops->file_open) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_FILE_NULL; }
     int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
     if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_FILE_NULL; }
+    if (pal_child_path_denied(rel_path)) return PAL_FILE_NULL;
     int64_t internal = ops->file_open(root_internal, rel_path, flags);
     if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "file_open failed"); return PAL_FILE_NULL; }
     int slot = pal_core_reserve(PAL_RES_FILE);
@@ -219,6 +241,7 @@ pal_dir_t pal_dir_open(pal_root_t root, const char *rel_path) {
     if (!ops || !ops->dir_open) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return PAL_DIR_NULL; }
     int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
     if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return PAL_DIR_NULL; }
+    if (pal_child_path_denied(rel_path)) return PAL_DIR_NULL;
     int64_t internal = ops->dir_open(root_internal, rel_path);
     if (internal <= 0) { pal_set_error(pal_core_errno_map(errno), "dir_open failed"); return PAL_DIR_NULL; }
     int slot = pal_core_reserve(PAL_RES_DIR);
@@ -279,6 +302,7 @@ bool pal_root_remove(pal_root_t root, const char *rel_path) {
     if (!ops || !ops->root_remove) { pal_set_error(PAL_ERR_UNSUPPORTED, "no backend"); return false; }
     int64_t root_internal = (int64_t)pal_core_validate_and_get(root.index, root.generation, PAL_RES_ROOT);
     if (!root_internal) { pal_set_error(PAL_ERR_INVALID_HANDLE, "bad root handle"); return false; }
+    if (pal_child_path_denied(rel_path)) return false;
     return ops->root_remove(root_internal, rel_path);
 }
 

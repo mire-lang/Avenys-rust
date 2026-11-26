@@ -59,6 +59,37 @@ impl OptLevel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum BundleMode {
+    /// Prefer a static archive (`lib<name>.a`); fall back to the shared object
+    /// with W0069 when only the `.so` exists.
+    #[default]
+    Static,
+    /// Require a static archive; a missing `.a` is E0404, never a fallback.
+    StaticStrict,
+    /// Keep the default dynamic link (`lib<name>.so`).
+    Dynamic,
+}
+
+impl BundleMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "static" => Some(Self::Static),
+            "static-strict" => Some(Self::StaticStrict),
+            "dynamic" => Some(Self::Dynamic),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::StaticStrict => "static-strict",
+            Self::Dynamic => "dynamic",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ImportMode {
     #[default]
     Reachable,
@@ -162,6 +193,9 @@ pub struct CDefs {
     /// Output artifact: executable, static archive, or shared object.
     #[serde(default)]
     pub artifact: LibType,
+    /// Native linking preference: static (default) | static-strict | dynamic.
+    #[serde(default)]
+    pub bundle: BundleMode,
 }
 
 impl Default for CDefs {
@@ -177,6 +211,7 @@ impl Default for CDefs {
             nostartfiles: false,
             nostdlib: false,
             artifact: LibType::default(),
+            bundle: BundleMode::default(),
         }
     }
 }

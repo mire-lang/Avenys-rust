@@ -71,8 +71,7 @@ void *rt_dict_set_i64(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     mire_store_key(dict, idx, key_i64, key_ptr, 0);
     mire_store_value(dict, idx, value, NULL, 0);
     dict->len++;
-    int64_t bi = (int64_t)(h % (uint64_t)dict->bucket_cap);
-    if (bi < 0) bi = -bi;
+    int64_t bi = mire_bucket_index(h, dict->bucket_cap);
     dict->entries[idx].next = dict->buckets[bi];
     dict->buckets[bi] = idx;
     mire_maybe_grow_buckets(dict);
@@ -111,8 +110,7 @@ void *rt_dict_set_ptr(void *dict_ptr, int64_t key_kind, int64_t value_kind,
     mire_store_key(dict, idx, key_i64, key_ptr, 0);
     mire_store_value(dict, idx, 0, value, 0);
     dict->len++;
-    int64_t bi = (int64_t)(h % (uint64_t)dict->bucket_cap);
-    if (bi < 0) bi = -bi;
+    int64_t bi = mire_bucket_index(h, dict->bucket_cap);
     dict->entries[idx].next = dict->buckets[bi];
     dict->buckets[bi] = idx;
     mire_maybe_grow_buckets(dict);
@@ -130,8 +128,7 @@ void *rt_dict_remove(void *dict_ptr, int64_t key_kind, int64_t key_i64, void *ke
     if (!dict_ptr) return dict_ptr;
     MireDict *dict = (MireDict *)dict_ptr;
     uint64_t h = mire_hash_key(key_kind, key_i64, key_ptr);
-    int64_t bi = (int64_t)(h % (uint64_t)dict->bucket_cap);
-    if (bi < 0) bi = -bi;
+    int64_t bi = mire_bucket_index(h, dict->bucket_cap);
     int64_t prev = -1;
     int64_t idx = dict->buckets[bi];
     while (idx >= 0) {
@@ -157,8 +154,10 @@ void *rt_dict_remove(void *dict_ptr, int64_t key_kind, int64_t key_i64, void *ke
                 dict->entries[idx] = dict->entries[dict->len];
                 memcpy(mire_key_slot(dict, idx), mire_key_slot(dict, dict->len), (size_t)dict->key_size);
                 memcpy(mire_value_slot(dict, idx), mire_value_slot(dict, dict->len), (size_t)dict->value_size);
-                int64_t moved_bi = (int64_t)((uint64_t)dict->entries[idx].hash % (uint64_t)dict->bucket_cap);
-                if (moved_bi < 0) moved_bi = -moved_bi;
+                int64_t moved_bi = mire_bucket_index(
+                    (uint64_t)dict->entries[idx].hash,
+                    dict->bucket_cap
+                );
                 int64_t *cursor = &dict->buckets[moved_bi];
                 while (*cursor >= 0 && *cursor != dict->len) cursor = &dict->entries[*cursor].next;
                 if (*cursor == dict->len) *cursor = idx;

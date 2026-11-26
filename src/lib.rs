@@ -13,7 +13,7 @@ pub mod protocol;
 pub mod types;
 
 pub use avens::{
-    BuildMode, BuildOptions, BuildResult, CDefs, EntryContainment, ImportMode, LibType,
+    BuildMode, BuildOptions, BuildResult, BundleMode, CDefs, EntryContainment, ImportMode, LibType,
     MireCacheConfig, MireManifest, MirePaths, MireProject, OptLevel, RuntimeTier, SecurityConfig,
     SecurityMode, TrustTier, check_entry_containment, compile_file_with_avenys, default_output_dir,
     find_project_root, load_config_file, load_exports, load_project_manifest,

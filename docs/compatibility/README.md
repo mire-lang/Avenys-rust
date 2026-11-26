@@ -50,6 +50,14 @@ borrow are all the same machine type.
 
 ## Known incompatibilities
 
+- `-L/--link` now expects `name=path` for an ecosystem library. A bare
+  directory is still accepted as a native linker directory, so existing
+  commands keep working, but it emits `W0061`; the supported spelling is
+  `--link-dir <path>`.
+- `--bundle` defaults to `static`, which prefers `lib<name>.a` and falls back
+  to the shared object with `W0069`. A project that relied on picking up a
+  shared object implicitly still links, but now reports the fallback. Use
+  `--bundle dynamic` to opt out, or `static-strict` to make the fallback fatal.
 - The `bits` namespace is reserved for the bit-level reinterpretation
   intrinsic (`bits::<T>(value)`). A program may not declare a `bits` module in
   the same scope as calls that use the intrinsic; a separate module or package

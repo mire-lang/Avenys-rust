@@ -1,4 +1,4 @@
-// Mire Language Syntax
+# Mire Language Syntax
 
 > Topical reference for the Mire programming language syntax.
 
@@ -10,7 +10,7 @@ Use the table below to navigate to the specific area you need.
 
 ## Table of Contents
 
-##// Core Concepts
+### Core Concepts
 
 | Topic | Description |
 |-------|-------------|
@@ -19,7 +19,7 @@ Use the table below to navigate to the specific area you need.
 | [Types](types/README.md) | Primitive, composite, type ascription, conversion |
 | [Memory Ownership](memory-ownership/README.md) | Move semantics, borrow checker |
 
-##// Functions & Closures
+### Functions & Closures
 
 | Topic | Description |
 |-------|-------------|
@@ -27,14 +27,14 @@ Use the table below to navigate to the specific area you need.
 | [Closures](closures/README.md) | Anonymous functions, capture |
 | [Pipeline](pipeline/README.md) | Pipeline operators `=>` and `?=>` |
 
-##// Control Flow & Pattern Matching
+### Control Flow & Pattern Matching
 
 | Topic | Description |
 |-------|-------------|
 | [Control Flow](control-flow/README.md) | if/else, while, for, find, do/while |
 | [Pattern Matching](pattern-matching/README.md) | match expressions and statements |
 
-##// Data Types
+### Data Types
 
 | Topic | Description |
 |-------|-------------|
@@ -45,14 +45,14 @@ Use the table below to navigate to the specific area you need.
 | [Collections](collections/README.md) | vec, map, array, Box |
 | [Strings](strings/README.md) | String operations and methods |
 
-##// Operators & Expressions
+### Operators & Expressions
 
 | Topic | Description |
 |-------|-------------|
 | [Operators](operators/README.md) | Arithmetic, comparison, bitwise, pipeline, precedence |
 | [Error Handling](error-handling/README.md) | Result, Maybe, panic, `?` operator |
 
-##// Module System & FFI
+### Module System & FFI
 
 | Topic | Description |
 |-------|-------------|
@@ -60,7 +60,7 @@ Use the table below to navigate to the specific area you need.
 | [FFI](ffi/README.md) | C external function interface |
 | [Macros](macros/README.md) | Macro system, `@[macro!]`, hygiene |
 
-##// Builtins & Testing
+### Builtins & Testing
 
 | Topic | Description |
 |-------|-------------|

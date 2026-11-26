@@ -49,12 +49,10 @@ static void *list_grow(void *list_ptr, int64_t elem_size) {
     int64_t *hdr = (int64_t *)list_ptr - 1;
     int64_t old_cap = hdr[0];
     int64_t old_len = hdr[1];
-    if (old_cap > INT64_MAX - (old_cap >> 1)) return NULL;
-    // 1.5x growth, matching the C reference kernel, so the benchmark compares
-    // like with like instead of paying for a different reallocation schedule.
-    // Every push costs the same amortized work, and the copy volume differs
-    // from C by less than the measurement noise.
-    int64_t new_cap = old_cap < 4 ? 4 : old_cap + (old_cap >> 1);
+    // Doubling matches Rust Vec's amortized append behavior and minimizes
+    // repeated copies. Keep overflow checked before multiplying.
+    if (old_cap > INT64_MAX / 2) return NULL;
+    int64_t new_cap = old_cap < 4 ? 4 : old_cap * 2;
     size_t allocation_size;
     if (!list_allocation_size(new_cap, elem_size, &allocation_size)) return NULL;
     // pal_realloc keeps the old contents and can extend the block in place,
@@ -115,6 +113,25 @@ void *rt_list_push_ptr(void *list_ptr, void *value) {
     }
     if (value && rt_managed_is_managed(value)) {
         rt_managed_retain(value);
+    }
+    ((void **)list_ptr)[len + 1] = value;
+    ((int64_t *)list_ptr)[0] = len + 1;
+    return list_ptr;
+}
+
+// Append a pointer whose ownership has already been transferred or retained.
+// The string-specific wrapper applies the right policy for each allocator.
+static void *rt_list_push_ptr_owned(void *list_ptr, void *value) {
+    if (!list_ptr) {
+        list_ptr = rt_list_create(4, 8);
+        if (!list_ptr) return NULL;
+    }
+    int64_t *header = (int64_t *)list_ptr;
+    int64_t len = header[0];
+    int64_t cap = header[-1];
+    if (len >= cap) {
+        list_ptr = list_grow(list_ptr, 8);
+        if (!list_ptr) return NULL;
     }
     ((void **)list_ptr)[len + 1] = value;
     ((int64_t *)list_ptr)[0] = len + 1;
@@ -418,6 +435,18 @@ void   *rt_vecs_grow_push_i64(void *vec, int64_t value) {
 }
 
 void   *rt_vecs_push_ptr(void *vec, void *value) { return rt_list_push_ptr(vec, value); }
+void   *rt_vecs_push_str(void *vec, const char *value) {
+    if (!value) value = "";
+    // A vector owns its string elements. Copy even managed inputs rather than
+    // retaining them: this keeps the vector independent from expression and
+    // temporary lifetimes, and preserves embedded NUL bytes via the managed
+    // header length.
+    char *stored = rt_managed_from_slice(value, rt_managed_len(value));
+    if (!stored) return NULL;
+    void *result = rt_list_push_ptr_owned(vec, stored);
+    if (!result) rt_managed_free(stored);
+    return result;
+}
 void   *rt_vecs_pop_ptr(void *vec) { return rt_list_pop_ptr(vec); }
 void    rt_vecs_set_i64(void *vec, int64_t index, int64_t value) { rt_list_set_i64(vec, index, value); }
 int64_t rt_vecs_pop(void *vec) { return rt_list_pop_i64(vec); }

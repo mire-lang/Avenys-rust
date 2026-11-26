@@ -223,20 +223,31 @@ impl<'a> BorrowChecker<'a> {
                 self.insert_binding(name.clone(), state);
             }
             Statement::Assignment { target, value, .. } => {
-                let binding_target = assignment_binding_target(target);
-                self.ensure_can_write(&binding_target)?;
-                if let AssignmentTarget::Index { target, index } = target {
+                // A store through a pointer (`*p = v`) modifies the pointee,
+                // not the binding that holds the address. Treating it as a
+                // rebinding of `*p` looked up a binding literally named `*p`,
+                // which never exists, so a legal store failed with a bogus
+                // "use after move". Check the pointer expression as the read it
+                // is, and leave the binding untouched.
+                if let AssignmentTarget::Dereference { target } = target {
                     self.check_expression(target)?;
-                    self.check_expression(index)?;
-                }
-                self.check_expression(value)?;
-                if matches!(target, AssignmentTarget::Variable(name) if name == &binding_target) {
-                    let targets = self.collect_ref_targets(value);
-                    self.rebind_reference_targets(&binding_target, targets.clone())?;
-                    self.promote_temporary_borrows(&targets);
-                }
-                if let Some(state) = self.lookup_binding_mut(&binding_target) {
-                    state.is_moved = false;
+                    self.check_expression(value)?;
+                } else {
+                    let binding_target = assignment_binding_target(target);
+                    self.ensure_can_write(&binding_target)?;
+                    if let AssignmentTarget::Index { target, index } = target {
+                        self.check_expression(target)?;
+                        self.check_expression(index)?;
+                    }
+                    self.check_expression(value)?;
+                    if matches!(target, AssignmentTarget::Variable(name) if name == &binding_target) {
+                        let targets = self.collect_ref_targets(value);
+                        self.rebind_reference_targets(&binding_target, targets.clone())?;
+                        self.promote_temporary_borrows(&targets);
+                    }
+                    if let Some(state) = self.lookup_binding_mut(&binding_target) {
+                        state.is_moved = false;
+                    }
                 }
             }
             Statement::Function {

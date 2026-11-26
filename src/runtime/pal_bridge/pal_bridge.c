@@ -82,12 +82,28 @@ int64_t rt_pal_listener_accept(int64_t listener) {
     return encode_handle(pal_listener_accept(decode_handle(listener)));
 }
 
+int64_t rt_pal_socket_connect(const char *host, uint16_t port, int32_t flags) {
+    return encode_handle(pal_socket_connect(host, port, (pal_socket_flags)flags));
+}
+
+int64_t rt_pal_listener_bind(uint16_t port, int32_t flags) {
+    return encode_handle(pal_listener_bind(port, (pal_socket_flags)flags));
+}
+
 int64_t rt_pal_socket_send(int64_t socket, const char *data, int64_t length) {
     return pal_socket_send(decode_handle(socket), data, length);
 }
 
 int64_t rt_pal_socket_recv(int64_t socket, char *buffer, int64_t capacity) {
     return pal_socket_recv(decode_handle(socket), buffer, capacity);
+}
+
+int64_t rt_pal_listener_send(int64_t listener, const char *data, int64_t length) {
+    return pal_listener_send(decode_handle(listener), data, length);
+}
+
+int64_t rt_pal_listener_recv(int64_t listener, char *buffer, int64_t capacity) {
+    return pal_listener_recv(decode_handle(listener), buffer, capacity);
 }
 
 void rt_pal_socket_close(int64_t socket) {

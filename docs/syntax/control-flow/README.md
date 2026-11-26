@@ -1,8 +1,8 @@
-// Control Flow
+# Control Flow
 
 ## Conditionals
 
-##// if / else
+### if / else
 
 ```mire
 if condition {
@@ -15,7 +15,7 @@ if condition {
 - `else` **must be on same line** as closing brace: `} else {`
 - Braces required (no brace-less single-statement form)
 
-##// if as Expression
+### if as Expression
 
 ```mire
 set max = if a > b { a } else { b }
@@ -27,7 +27,7 @@ set max = if a > b { a } else { b }
 
 ## Loops
 
-##// while
+### while
 
 ```mire
 set i = 0 :i64 mut
@@ -40,7 +40,7 @@ while i < 10 {
 - Condition evaluated before each iteration
 - Body executes while condition is true
 
-##// do / while
+### do / while
 
 ```mire
 set i = 0 :i64 mut
@@ -53,7 +53,7 @@ do {
 - Body executes **at least once**
 - Condition checked after each iteration
 
-##// for (Iteration)
+### for (Iteration)
 
 ```mire
 // Over range
@@ -77,7 +77,7 @@ for item, idx in vec {
 - Iterates over vectors, arrays, ranges
 - Optional index variable: `for item, idx in collection`
 
-##// find
+### find
 
 ```mire
 find item in collection {

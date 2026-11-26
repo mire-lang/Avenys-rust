@@ -2,9 +2,9 @@
 
 > All compiler error and warning codes with descriptions and fixes.
 
-Version: **4.4.15**
+Version: **4.4.45**
 Status: **Stable**
-Date: **2026-11-05**
+Date: **2026-11-26**
 
 ---
 
@@ -283,6 +283,40 @@ These errors relate to integer width mismatches, implicit narrowing, and invalid
 
 ---
 
+### E0403 - Link: Library Hash Mismatch
+
+```
+error[E0403] Library hash mismatch
+  library `kioto` at `/home/user/.owl/libs/kioto`
+  = help: the library does not match the `-H sha256:<hex>` you pinned
+  = help: restore the pinned copy or update the hash deliberately
+```
+
+`-H/--hash` follows a `--link name=path` and pins that library's content. A
+directory digest walks relative paths deterministically and skips `.git`,
+`bin`, `target`, `.cache`, `logs` and `node_modules`.
+
+**Fix**: Restore the pinned library, or update the hash if the change is
+intended.
+
+---
+
+### E0404 - Link: Native Dependency Missing
+
+```
+error[E0404] Native dependency missing
+  no static archive for `sdl`
+  = help: install the native dependency or package its static archive
+  = help: `--bundle dynamic` links the shared object explicitly
+```
+
+`--bundle static-strict` requires `lib<name>.a`. `static` does not raise this
+error: it falls back to the shared object with `W0069`.
+
+**Fix**: Install or build the static archive, or choose `--bundle dynamic`.
+
+---
+
 ## Warning Codes (`W0xxx`)
 
 ### W0001 - Unused Variable
@@ -473,6 +507,33 @@ warning[W0038] Logic
   duplicate literal pattern in match
   Remove the duplicate pattern.
 ```
+
+### W0061 - Legacy `-L` / `--link` Form
+
+```
+warning[W0061 legacy_link_flag]: -L/--link without name=path is deprecated; use --link-dir <path>
+```
+
+A bare directory passed to `-L/--link` is still treated as a native linker
+search path, but the form is deprecated. `--link` now names ecosystem
+libraries as `name=path`.
+
+**Fix**: Replace `-L <dir>` with `--link-dir <dir>`.
+
+### W0069 - Static Bundle Fallback
+
+```
+warning[W0069 static_bundle_fallback]: no static archive for `sdl`; linking dynamically
+  = note: `--bundle static` prefers `libsdl.a`; only `libsdl.so` was found
+  = help: install the static archive, or request dynamic linking explicitly with `--bundle dynamic`
+  = help: use `--bundle static-strict` to fail instead of falling back in CI
+```
+
+`--bundle static` is the default. When only the shared object exists it links
+it rather than failing; `--bundle static-strict` turns this into `E0404`.
+
+**Fix**: Install the static archive, or choose the bundle mode you actually
+want.
 
 ---
 

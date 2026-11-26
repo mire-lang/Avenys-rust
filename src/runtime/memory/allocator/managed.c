@@ -17,11 +17,6 @@
 #define ARENA_MAX_SIZE     (1024 * 1024 * 1024) // 1 GB cap
 #define NUM_SIZE_CLASSES 9
 
-// Size classes: 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 bytes
-static const size_t SIZE_CLASSES[NUM_SIZE_CLASSES] = {
-    16, 32, 64, 128, 256, 512, 1024, 2048, 4096
-};
-
 typedef struct FreeBlock {
     size_t size;      // total block size (including header)
     char *next;       // next free block in same size class
@@ -39,7 +34,6 @@ static int64_t mem_alloc_bytes = 0;
 static int64_t mem_free_bytes = 0;
 static int64_t mem_peak_bytes = 0;
 static int64_t mem_current_bytes = 0;
-static int mem_stats_printed = 0;
 
 static int arena_ensure_initialized(void) {
     if (arena_base) return 1;
@@ -87,27 +81,6 @@ static inline char *free_list_pop_fast(int idx) {
         free_lists[idx] = block->next;
     }
     return header_ptr;
-}
-
-static char *free_list_find(size_t need) {
-    int idx = size_class_index(need);
-    // Fast path: if there's a block in the exact size class, use it without size check
-    char *fast = free_list_pop_fast(idx);
-    if (fast) return fast;
-    // Slow path: search for a block that fits (for oversized allocations)
-    char **prev = (char **)&free_lists[idx];
-    while (*prev) {
-        char *header_ptr = *prev;
-        MireManagedString *hdr = (MireManagedString *)header_ptr;
-        char *data_area = (char *)(hdr + 1);
-        FreeBlock *curr = (FreeBlock *)data_area;
-        if (curr->size >= need) {
-            *prev = curr->next;
-            return header_ptr;
-        }
-        prev = &curr->next;
-    }
-    return NULL;
 }
 
 // ── Managed pointer detection ─────────────────────────────────────────
@@ -236,13 +209,27 @@ char *rt_managed_alloc(size_t len) {
         idx = total <= 2048 ? 7 : 8;
     }
 
-    char *header_ptr = free_lists[idx];
+    // Size classes group a range of capacities, so the head block can be
+    // smaller than this request. Keep undersized blocks in the list and take
+    // the first one whose recorded capacity can hold the new string.
+    char **free_link = &free_lists[idx];
+    char *header_ptr = NULL;
+    while (*free_link) {
+        char *candidate_ptr = *free_link;
+        MireManagedString *candidate = (MireManagedString *)candidate_ptr;
+        FreeBlock *block = (FreeBlock *)(candidate_ptr + sizeof(MireManagedString));
+        if (candidate->cap >= cap) {
+            *free_link = block->next;
+            header_ptr = candidate_ptr;
+            break;
+        }
+        free_link = &block->next;
+    }
     if (header_ptr) {
         MireManagedString *header = (MireManagedString *)header_ptr;
-        FreeBlock *block = (FreeBlock *)(header_ptr + sizeof(MireManagedString));
-        free_lists[idx] = block->next;
+        // Preserve the physical block capacity: lowering it would put a larger
+        // block into a smaller free list when the string is released.
         header->len = len;
-        header->cap = cap;
         // flags is already MIRE_STR_MANAGED from previous use
         header->utf8_cp = 0;
         header->refs = 1;
@@ -366,7 +353,8 @@ void rt_managed_free(char *value) {
     // Track deallocation
     mem_free_count++;
     mem_free_bytes += total;
-    if (mem_current_bytes >= total) mem_current_bytes -= total;
+    if (mem_current_bytes >= 0 && (uint64_t)mem_current_bytes >= total)
+        mem_current_bytes -= (int64_t)total;
 }
 
 void rt_managed_cleanup_all(void) {

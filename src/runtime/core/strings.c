@@ -156,7 +156,7 @@ char *rt_string_append_owned(char *value, const char *suffix) {
 char *rt_i64_to_string(int64_t value) {
     // Fast integer-to-string using two-digit lookup table to avoid division.
     // This is significantly faster than the division loop for small integers.
-    static const char digits[200] =
+    static const char digits[201] =
         "00010203040506070809"
         "10111213141516171819"
         "20212223242526272829"
@@ -286,17 +286,19 @@ char *rt_u128_to_string(u128_t value) {
     return rt_managed_from_slice(buf, n);
 }
 
+// Case mapping is ASCII-only on purpose. A UTF-8 string is a sequence of
+// bytes, and mapping a byte in 0xC0..0xFE as if it were a Latin-1 letter
+// rewrites the lead byte of a multi-byte sequence (0xC3 0x91 for "Ñ" becomes
+// 0xE3 0x91, which is not valid UTF-8). Doing this correctly needs to decode
+// code points; leaving bytes >= 0x80 alone is the honest behaviour at this
+// layer, and it matches the minimal runtime.
 char rt_unicode_to_lower(unsigned char c) {
     if (c >= 'A' && c <= 'Z') return (char)(c + 32);
-    if (c >= 0xC0 && c <= 0xD6) return (char)(c + 32);
-    if (c >= 0xD8 && c <= 0xDE) return (char)(c + 32);
     return (char)c;
 }
 
 char rt_unicode_to_upper(unsigned char c) {
     if (c >= 'a' && c <= 'z') return (char)(c - 32);
-    if (c >= 0xE0 && c <= 0xF6) return (char)(c - 32);
-    if (c >= 0xF8 && c <= 0xFE) return (char)(c - 32);
     return (char)c;
 }
 
@@ -335,18 +337,41 @@ char *rt_strings_replace(const char *input, const char *from, const char *to) {
     if (!input) input = "";
     if (!from || !*from) return rt_managed_from_slice(input, str_byte_len(input));
     if (!to) to = "";
-    const char *pos = strstr(input, from);
-    if (!pos) return rt_managed_from_slice(input, str_byte_len(input));
-    size_t prefix_len = (size_t)(pos - input);
     size_t from_len = strlen(from);
     size_t to_len = strlen(to);
-    size_t suffix_len = str_byte_len(pos + from_len);
-    char *out = rt_managed_alloc(prefix_len + to_len + suffix_len);
+    size_t in_len = str_byte_len(input);
+
+    // Count first so the result is a single allocation of the exact size.
+    size_t count = 0;
+    const char *scan = input;
+    while ((scan = strstr(scan, from)) != NULL) {
+        count++;
+        scan += from_len;
+    }
+    if (count == 0) return rt_managed_from_slice(input, in_len);
+
+    size_t out_len = in_len + count * to_len - count * from_len;
+    char *out = rt_managed_alloc(out_len);
     if (!out) return rt_managed_from_slice("", 0);
-    memcpy(out, input, prefix_len);
-    memcpy(out + prefix_len, to, to_len);
-    memcpy(out + prefix_len + to_len, pos + from_len, suffix_len);
-    out[prefix_len + to_len + suffix_len] = '\0';
+
+    // Walk the input once. `cursor` only advances past matches in the original
+    // string, so an inserted replacement is never rescanned: replacing "a"
+    // with "aa" terminates.
+    const char *cursor = input;
+    char *dst = out;
+    const char *pos = NULL;
+    while ((pos = strstr(cursor, from)) != NULL) {
+        size_t chunk = (size_t)(pos - cursor);
+        memcpy(dst, cursor, chunk);
+        dst += chunk;
+        memcpy(dst, to, to_len);
+        dst += to_len;
+        cursor = pos + from_len;
+    }
+    size_t tail = in_len - (size_t)(cursor - input);
+    memcpy(dst, cursor, tail);
+    dst += tail;
+    *dst = '\0';
     return out;
 }
 
@@ -499,16 +524,11 @@ char *rt_strings_join(char **parts, int64_t count, const char *delimiter) {
 
 int64_t rt_string_to_i64(const char *value) {
     if (!value) return 0;
-    // Fast path for small non-negative integers (common in benchmarks).
-    // atoll handles whitespace, sign, overflow, etc. which we don't need here.
-    int64_t result = 0;
-    unsigned char c = *value;
-    while (c >= '0' && c <= '9') {
-        result = result * 10 + (c - '0');
-        value++;
-        c = *value;
-    }
-    return result;
+    // `strings::to::i64` documents atoll semantics: optional leading
+    // whitespace, an optional sign, then digits until the first non-digit.
+    // strtoll has exactly those semantics and saturates on overflow instead of
+    // wrapping, which is safer than atoll's undefined behaviour.
+    return (int64_t)strtoll(value, NULL, 10);
 }
 
 int64_t rt_f64_to_i64(double value) {

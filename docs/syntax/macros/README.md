@@ -1,4 +1,4 @@
-// Macros
+# Macros
 
 ## Overview
 
@@ -71,19 +71,19 @@ macros = ["assert", "dbg", "panic", "unreachable"]
 
 ## Design Properties
 
-##// Runtime Execution Only
+### Runtime Execution Only
 
 - **No compile-time expansion** - macro runs at runtime
 - **No AST manipulation** - no macro hygiene issues
 - **No host code execution** - pure Mire
 
-##// Hygiene Guaranteed
+### Hygiene Guaranteed
 
 - Macros are regular functions with lexical scope
 - No token capture, no name collision
 - Parameters are explicit
 
-##// Zero Compile-Time Cost
+### Zero Compile-Time Cost
 
 - No macro expansion phase
 - No additional compilation passes

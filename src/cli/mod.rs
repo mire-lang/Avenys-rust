@@ -1,26 +1,83 @@
 pub(crate) mod commands;
 pub(crate) mod files;
+pub(crate) mod hash;
 pub(crate) mod options;
 pub(crate) mod test;
 pub(crate) mod warnings;
 
 pub(crate) use files::*;
+pub(crate) use hash::*;
 pub(crate) use options::*;
 pub(crate) use test::*;
 pub(crate) use warnings::*;
 
 use mire::MireError;
+use mire::error::format::{ColorPolicy, ErrorFormat};
 use std::env;
 use std::process::ExitCode;
 
 pub(crate) fn main() -> ExitCode {
+    let args: Vec<String> = env::args().collect();
+    let (format, color) = output_options(&args);
     match run_cli() {
         Ok(code) => ExitCode::from(code as u8),
         Err(err) => {
-            eprintln!("{}", err.format_color());
+            let rendered = err.format_for_policy(format, color);
+            eprint!("{}", rendered);
+            if !rendered.ends_with('\n') {
+                eprintln!();
+            }
             ExitCode::from(1)
         }
     }
+}
+
+fn output_options(args: &[String]) -> (ErrorFormat, ColorPolicy) {
+    let mut format = ErrorFormat::default();
+    let mut color = ColorPolicy::default();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--" {
+            break;
+        }
+        let inline = args[i].split_once('=').map(|(_, value)| value);
+        if let Some(value) = option_value(args, &mut i, "--error-format", inline) {
+            if let Some(parsed) = ErrorFormat::parse(&value) {
+                format = parsed;
+            }
+        } else if let Some(value) = option_value(args, &mut i, "--message-format", inline) {
+            format = match value.as_str() {
+                "human" => ErrorFormat::Human,
+                "json" => ErrorFormat::Json,
+                _ => format,
+            };
+        } else if let Some(value) = option_value(args, &mut i, "--color", inline) {
+            if let Some(parsed) = ColorPolicy::parse(&value) {
+                color = parsed;
+            }
+        }
+        i += 1;
+    }
+    (format, color)
+}
+
+fn option_value(
+    args: &[String],
+    i: &mut usize,
+    flag: &str,
+    inline: Option<&str>,
+) -> Option<String> {
+    if let Some(value) = inline {
+        return Some(value.to_string());
+    }
+    if args[*i] == flag {
+        let value = args.get(*i + 1).cloned();
+        if value.is_some() {
+            *i += 1;
+        }
+        return value;
+    }
+    None
 }
 
 pub(crate) fn run_cli() -> Result<i32, MireError> {
@@ -66,12 +123,19 @@ pub(crate) fn print_help() {
     println!("  --output-dir <path>   Output directory");
     println!("  --cache-dir <path>    Incremental cache directory");
     println!("  --config <file>       Owl-generated normalized compiler config");
-    println!("  -L, --link <path>     Native linker search directory");
+    println!("  -L, --link <name=path> Ecosystem library (repeatable)");
+    println!("  -H, --hash <sha256:hex> Expected hash for the preceding --link");
+    println!("  --link-dir <dir>      Native linker search directory");
+    println!("  --bundle <mode>       static|static-strict|dynamic (default: static)");
     println!("  -l, --link-lib <name> Native library to link");
     println!("  --target <triple>     LLVM/Clang target triple");
-    println!("  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);");
+    println!(
+        "  --cpu <name>          LLVM CPU for instruction selection (native, x86-64-v3, ...);"
+    );
     println!("  --runtime <tier>      minimal|none");
     println!("  --artifact <type>     bin|static|shared");
+    println!("  --error-format <fmt>  human|short|json|json-rendered-ansi|sarif");
+    println!("  --color <policy>      auto|always|never");
     println!();
     println!("Native C (all repeatable, so a build orchestrator needs no config file):");
     println!("  --c-source <path>     C source file to compile and link");
@@ -103,4 +167,25 @@ pub(crate) fn print_help() {
     println!("    --show-warn         Show warning summary");
     println!("    --position          Show per-file warning locations");
     println!("    --jobs, -j <n>      Parallel compilation jobs (0 = logical CPUs)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_options_parse_format_and_color() {
+        let args = vec![
+            "mire".to_string(),
+            "build".to_string(),
+            "--color".to_string(),
+            "never".to_string(),
+            "--error-format".to_string(),
+            "json".to_string(),
+        ];
+        let (format, color) = output_options(&args);
+        assert_eq!(format, ErrorFormat::Json);
+        assert_eq!(color, ColorPolicy::Never);
+        assert!(!color.enabled());
+    }
 }

@@ -139,13 +139,15 @@ pub(crate) fn pal_extern_decls() -> Vec<String> {
         // use the runtime bridge: rt_channel_recv_into.
         "declare void @pal_channel_close(i64)".to_string(),
         // ── PAL v4 — Networking ────────────────────────────────────────
-        "declare i64 @pal_socket_connect(ptr, i16, i32)".to_string(),
-        "declare i64 @pal_listener_bind(i16, i32)".to_string(),
-        "declare i64 @pal_listener_accept(i64)".to_string(),
-        "declare i64 @pal_socket_send(i64, ptr, i64)".to_string(),
-        "declare i64 @pal_socket_recv(i64, ptr, i64)".to_string(),
-        "declare void @pal_socket_close(i64)".to_string(),
-        "declare void @pal_listener_close(i64)".to_string(),
+        "declare i64 @rt_pal_socket_connect(ptr, i16, i32)".to_string(),
+        "declare i64 @rt_pal_listener_bind(i16, i32)".to_string(),
+        "declare i64 @rt_pal_listener_accept(i64)".to_string(),
+        "declare i64 @rt_pal_socket_send(i64, ptr, i64)".to_string(),
+        "declare i64 @rt_pal_socket_recv(i64, ptr, i64)".to_string(),
+        "declare i64 @rt_pal_listener_send(i64, ptr, i64)".to_string(),
+        "declare i64 @rt_pal_listener_recv(i64, ptr, i64)".to_string(),
+        "declare void @rt_pal_socket_close(i64)".to_string(),
+        "declare void @rt_pal_listener_close(i64)".to_string(),
         // ── PAL v4 — Crypto ────────────────────────────────────────────
         "declare i64 @pal_secret_create(i64)".to_string(),
         "declare i64 @pal_secret_export_public(i64)".to_string(),
